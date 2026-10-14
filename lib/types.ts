@@ -22,6 +22,9 @@ export type PendingSet = {
   createdBy: string;
   createdAt: string;
   isNew: boolean;
+  // The page changed in the same places after this was suggested; it can only be rejected.
+  // Its segments then show the suggestion against the text it was written for.
+  conflict: boolean;
   source: SourceInfo | null;
   segments: Segment[];
 };

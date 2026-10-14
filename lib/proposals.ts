@@ -1,6 +1,6 @@
 import { db } from './db';
 import { readPage, writePage, titleFor } from './wiki';
-import { fromBlocks, hunkCount, normalize, resolveHunk, segments, toBlocks } from './diff';
+import { fromBlocks, hunkCount, normalize, rebase, resolveHunk, segments, toBlocks } from './diff';
 import type { PageSourceRef, PendingSet, SourceInfo } from './types';
 
 const now = () => new Date().toISOString();
@@ -87,10 +87,23 @@ export async function stageContent(changeSetId: number, pagePath: string, newCon
     return;
   }
   d.prepare(
-    `INSERT INTO proposals (change_set_id, page_path, new_content, is_new, status, created_at)
-     VALUES (?, ?, ?, ?, 'pending', ?)
+    `INSERT INTO proposals (change_set_id, page_path, new_content, base_content, is_new, status, created_at)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?)
      ON CONFLICT (change_set_id, page_path) DO UPDATE SET new_content = excluded.new_content, status = 'pending'`,
-  ).run(changeSetId, pagePath, content, live === null ? 1 : 0, now());
+  ).run(changeSetId, pagePath, content, normalize(live ?? ''), live === null ? 1 : 0, now());
+}
+
+// Bring a suggestion up to date with the live page. Saves the rebased text so later
+// fingerprints match what the reviewer saw. Returns null content on a conflict.
+function current(p: { id: number; new_content: string; base_content: string | null }, live: string): string | null {
+  if (p.base_content === null || normalize(p.base_content) === normalize(live)) return p.new_content;
+  const next = rebase(p.base_content, p.new_content, live);
+  if (next !== null) {
+    db().prepare('UPDATE proposals SET new_content = ?, base_content = ? WHERE id = ?').run(next, normalize(live), p.id);
+    p.new_content = next;
+    p.base_content = normalize(live);
+  }
+  return next;
 }
 
 // ---------- reading pending work ----------
@@ -98,7 +111,7 @@ export async function stageContent(changeSetId: number, pagePath: string, newCon
 export async function pendingForPage(pagePath: string): Promise<PendingSet[]> {
   const rows = db()
     .prepare(
-      `SELECT p.id AS proposal_id, p.new_content, p.is_new, cs.id AS change_set_id, cs.summary, cs.created_by,
+      `SELECT p.id AS proposal_id, p.new_content, p.base_content, p.is_new, cs.id AS change_set_id, cs.summary, cs.created_by,
               cs.created_at, cs.source_id
        FROM proposals p JOIN change_sets cs ON cs.id = p.change_set_id
        WHERE p.page_path = ? AND p.status = 'pending' ORDER BY p.id`,
@@ -108,7 +121,9 @@ export async function pendingForPage(pagePath: string): Promise<PendingSet[]> {
   const live = (await readPage(pagePath)) ?? '';
   const out: PendingSet[] = [];
   for (const r of rows) {
-    const segs = segments(live, r.new_content);
+    const content = current({ id: r.proposal_id, new_content: r.new_content, base_content: r.base_content }, live);
+    const conflict = content === null;
+    const segs = conflict ? segments(r.base_content, r.new_content) : segments(live, content);
     if (hunkCount(segs) === 0) {
       db().prepare("UPDATE proposals SET status = 'resolved' WHERE id = ?").run(r.proposal_id);
       continue;
@@ -120,6 +135,7 @@ export async function pendingForPage(pagePath: string): Promise<PendingSet[]> {
       createdBy: r.created_by,
       createdAt: r.created_at,
       isNew: !!r.is_new && live === '',
+      conflict,
       source: getSource(r.source_id),
       segments: segs,
     });
@@ -166,7 +182,16 @@ export function sourceLabel(s: SourceInfo | null): string {
 
 // ---------- deciding ----------
 
-type ProposalRow = { id: number; change_set_id: number; page_path: string; new_content: string; status: string };
+type ProposalRow = {
+  id: number;
+  change_set_id: number;
+  page_path: string;
+  new_content: string;
+  base_content: string | null;
+  status: string;
+};
+
+const STALE = 'The page changed in the same place after this was suggested. Reject it and ask the assistant again.';
 
 function loadProposal(id: number): ProposalRow {
   const r = db().prepare('SELECT * FROM proposals WHERE id = ?').get(id) as ProposalRow | undefined;
@@ -199,14 +224,17 @@ function commitMessage(p: ProposalRow, user: string): string {
 export async function decideHunk(proposalId: number, index: number, fp: string, action: 'approve' | 'reject', user: string) {
   const p = loadProposal(proposalId);
   const live = (await readPage(p.page_path)) ?? '';
-  const seg = segments(live, p.new_content).find((s) => s.type === 'change' && s.index === index);
+  const content = current(p, live);
+  if (content === null) throw new Error(STALE);
+  const seg = segments(live, content).find((s) => s.type === 'change' && s.index === index);
   if (!seg || seg.type !== 'change' || seg.fp !== fp) throw new Error('This page changed since you loaded it. Reload and try again.');
-  const r = resolveHunk(live, p.new_content, index, action);
+  const r = resolveHunk(live, content, index, action);
   if (action === 'approve') {
     await writePage(p.page_path, r.current, user, commitMessage(p, user));
     recordSource(p, user);
   }
-  db().prepare('UPDATE proposals SET new_content = ? WHERE id = ?').run(r.proposed, p.id);
+  const base = action === 'approve' ? r.current : live;
+  db().prepare('UPDATE proposals SET new_content = ?, base_content = ? WHERE id = ?').run(r.proposed, normalize(base), p.id);
   log(p.id, action, 'hunk', user);
   const left = hunkCount(segments(action === 'approve' ? r.current : live, r.proposed));
   if (left === 0) db().prepare("UPDATE proposals SET status = 'resolved' WHERE id = ?").run(p.id);
@@ -215,7 +243,9 @@ export async function decideHunk(proposalId: number, index: number, fp: string, 
 export async function decideAll(proposalId: number, action: 'approve' | 'reject', user: string) {
   const p = loadProposal(proposalId);
   if (action === 'approve') {
-    await writePage(p.page_path, fromBlocks(toBlocks(p.new_content)), user, commitMessage(p, user));
+    const content = current(p, (await readPage(p.page_path)) ?? '');
+    if (content === null) throw new Error(STALE);
+    await writePage(p.page_path, fromBlocks(toBlocks(content)), user, commitMessage(p, user));
     recordSource(p, user);
   }
   db().prepare("UPDATE proposals SET status = 'resolved' WHERE id = ?").run(p.id);

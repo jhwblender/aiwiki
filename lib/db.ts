@@ -40,6 +40,7 @@ export function db(): Database.Database {
       change_set_id INTEGER NOT NULL REFERENCES change_sets(id),
       page_path TEXT NOT NULL,
       new_content TEXT NOT NULL,
+      base_content TEXT,               -- the live page this suggestion was written against
       is_new INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'pending',   -- pending | resolved
       created_at TEXT NOT NULL,
@@ -64,6 +65,8 @@ export function db(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_page_sources_page ON page_sources(page_path);
     CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(path UNINDEXED, title, body);
   `);
+  const cols = d.prepare('PRAGMA table_info(proposals)').all() as { name: string }[];
+  if (!cols.some((c) => c.name === 'base_content')) d.exec('ALTER TABLE proposals ADD COLUMN base_content TEXT');
   g.__wikiDb = d;
   return d;
 }

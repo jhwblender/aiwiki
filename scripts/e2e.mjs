@@ -13,7 +13,7 @@ import { startMock } from './mock-llm.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const APP_PORT = 3100;
-const MOCK_PORT = 4555;
+const MOCK_PORT = 4556; // 4555 is left free for a mock you run by hand
 const BASE = `http://127.0.0.1:${APP_PORT}`;
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aiwiki-e2e-'));
 const wikiDir = path.join(dataDir, 'wiki');
@@ -122,7 +122,38 @@ try {
   check('badge edit is live', pageFile('systems/onboarding').includes('Collect your badge'));
   check('set is resolved', (await getPage('systems/onboarding')).pending.length === 0);
 
-  // 5. New page proposal, approved with Approve all
+  // 5. Approving one suggestion does not let an older one undo it
+  await chat('Add the dashboard link and badge pickup'); // Access paragraph plus a new section
+  await chat('Mention when the rotation changes over'); // Tools paragraph
+  page = await getPage('systems/onboarding');
+  check('two suggestions are pending', page.pending.length === 2);
+  const [dash2, rota] = page.pending;
+  await api('POST', `/api/proposals/${rota.proposalId}/resolve`, { action: 'approve', user: 'Sam' });
+  check('rotation note is live', pageFile('systems/onboarding').includes('changes over on Mondays'));
+  page = await getPage('systems/onboarding');
+  const dashNow = page.pending.find((s) => s.proposalId === dash2.proposalId);
+  check('older suggestion still shows only its own changes',
+    dashNow && !dashNow.conflict && changes(dashNow).length === 2 && !JSON.stringify(changes(dashNow)).includes('Mondays'),
+    JSON.stringify(dashNow?.segments));
+  await api('POST', `/api/proposals/${dash2.proposalId}/resolve`, { action: 'approve', user: 'Sam' });
+  const after = pageFile('systems/onboarding');
+  check('approving the older suggestion keeps the newer approval', after.includes('Mondays') && after.includes('grafana'));
+
+  // 6. A human edit in the same paragraph turns a suggestion into a conflict
+  await chat('Mention when the rotation changes over');
+  page = await getPage('systems/onboarding');
+  const rota2 = page.pending[0];
+  const edited = after.replace(/Ask your manager to add you to both\.[^\n]*/, 'Ask the team lead to add you to both.');
+  await api('PUT', '/api/page', { path: 'systems/onboarding', content: edited, user: 'Jordan' });
+  page = await getPage('systems/onboarding');
+  const rotaNow = page.pending.find((s) => s.proposalId === rota2.proposalId);
+  check('overlapping suggestion is flagged as a conflict', rotaNow?.conflict === true, JSON.stringify(rotaNow));
+  const refused = await api('POST', `/api/proposals/${rota2.proposalId}/resolve`, { action: 'approve', user: 'Sam' });
+  check('a conflicting suggestion cannot be approved', refused.status === 400 && pageFile('systems/onboarding') === edited);
+  const rej = await api('POST', `/api/proposals/${rota2.proposalId}/resolve`, { action: 'reject', user: 'Sam' });
+  check('a conflicting suggestion can be rejected', rej.status === 200 && (await getPage('systems/onboarding')).pending.length === 0);
+
+  // 7. New page proposal, approved with Approve all
   await chat('Write up our backup schedule');
   const bp = await getPage('systems/backup-policy');
   check('new page is pending but not live', !bp.exists && bp.pending.length === 1 && bp.pending[0].isNew);
@@ -133,7 +164,7 @@ try {
   check('resolved proposal cannot be decided twice',
     (await api('POST', `/api/proposals/${bp.pending[0].proposalId}/resolve`, { action: 'approve', user: 'Kim' })).status === 400);
 
-  // 6. Reject all leaves the page alone
+  // 8. Reject all leaves the page alone
   await chat('The VPN is now WireGuard'); // replays the VPN scenario; old_text no longer matches
   const before = pageFile('systems/onboarding');
   await chat('Write up our backup schedule'); // create_page refused because the page exists
@@ -145,13 +176,13 @@ try {
   }
   check('reject all leaves content unchanged', pageFile('systems/onboarding') === before && (await getPage('systems/onboarding')).pending.length === 0);
 
-  // 7. Human edits publish immediately under the editor's name
+  // 9. Human edits publish immediately under the editor's name
   const put = await api('PUT', '/api/page', { path: 'systems/onboarding', content: before + '\nEdited by hand.\n', user: 'Jordan' });
   check('human edit saves', put.status === 200);
   check('human edit is live', pageFile('systems/onboarding').includes('Edited by hand.'));
   check('human edit commit author', git('log', '-1', '--format=%an').trim() === 'Jordan');
 
-  // 8. Search finds approved content
+  // 10. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {

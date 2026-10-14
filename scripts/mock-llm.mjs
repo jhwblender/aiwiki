@@ -51,6 +51,21 @@ const SCENARIOS = [
     reply: 'I proposed two changes to [[systems/onboarding]]: badge pickup and a new Dashboards section.',
   },
   {
+    keyword: 'rotation',
+    steps: [
+      {
+        name: 'replace_in_page',
+        args: {
+          path: 'systems/onboarding',
+          old_text: 'Ask your manager to add you to both.',
+          new_text: 'Ask your manager to add you to both. The rotation changes over on Mondays.',
+          summary: 'On-call rotation changes on Mondays',
+        },
+      },
+    ],
+    reply: 'I proposed a note about the rotation handover on [[systems/onboarding]].',
+  },
+  {
     keyword: 'backup',
     steps: [
       { name: 'search_pages', args: { query: 'backup' } },

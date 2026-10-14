@@ -210,7 +210,7 @@ export default function PageView({
       ) : (
         <>
           {data.pending.length > 0 && set && (
-            <div className="review">
+            <div className={'review' + (set.conflict ? ' conflict' : '')}>
               {data.pending.length > 1 && (
                 <div className="tabs" role="tablist">
                   {data.pending.map((p, i) => (
@@ -224,25 +224,38 @@ export default function PageView({
                 <div>
                   <div className="review-title">{set.summary}</div>
                   <div className="muted small-text">
-                    {set.isNew
+                    {set.conflict
+                      ? 'The page was edited in the same place after this was suggested, so it can no longer be applied. Reject it and ask the assistant again if it is still needed.'
+                      : set.isNew
                       ? 'Suggested new page. It is not published until approved.'
                       : `${changeCount} suggested change${changeCount > 1 ? 's' : ''}. Nothing here is published until approved.`}
                   </div>
                 </div>
                 <div className="actions">
-                  <button className="btn approve" disabled={busy} onClick={() => resolveAll('approve')}>
-                    {changeCount > 1 ? 'Approve all' : 'Approve'}
-                  </button>
+                  {!set.conflict && (
+                    <button className="btn approve" disabled={busy} onClick={() => resolveAll('approve')}>
+                      {changeCount > 1 ? 'Approve all' : 'Approve'}
+                    </button>
+                  )}
                   <button className="btn reject" disabled={busy} onClick={() => resolveAll('reject')}>
-                    {changeCount > 1 ? 'Reject all' : 'Reject'}
+                    {changeCount > 1 && !set.conflict ? 'Reject all' : 'Reject'}
                   </button>
                 </div>
               </div>
+              {set.conflict && (
+                <div className="doc conflict-preview">
+                  {set.segments.map((s) =>
+                    s.type === 'change' ? (
+                      <Hunk key={s.index} seg={s} set={set} busy={busy} showActions={false} decide={() => {}} />
+                    ) : null,
+                  )}
+                </div>
+              )}
             </div>
           )}
 
           <article className="doc">
-            {set ? (
+            {set && !set.conflict ? (
               set.segments.map((s, i) =>
                 s.type === 'same' ? (
                   <Md key={i}>{s.blocks.join('\n\n')}</Md>

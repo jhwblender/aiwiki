@@ -75,3 +75,60 @@ export function resolveHunk(
   }
   return { current: fromBlocks(cur), proposed: fromBlocks(prop) };
 }
+
+// ---------- keeping suggestions current ----------
+// A suggestion is written against the page as it was then (its base). When the page changes
+// underneath it, replay the suggestion's own changes onto the live page so approving it never
+// undoes someone else's edit. Returns null when both touched the same paragraphs.
+
+type Span = { start: number; end: number; added: string[] }; // replaces base[start, end)
+
+function spans(base: string[], next: string[]): Span[] {
+  const out: Span[] = [];
+  let pos = 0;
+  let cur: Span | null = null;
+  for (const p of diffArrays(base, next)) {
+    const n = p.value.length;
+    if (p.added || p.removed) {
+      if (!cur) {
+        cur = { start: pos, end: pos, added: [] };
+        out.push(cur);
+      }
+      if (p.removed) {
+        cur.end += n;
+        pos += n;
+      } else cur.added.push(...(p.value as string[]));
+    } else {
+      cur = null;
+      pos += n;
+    }
+  }
+  return out;
+}
+
+function clash(a: Span, b: Span): boolean {
+  if (a.start === b.start) return true;
+  return a.start < b.end && b.start < a.end;
+}
+
+export function rebase(baseText: string, proposedText: string, liveText: string): string | null {
+  const base = toBlocks(baseText);
+  const ours = spans(base, toBlocks(proposedText));
+  const theirs = spans(base, toBlocks(liveText));
+  const merged: Span[] = [...theirs];
+  for (const o of ours) {
+    const hit = theirs.find((t) => clash(o, t));
+    if (!hit) merged.push(o);
+    else if (hit.start !== o.start || hit.end !== o.end || hit.added.join('\u0000') !== o.added.join('\u0000')) return null;
+    // identical change on both sides: already in the live page
+  }
+  merged.sort((a, b) => a.start - b.start);
+  const out: string[] = [];
+  let pos = 0;
+  for (const s of merged) {
+    out.push(...base.slice(pos, s.start), ...s.added);
+    pos = s.end;
+  }
+  out.push(...base.slice(pos));
+  return fromBlocks(out);
+}
