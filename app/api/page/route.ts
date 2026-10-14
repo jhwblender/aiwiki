@@ -11,12 +11,16 @@ export async function GET(req: NextRequest) {
   try {
     const p = normalizePath(req.nextUrl.searchParams.get('path') || '');
     const content = await readPage(p);
+    const pending = await pendingForPage(p);
+    // A page that only exists as a suggestion takes its title from the suggested text
+    const suggested = content === null ? pending.find((s) => s.isNew) : undefined;
+    const draft = suggested?.segments.flatMap((s) => (s.type === 'change' ? s.added : [])).join('\n\n');
     const data: PageData = {
       path: p,
       exists: content !== null,
-      title: titleFor(content ?? '', p),
+      title: titleFor(content ?? draft ?? '', p),
       content: content ?? '',
-      pending: await pendingForPage(p),
+      pending,
       sources: sourcesForPage(p),
     };
     return NextResponse.json(data);

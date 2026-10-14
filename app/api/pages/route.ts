@@ -19,8 +19,7 @@ export async function GET() {
     const known = new Set(pages.map((p) => p.path));
     for (const [path, v] of pending) {
       if (!known.has(path)) {
-        const last = path.split('/').pop() || path;
-        items.push({ path, title: last.replace(/[-_]/g, ' '), pending: v.count, isNew: true });
+        items.push({ path, title: v.title, pending: v.count, isNew: true });
       }
     }
     items.sort((a, b) => a.path.localeCompare(b.path));

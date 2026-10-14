@@ -127,11 +127,16 @@ export async function pendingForPage(pagePath: string): Promise<PendingSet[]> {
   return out;
 }
 
-export function pendingCounts(): Map<string, { count: number; isNew: boolean }> {
+export function pendingCounts(): Map<string, { count: number; isNew: boolean; title: string }> {
   const rows = db()
-    .prepare("SELECT page_path, COUNT(*) AS n, MAX(is_new) AS is_new FROM proposals WHERE status = 'pending' GROUP BY page_path")
-    .all() as { page_path: string; n: number; is_new: number }[];
-  return new Map(rows.map((r) => [r.page_path, { count: r.n, isNew: !!r.is_new }]));
+    .prepare(
+      `SELECT page_path, COUNT(*) AS n, MAX(is_new) AS is_new, MAX(CASE WHEN is_new = 1 THEN new_content END) AS new_content
+       FROM proposals WHERE status = 'pending' GROUP BY page_path`,
+    )
+    .all() as { page_path: string; n: number; is_new: number; new_content: string | null }[];
+  return new Map(
+    rows.map((r) => [r.page_path, { count: r.n, isNew: !!r.is_new, title: titleFor(r.new_content ?? '', r.page_path) }]),
+  );
 }
 
 export function sourcesForPage(pagePath: string): PageSourceRef[] {

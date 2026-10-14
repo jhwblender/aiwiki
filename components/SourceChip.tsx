@@ -1,4 +1,5 @@
 'use client';
+import { useEffect, useRef } from 'react';
 import type { SourceInfo } from '@/lib/types';
 
 export function sourceSummary(s: SourceInfo | null): string {
@@ -17,10 +18,27 @@ function when(iso: string) {
 }
 
 export default function SourceChip({ source }: { source: SourceInfo | null }) {
+  const ref = useRef<HTMLDetailsElement>(null);
+
+  // Close the popover on an outside click or Escape
+  useEffect(() => {
+    const close = (e: Event) => {
+      const el = ref.current;
+      if (!el?.open) return;
+      if (e instanceof KeyboardEvent ? e.key === 'Escape' : !el.contains(e.target as Node)) el.open = false;
+    };
+    document.addEventListener('pointerdown', close);
+    document.addEventListener('keydown', close);
+    return () => {
+      document.removeEventListener('pointerdown', close);
+      document.removeEventListener('keydown', close);
+    };
+  }, []);
+
   if (!source) return <span className="chip">Unknown source</span>;
   const where = [source.folderLabel, source.relPath].filter(Boolean).join(' / ');
   return (
-    <details className="chip-wrap">
+    <details className="chip-wrap" ref={ref}>
       <summary className="chip">{sourceSummary(source)}</summary>
       <dl className="chip-pop">
         <dt>Contributed by</dt>

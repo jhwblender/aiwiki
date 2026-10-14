@@ -4,6 +4,10 @@ import { useRouter } from 'next/navigation';
 import type { PageData, PendingSet, Segment } from '@/lib/types';
 import Md from './Md';
 import SourceChip from './SourceChip';
+import { markWords, rehypeMarks } from './wordMarks';
+
+const insMarks = [rehypeMarks('word-ins')];
+const delMarks = [rehypeMarks('word-del')];
 
 async function post(url: string, body: unknown) {
   const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -12,41 +16,63 @@ async function post(url: string, body: unknown) {
   return d;
 }
 
+// When an edit swaps paragraphs one for one, mark the changed words in each pair.
+function pairMarks(seg: Extract<Segment, { type: 'change' }>) {
+  const removed = [...seg.removed];
+  const added = [...seg.added];
+  let marked = false;
+  if (removed.length === added.length) {
+    removed.forEach((r, i) => {
+      const m = markWords(r, added[i]);
+      if (m) {
+        removed[i] = m.removed;
+        added[i] = m.added;
+        marked = true;
+      }
+    });
+  }
+  return { removed: removed.join('\n\n'), added: added.join('\n\n'), marked };
+}
+
 function Hunk({
   seg,
   set,
   busy,
+  showActions,
   decide,
 }: {
   seg: Extract<Segment, { type: 'change' }>;
   set: PendingSet;
   busy: boolean;
+  showActions: boolean;
   decide: (action: 'approve' | 'reject') => void;
 }) {
   const kind = seg.removed.length && seg.added.length ? 'Edit' : seg.added.length ? 'Addition' : 'Removal';
+  const text = pairMarks(seg);
   return (
     <section className="hunk">
       <header className="hunk-bar">
-        <span className="hunk-kind">
-          {set.isNew ? 'New page' : kind} by AI
-        </span>
+        <span className="hunk-kind">{set.isNew ? 'New page' : kind} by AI</span>
         <SourceChip source={set.source} />
-        <span className="spacer" />
-        <button className="btn approve small" disabled={busy} onClick={() => decide('approve')}>
-          Approve
-        </button>
-        <button className="btn reject small" disabled={busy} onClick={() => decide('reject')}>
-          Reject
-        </button>
+        {showActions && (
+          <span className="hunk-actions">
+            <button className="btn approve small" disabled={busy} onClick={() => decide('approve')}>
+              Approve
+            </button>
+            <button className="btn reject small" disabled={busy} onClick={() => decide('reject')}>
+              Reject
+            </button>
+          </span>
+        )}
       </header>
       {seg.removed.length > 0 && (
-        <div className="removed">
-          <Md>{seg.removed.join('\n\n')}</Md>
+        <div className="removed" aria-label="Text to be removed">
+          <Md rehypePlugins={text.marked ? delMarks : undefined}>{text.removed}</Md>
         </div>
       )}
       {seg.added.length > 0 && (
-        <div className="added">
-          <Md>{seg.added.join('\n\n')}</Md>
+        <div className="added" aria-label="Text to be added">
+          <Md rehypePlugins={text.marked ? insMarks : undefined}>{text.added}</Md>
         </div>
       )}
     </section>
@@ -140,13 +166,17 @@ export default function PageView({
   if (!data) return <main className="page"><div className="muted">Loading</div></main>;
 
   const set = data.pending[setIdx];
+  const changeCount = set ? set.segments.filter((s) => s.type === 'change').length : 0;
+  const pendingNew = !data.exists && data.pending.length > 0;
+  const resolveAll = (action: 'approve' | 'reject') =>
+    guarded(() => post(`/api/proposals/${set!.proposalId}/resolve`, { action, user }));
 
   return (
     <main className="page">
       <div className="crumbs">{data.path.split('/').join(' / ')}</div>
       <div className="title-row">
         <h1 className="doc-title">{data.title}</h1>
-        {!editing && (
+        {!editing && !pendingNew && (
           <div className="actions">
             <button className="btn" onClick={startEdit}>
               {data.exists ? 'Edit' : 'Create page'}
@@ -172,7 +202,9 @@ export default function PageView({
             <button className="btn quiet" onClick={() => setEditing(false)}>
               Cancel
             </button>
-            <span className="muted small-text">Saved edits publish right away and are recorded under {user}.</span>
+            <span className="muted small-text">
+              Saved edits publish right away under {user}. Use # for headings, - for lists and [[page/path]] to link a page.
+            </span>
           </div>
         </div>
       ) : (
@@ -192,16 +224,17 @@ export default function PageView({
                 <div>
                   <div className="review-title">{set.summary}</div>
                   <div className="muted small-text">
-                    {set.segments.filter((s) => s.type === 'change').length} change
-                    {set.segments.filter((s) => s.type === 'change').length > 1 ? 's' : ''} proposed. Nothing here is published until approved.
+                    {set.isNew
+                      ? 'Suggested new page. It is not published until approved.'
+                      : `${changeCount} suggested change${changeCount > 1 ? 's' : ''}. Nothing here is published until approved.`}
                   </div>
                 </div>
                 <div className="actions">
-                  <button className="btn approve" disabled={busy} onClick={() => guarded(() => post(`/api/proposals/${set.proposalId}/resolve`, { action: 'approve', user }))}>
-                    Approve all
+                  <button className="btn approve" disabled={busy} onClick={() => resolveAll('approve')}>
+                    {changeCount > 1 ? 'Approve all' : 'Approve'}
                   </button>
-                  <button className="btn reject" disabled={busy} onClick={() => guarded(() => post(`/api/proposals/${set.proposalId}/resolve`, { action: 'reject', user }))}>
-                    Reject all
+                  <button className="btn reject" disabled={busy} onClick={() => resolveAll('reject')}>
+                    {changeCount > 1 ? 'Reject all' : 'Reject'}
                   </button>
                 </div>
               </div>
@@ -219,6 +252,7 @@ export default function PageView({
                     seg={s}
                     set={set}
                     busy={busy}
+                    showActions={changeCount > 1}
                     decide={(action) => guarded(() => post(`/api/proposals/${set.proposalId}/hunk`, { hunk: s.index, fp: s.fp, action, user }))}
                   />
                 ),
