@@ -1,0 +1,9 @@
+node_modules
+.next
+.next-e2e
+data
+.env
+.env.local
+next-env.d.ts
+tsconfig.tsbuildinfo
+*:Zone.Identifier
