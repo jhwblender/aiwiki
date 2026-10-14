@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { startMock } from './mock-llm.mjs';
+import { anthropicRequests, startMock } from './mock-llm.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const APP_PORT = 3100;
@@ -35,8 +35,8 @@ async function api(method, url, body) {
 }
 
 const getPage = (p) => api('GET', `/api/page?path=${encodeURIComponent(p)}`).then((r) => r.data);
-const chat = (text, user = 'Alex') =>
-  api('POST', '/api/chat', { messages: [{ role: 'user', content: text }], provider: 'local', user }).then((r) => r.data);
+const chat = (text, user = 'Alex', provider = 'local') =>
+  api('POST', '/api/chat', { messages: [{ role: 'user', content: text }], provider, user }).then((r) => r.data);
 const pageFile = (p) => fs.readFileSync(path.join(wikiDir, p + '.md'), 'utf8');
 const git = (...args) => execFileSync('git', ['-C', wikiDir, ...args], { encoding: 'utf8' });
 const changes = (set) => set.segments.filter((s) => s.type === 'change');
@@ -63,6 +63,9 @@ const server = spawn(path.join(ROOT, 'node_modules/.bin/next'), ['dev', '-p', St
     WIKI_DATA_DIR: dataDir,
     LOCAL_LLM_BASE_URL: `http://127.0.0.1:${MOCK_PORT}/v1`,
     LOCAL_LLM_MODEL: 'mock',
+    ANTHROPIC_API_KEY: 'mock-key',
+    ANTHROPIC_BASE_URL: `http://127.0.0.1:${MOCK_PORT}`,
+    ANTHROPIC_MODEL: 'claude-sonnet-5-5',
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -182,7 +185,17 @@ try {
   check('human edit is live', pageFile('systems/onboarding').includes('Edited by hand.'));
   check('human edit commit author', git('log', '-1', '--format=%an').trim() === 'Jordan');
 
-  // 10. Search finds approved content
+  // 10. The Anthropic adapter sends a well-formed tool loop
+  const ar = await chat('Add the dashboard link and badge pickup', 'Alex', 'anthropic'); // three tool turns, then a reply
+  check('Anthropic chat completes a tool loop', !ar.error && ar.proposed?.length === 1, JSON.stringify(ar));
+  check('Anthropic requests were all accepted', anthropicRequests.length === 4 && anthropicRequests.every((r) => r.status === 200),
+    JSON.stringify(anthropicRequests.map((r) => r.status)));
+  const firstReq = anthropicRequests[0];
+  check('Anthropic request asks for fallbacks', firstReq?.beta?.includes('server-side-fallback-2026-07-01') && firstReq.body.fallbacks === 'default');
+  const pendingRota = (await getPage('systems/onboarding')).pending;
+  for (const s of pendingRota) await api('POST', `/api/proposals/${s.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+
+  // 11. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {

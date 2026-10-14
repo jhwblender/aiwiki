@@ -82,6 +82,9 @@ const SCENARIOS = [
   },
 ];
 
+// Requests the Anthropic route received, for the e2e script to inspect
+export const anthropicRequests = [];
+
 function pick(messages) {
   const lastUser = [...messages].reverse().find((m) => m.role === 'user');
   const text = String(lastUser?.content ?? '').toLowerCase();
@@ -112,17 +115,78 @@ function respond(body) {
   };
 }
 
+// The same scenarios in the Anthropic Messages format. Every reply carries a signed thinking
+// block, and the request is checked the way the real API checks it: earlier assistant turns
+// must come back with their blocks unchanged, and a turn's tool results share one user message.
+function textOf(content) {
+  return typeof content === 'string' ? content : content.filter((b) => b.type === 'text').map((b) => b.text).join('');
+}
+
+function validateAnthropic(body) {
+  const msgs = body.messages ?? [];
+  if (msgs[0]?.role !== 'user') return 'messages: first message must use the "user" role';
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i];
+    if (m.role === 'assistant' && Array.isArray(m.content) && m.content.some((b) => b.type === 'tool_use')) {
+      const thinking = m.content.find((b) => b.type === 'thinking');
+      if (!thinking || !String(thinking.signature).startsWith('sig-')) {
+        return `messages.${i}.content: thinking blocks in the latest assistant turn must be passed back unmodified`;
+      }
+      const ids = m.content.filter((b) => b.type === 'tool_use').map((b) => b.id);
+      const next = msgs[i + 1];
+      const results = Array.isArray(next?.content) ? next.content.filter((b) => b.type === 'tool_result').map((b) => b.tool_use_id) : [];
+      if (ids.some((id) => !results.includes(id))) {
+        return `messages.${i + 1}: tool_use ids were found without tool_result blocks immediately after`;
+      }
+    }
+  }
+  return null;
+}
+
+function respondAnthropic(body) {
+  const error = validateAnthropic(body);
+  if (error) return { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: error } } };
+  const msgs = body.messages;
+  const lastUserText = [...msgs].reverse().find((m) => m.role === 'user' && textOf(m.content))?.content;
+  const lastUserIdx = msgs.findLastIndex((m) => m.role === 'user' && textOf(m.content));
+  const turns = msgs.slice(lastUserIdx + 1).filter((m) => m.role === 'assistant').length;
+  const scenario = SCENARIOS.find((sc) => textOf(lastUserText ?? '').toLowerCase().includes(sc.keyword));
+  const thinking = { type: 'thinking', thinking: '', signature: `sig-${turns}` };
+  let content;
+  let stop = 'end_turn';
+  if (!scenario) content = [thinking, { type: 'text', text: 'The wiki does not cover that yet.' }];
+  else if (turns < scenario.steps.length) {
+    const step = scenario.steps[turns];
+    content = [thinking, { type: 'tool_use', id: `toolu_${turns}`, name: step.name, input: step.args }];
+    stop = 'tool_use';
+  } else content = [thinking, { type: 'text', text: scenario.reply }];
+  return {
+    status: 200,
+    body: {
+      id: `msg_${turns}`, type: 'message', role: 'assistant', model: body.model, content,
+      stop_reason: stop, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 10 },
+    },
+  };
+}
+
 export function startMock(port = 4555) {
   const server = http.createServer((req, res) => {
     let raw = '';
     req.on('data', (c) => (raw += c));
     req.on('end', () => {
+      const send = (status, out) => res.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(out));
+      if (req.method === 'POST' && req.url?.startsWith('/v1/messages')) {
+        const body = JSON.parse(raw || '{}');
+        const out = respondAnthropic(body);
+        anthropicRequests.push({ beta: req.headers['anthropic-beta'], body, status: out.status });
+        send(out.status, out.body);
+        return;
+      }
       if (req.method !== 'POST' || !req.url?.endsWith('/chat/completions')) {
         res.writeHead(404).end();
         return;
       }
-      const out = respond(JSON.parse(raw || '{}'));
-      res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(out));
+      send(200, respond(JSON.parse(raw || '{}')));
     });
   });
   return new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve(server)));

@@ -36,7 +36,7 @@ export async function runAgent(opts: {
 
   for (let i = 0; i < 10; i++) {
     const res = await provider.chat({ system, messages, tools: toolDefs });
-    messages.push({ role: 'assistant', content: res.text, toolCalls: res.toolCalls });
+    messages.push({ role: 'assistant', content: res.text, toolCalls: res.toolCalls, raw: res.raw });
     if (!res.toolCalls.length) {
       reply = res.text;
       break;

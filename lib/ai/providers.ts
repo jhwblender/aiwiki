@@ -6,16 +6,20 @@ export type ToolDef = { name: string; description: string; parameters: Record<st
 export type ToolCall = { id: string; name: string; args: Record<string, any> };
 export type Msg =
   | { role: 'user'; content: string }
-  | { role: 'assistant'; content: string; toolCalls?: ToolCall[] }
+  // raw: the provider's own response blocks, replayed unchanged by the same provider and ignored by others
+  | { role: 'assistant'; content: string; toolCalls?: ToolCall[]; raw?: unknown }
   | { role: 'tool'; toolCallId: string; name: string; content: string };
 
 export interface Provider {
   id: 'anthropic' | 'local';
   label: string;
-  chat(req: { system: string; messages: Msg[]; tools: ToolDef[] }): Promise<{ text: string; toolCalls: ToolCall[] }>;
+  chat(req: { system: string; messages: Msg[]; tools: ToolDef[] }): Promise<{ text: string; toolCalls: ToolCall[]; raw?: unknown }>;
 }
 
 // ---------- Anthropic ----------
+
+// Fallback models used when Claude declines a request for policy reasons (Claude API only).
+const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
 
 function anthropicProvider(): Provider {
   const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
@@ -24,39 +28,60 @@ function anthropicProvider(): Provider {
     id: 'anthropic',
     label: `Anthropic (${model})`,
     async chat({ system, messages, tools }) {
-      const msgs: any[] = [];
+      const msgs: Anthropic.Beta.BetaMessageParam[] = [];
       for (const m of messages) {
         if (m.role === 'user') {
           msgs.push({ role: 'user', content: m.content });
         } else if (m.role === 'assistant') {
-          const blocks: any[] = [];
+          // Replay this provider's own blocks unchanged: thinking blocks must come back
+          // exactly as received or the API rejects the tool loop.
+          if (Array.isArray(m.raw)) {
+            msgs.push({ role: 'assistant', content: m.raw as Anthropic.Beta.BetaContentBlockParam[] });
+            continue;
+          }
+          const blocks: Anthropic.Beta.BetaContentBlockParam[] = [];
           if (m.content) blocks.push({ type: 'text', text: m.content });
           for (const tc of m.toolCalls ?? []) blocks.push({ type: 'tool_use', id: tc.id, name: tc.name, input: tc.args });
           if (blocks.length) msgs.push({ role: 'assistant', content: blocks });
         } else {
-          const block = { type: 'tool_result', tool_use_id: m.toolCallId, content: m.content };
+          const block: Anthropic.Beta.BetaToolResultBlockParam = { type: 'tool_result', tool_use_id: m.toolCallId, content: m.content };
           const last = msgs[msgs.length - 1];
-          if (last && last.role === 'user' && Array.isArray(last.content) && last.content.every((b: any) => b.type === 'tool_result')) {
+          if (last && last.role === 'user' && Array.isArray(last.content) && last.content.every((b) => b.type === 'tool_result')) {
             last.content.push(block);
           } else {
             msgs.push({ role: 'user', content: [block] });
           }
         }
       }
-      const res = await client.messages.create({
-        model,
-        max_tokens: 4096,
-        system,
-        messages: msgs,
-        tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters as any })),
-      });
+      let res: Anthropic.Beta.BetaMessage;
+      try {
+        res = await client.beta.messages.create({
+          model,
+          max_tokens: 16000,
+          system,
+          messages: msgs,
+          tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters as Anthropic.Beta.BetaTool.InputSchema })),
+          output_config: { effort: 'medium' },
+          betas: [FALLBACK_BETA],
+          fallbacks: 'default',
+        });
+      } catch (e) {
+        if (e instanceof Anthropic.AuthenticationError) throw new Error('The Anthropic API key was rejected. Check ANTHROPIC_API_KEY in .env.local.');
+        if (e instanceof Anthropic.NotFoundError) throw new Error(`Anthropic does not recognise the model "${model}". Check ANTHROPIC_MODEL.`);
+        if (e instanceof Anthropic.RateLimitError) throw new Error('The Anthropic API is rate limiting requests. Try again in a minute.');
+        throw e;
+      }
+      if (res.stop_reason === 'refusal') {
+        return { text: 'I cannot help with that request.', toolCalls: [] };
+      }
       let text = '';
       const toolCalls: ToolCall[] = [];
-      for (const b of res.content as any[]) {
+      for (const b of res.content) {
         if (b.type === 'text') text += b.text;
-        if (b.type === 'tool_use') toolCalls.push({ id: b.id, name: b.name, args: b.input ?? {} });
+        if (b.type === 'tool_use') toolCalls.push({ id: b.id, name: b.name, args: (b.input as Record<string, any>) ?? {} });
       }
-      return { text, toolCalls };
+      if (res.stop_reason === 'max_tokens' && !toolCalls.length) text += '\n\n(The reply was cut off because it was too long.)';
+      return { text, toolCalls, raw: res.content };
     },
   };
 }
