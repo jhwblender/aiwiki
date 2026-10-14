@@ -47,15 +47,16 @@ Audience: starts with the systems team, eventually the whole company. Most revie
 ## Known gaps (do these first)
 
 1. **The Anthropic adapter has not run against the real API.** Its message format is checked against the mock, but run a full propose and approve cycle with a real key (also confirms the `server-side-fallback-2026-07-01` fallback option is accepted for the account).
-2. Names typed in the sidebar are not authenticated; treat them as labels only.
-3. Node 18 works but `better-sqlite3` 12 declares Node 20+; use Node 20 or newer.
+2. **The local adapter has not run against a real local model.** Only the mock has been used. Run a full cycle with Ollama or LM Studio and a tool-calling model (for example qwen2.5 14b). Ollama's default context window is small and silently truncates long prompts, so raise it (`OLLAMA_CONTEXT_LENGTH`, or `num_ctx` in a Modelfile, to 16k or more). Smaller models may send tool arguments under slightly wrong names or as broken JSON; make `runTool` tolerant and return clear errors the model can correct from.
+3. Names typed in the sidebar are not authenticated; treat them as labels only.
+4. Node 18 works but `better-sqlite3` 12 declares Node 20+; use Node 20 or newer.
 
 ## Roadmap, in order
 
 1. **File and photo drop** into the chat panel and onto pages. Store originals under `data/assets/`, extract text (PDF, docx; vision fallback for scans), describe photos with vision, create a `file` source, and let the agent propose edits as one change set. Link the original from the source chip
 2. **Ingest queue** shared by all file sources: dedupe by content hash; diff a changed file against its previous version so content is not duplicated
 3. **Local folder watcher** on the server, feeding the same queue
-4. **Companion desktop app**: watches folders on a user's machine (SharePoint libraries via the OneDrive sync client, with Files On-Demand off for that folder), uploads to the queue with the user's identity, and relays calls to a local model so a remote wiki can use AI on the user's own computer
+4. **Companion desktop app** (only needed when the wiki server cannot reach the model; a model on the server itself or on a machine it can reach on the network already works through `LOCAL_LLM_BASE_URL`): watches folders on a user's machine (SharePoint libraries via the OneDrive sync client, with Files On-Demand off for that folder), uploads to the queue with the user's identity, and relays calls to a local model so a remote wiki can use AI on the user's own computer
 5. **Per-folder visibility**: "feeds wiki" or "personal only". Personal-only content is searchable by that user's chat but never proposed as a wiki edit
 6. **Conflict handling**: when sources disagree, the proposal cites both and flags the conflict instead of silently picking one
 7. **Bulk review** for large drops: a per-source summary and one approval for a whole change set across pages
