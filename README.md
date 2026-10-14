@@ -10,7 +10,7 @@ cp .env.example .env.local     # add ANTHROPIC_API_KEY and/or LOCAL_LLM_BASE_URL
 npm run dev                    # http://localhost:3000
 ```
 
-Needs Node 20 or newer and git on the PATH. Data lives in `./data` (set `WIKI_DATA_DIR` to move it):
+Needs Node 20 or newer and git on the PATH. `npm run e2e` checks the whole propose and approve flow against a scripted mock model; `npm run mock-llm` runs that mock on port 4555 if you want to try the UI without a real model. Data lives in `./data` (set `WIKI_DATA_DIR` to move it):
 
 - `data/wiki/` is a git repo of plain markdown files. Every approved or human edit is a commit under the person's name.
 - `data/wiki.db` is SQLite: full-text search, proposals, approval log, and source records.

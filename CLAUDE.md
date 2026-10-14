@@ -7,7 +7,9 @@ Audience: starts with the systems team, eventually the whole company. Most revie
 ## Commands
 
 - `npm run dev` starts the app on http://localhost:3000
-- `npm run build` type checks and builds; run it before calling any change done
+- `npm run build` type checks and builds; run it before calling any change done (while `npm run dev` is running, use `NEXT_DIST_DIR=.next-e2e npx next build` so the two do not share `.next`)
+- `npm run e2e` runs the end-to-end check (needs nothing running; uses ports 3100 and 4556)
+- `npm run mock-llm` starts the scripted mock model on port 4555; set `LOCAL_LLM_BASE_URL=http://127.0.0.1:4555/v1` to click through the UI without a real model
 - Config lives in `.env.local` (see `.env.example`); data lives in `./data` (`WIKI_DATA_DIR`)
 - Delete `./data` to reset to the seed wiki
 
@@ -15,10 +17,10 @@ Audience: starts with the systems team, eventually the whole company. Most revie
 
 - **Next.js 15 (App Router, TypeScript)**: one app serving the UI and the REST API
 - **`lib/wiki.ts`**: pages are markdown files in `data/wiki/`, which is a git repo. All git calls go through `serial()` so concurrent writes never collide. Search is SQLite FTS5, rebuilt from the files on startup
-- **`lib/diff.ts`**: paragraph-level diff (blocks split on blank lines). A hunk is one run of removed and added blocks and is the unit a reviewer approves. Each hunk has a fingerprint so stale approvals are rejected
+- **`lib/diff.ts`**: paragraph-level diff (blocks split on blank lines). A hunk is one run of removed and added blocks and is the unit a reviewer approves. Each hunk has a fingerprint so stale approvals are rejected. `rebase` replays a suggestion onto a page that changed since it was written; overlapping paragraphs make it a conflict that can only be rejected
 - **`lib/proposals.ts`**: sources, change sets, proposals, decisions and page_sources (schema in `lib/db.ts`)
 - **`lib/ai/`**: `providers.ts` (Anthropic SDK plus one OpenAI-compatible adapter for Ollama, LM Studio and vLLM), `tools.ts` (wiki tools), `agent.ts` (tool loop, max 10 steps)
-- **`components/`**: `Shell`, `Sidebar`, `PageView` (inline review), `ChatPanel`, `SourceChip`, `Md` (markdown plus `[[wiki links]]`)
+- **`components/`**: `Shell` (mounted once from `app/wiki/layout.tsx` so chat survives navigation), `Sidebar`, `PageView` (inline review), `wordMarks` (changed-word highlights), `ChatPanel`, `SourceChip`, `Md` (markdown plus `[[wiki links]]`)
 
 ## Rules that must not break
 
@@ -40,13 +42,13 @@ Audience: starts with the systems team, eventually the whole company. Most revie
 
 ## Testing
 
-There is no test suite yet. The flow was verified with a scripted OpenAI-compatible mock server: point `LOCAL_LLM_BASE_URL` at a small Node HTTP server that returns canned `tool_calls`, then drive `/api/chat`, `/api/page` and `/api/proposals/:id/hunk|resolve` with curl. Recreate that as a proper script (for example `scripts/e2e.mjs`) early, and run it after any change to proposals or the agent.
+`npm run e2e` (`scripts/e2e.mjs`) starts `scripts/mock-llm.mjs` and a dev server on a throwaway data directory, then drives `/api/chat`, `/api/page` and `/api/proposals/:id/hunk|resolve`. The mock answers both the OpenAI-compatible and the Anthropic Messages formats from keyword-picked scenarios, and rejects Anthropic tool loops that drop thinking blocks or split tool results. Run it after any change to proposals, the diff, or the agent; add a scenario to the mock when you add a flow.
 
 ## Known gaps (do these first)
 
-1. **The UI has never been viewed in a browser.** Run the app, look at every screen at desktop and phone width, and fix layout and styling problems.
-2. **The Anthropic adapter has not run against the real API.** Run a full propose and approve cycle with a real key and fix any message-format issues.
-3. Names typed in the sidebar are not authenticated; treat them as labels only.
+1. **The Anthropic adapter has not run against the real API.** Its message format is checked against the mock, but run a full propose and approve cycle with a real key (also confirms the `server-side-fallback-2026-07-01` fallback option is accepted for the account).
+2. Names typed in the sidebar are not authenticated; treat them as labels only.
+3. Node 18 works but `better-sqlite3` 12 declares Node 20+; use Node 20 or newer.
 
 ## Roadmap, in order
 
