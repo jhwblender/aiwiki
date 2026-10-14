@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "next build",
-    "start": "next start -p 3000"
+    "start": "next start -p 3000",
+    "e2e": "node scripts/e2e.mjs",
+    "mock-llm": "node scripts/mock-llm.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.60.0",
