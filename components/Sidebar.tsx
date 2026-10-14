@@ -36,7 +36,7 @@ function Branch({ node, current, depth }: { node: Node; current: string; depth: 
             <Link href={`/wiki/${k.page.path}`} className={'tree-item' + (k.path === current ? ' active' : '')}>
               <span className="tree-name">{k.page.title}</span>
               {k.page.pending > 0 && (
-                <span className="badge" title={`${k.page.pending} pending change${k.page.pending > 1 ? 's' : ''}`}>
+                <span className="badge" title={`${k.page.pending} suggestion${k.page.pending > 1 ? 's' : ''} waiting for review`}>
                   {k.page.isNew ? 'new' : k.page.pending}
                 </span>
               )}
@@ -53,28 +53,22 @@ function Branch({ node, current, depth }: { node: Node; current: string; depth: 
 
 export default function Sidebar({
   current,
-  version,
+  items,
+  pendingTotal,
   user,
   setUser,
   onNavigate,
 }: {
   current: string;
-  version: number;
+  items: PageListItem[];
+  pendingTotal: number;
   user: string;
   setUser: (u: string) => void;
   onNavigate: () => void;
 }) {
   const router = useRouter();
-  const [items, setItems] = useState<PageListItem[]>([]);
   const [q, setQ] = useState('');
   const [hits, setHits] = useState<{ path: string; title: string; snippet: string }[] | null>(null);
-
-  useEffect(() => {
-    fetch('/api/pages')
-      .then((r) => r.json())
-      .then((d) => Array.isArray(d) && setItems(d))
-      .catch(() => {});
-  }, [version, current]);
 
   useEffect(() => {
     if (!q.trim()) {
@@ -91,7 +85,6 @@ export default function Sidebar({
   }, [q]);
 
   const tree = useMemo(() => buildTree(items), [items]);
-  const pendingTotal = items.reduce((n, i) => n + i.pending, 0);
 
   function newPage() {
     const name = window.prompt('Page title or path (for example systems/backup-policy)');
@@ -122,7 +115,7 @@ export default function Sidebar({
       />
       {pendingTotal > 0 && !hits && (
         <div className="review-note">
-          {pendingTotal} change{pendingTotal > 1 ? 's' : ''} waiting for review
+          {pendingTotal} suggestion{pendingTotal > 1 ? 's' : ''} waiting for review
         </div>
       )}
       <nav className="nav" onClick={onNavigate}>

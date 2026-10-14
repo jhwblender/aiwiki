@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { ChatMsg, ChatResponse } from '@/lib/types';
 import Md from './Md';
+import { usePages } from './WikiContext';
 
 type UiMsg = ChatMsg & { trace?: string[]; proposed?: { path: string; isNew: boolean }[]; error?: boolean };
 
@@ -10,19 +11,21 @@ export default function ChatPanel({
   user,
   currentPath,
   onChanged,
-  onClose,
 }: {
   user: string;
   currentPath: string;
   onChanged: () => void;
-  onClose: () => void;
 }) {
   const [msgs, setMsgs] = useState<UiMsg[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
-  const [providers, setProviders] = useState<{ id: string; label: string }[]>([]);
+  // null until /api/config answers, so the "no model" notice does not flash on load
+  const [providerList, setProviders] = useState<{ id: string; label: string }[] | null>(null);
+  const providers = providerList ?? [];
   const [provider, setProvider] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
+  const pages = usePages();
 
   useEffect(() => {
     try {
@@ -30,18 +33,20 @@ export default function ChatPanel({
       if (saved) setMsgs(JSON.parse(saved));
       setProvider(localStorage.getItem('wiki-provider') || '');
     } catch {}
+    setLoaded(true);
     fetch('/api/config')
       .then((r) => r.json())
       .then((d) => setProviders(d.providers || []))
-      .catch(() => {});
+      .catch(() => setProviders([]));
   }, []);
 
   useEffect(() => {
+    if (!loaded) return;
     try {
       localStorage.setItem('wiki-chat', JSON.stringify(msgs.slice(-40)));
     } catch {}
-    endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [msgs, busy]);
+    endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [msgs, busy, loaded]);
 
   async function send() {
     const text = input.trim();
@@ -96,16 +101,13 @@ export default function ChatPanel({
           </select>
         )}
         <span className="spacer" />
-        <button className="btn quiet small" onClick={() => setMsgs([])}>
+        <button className="btn quiet small" disabled={busy || msgs.length === 0} onClick={() => setMsgs([])}>
           Clear
-        </button>
-        <button className="btn quiet small close-chat" onClick={onClose}>
-          Close
         </button>
       </header>
 
       <div className="chat-log">
-        {providers.length === 0 && (
+        {providerList && providers.length === 0 && (
           <div className="notice">
             No model is configured. Add ANTHROPIC_API_KEY or LOCAL_LLM_BASE_URL to .env.local and restart.
           </div>
@@ -133,8 +135,8 @@ export default function ChatPanel({
                 <span>Waiting for review:</span>
                 {m.proposed.map((p) => (
                   <Link key={p.path} href={`/wiki/${p.path}`} className="pill">
-                    {p.path}
-                    {p.isNew ? ' (new)' : ''}
+                    {pages.get(p.path)?.title ?? p.path}
+                    {p.isNew ? ' (new page)' : ''}
                   </Link>
                 ))}
               </div>

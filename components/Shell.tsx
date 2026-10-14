@@ -1,21 +1,49 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { usePathname } from 'next/navigation';
+import type { PageListItem } from '@/lib/types';
 import Sidebar from './Sidebar';
 import PageView from './PageView';
 import ChatPanel from './ChatPanel';
+import { PagesContext } from './WikiContext';
 
-export default function Shell({ path }: { path: string }) {
+const NARROW = '(max-width: 900px)';
+
+function pathFrom(pathname: string): string {
+  const rest = pathname.replace(/^\/wiki\/?/, '');
+  return rest.split('/').map((s) => decodeURIComponent(s)).filter(Boolean).join('/') || 'index';
+}
+
+export default function Shell() {
+  const path = pathFrom(usePathname() || '');
   const [user, setUserState] = useState('');
   const [version, setVersion] = useState(0);
   const [chatOpen, setChatOpen] = useState(false);
   const [sideOpen, setSideOpen] = useState(false);
+  const [items, setItems] = useState<PageListItem[]>([]);
 
   useEffect(() => {
     try {
       setUserState(localStorage.getItem('wiki-user') || '');
-      setChatOpen(window.matchMedia('(min-width: 901px)').matches && localStorage.getItem('wiki-chat-open') !== '0');
+      setChatOpen(!window.matchMedia(NARROW).matches && localStorage.getItem('wiki-chat-open') !== '0');
     } catch {}
   }, []);
+
+  useEffect(() => {
+    fetch('/api/pages', { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((d) => Array.isArray(d) && setItems(d))
+      .catch(() => {});
+  }, [version, path]);
+
+  // On a phone the page, the page list and the assistant each take the whole screen; navigating shows the page.
+  useEffect(() => {
+    setSideOpen(false);
+    if (window.matchMedia(NARROW).matches) setChatOpen(false);
+  }, [path]);
+
+  const pages = useMemo(() => new Map(items.map((i) => [i.path, i])), [items]);
+  const pendingTotal = items.reduce((n, i) => n + i.pending, 0);
 
   const setUser = (u: string) => {
     setUserState(u);
@@ -27,28 +55,44 @@ export default function Shell({ path }: { path: string }) {
   const effectiveUser = user.trim() || 'anonymous';
 
   function toggleChat() {
-    setChatOpen((o) => {
-      try {
-        localStorage.setItem('wiki-chat-open', o ? '0' : '1');
-      } catch {}
-      return !o;
-    });
+    const open = !chatOpen;
+    setChatOpen(open);
+    if (open) setSideOpen(false);
+    try {
+      if (!window.matchMedia(NARROW).matches) localStorage.setItem('wiki-chat-open', open ? '1' : '0');
+    } catch {}
+  }
+
+  function toggleSide() {
+    const open = !sideOpen;
+    setSideOpen(open);
+    if (open && window.matchMedia(NARROW).matches) setChatOpen(false);
   }
 
   return (
-    <div className={`shell${chatOpen ? ' chat-on' : ''}${sideOpen ? ' side-on' : ''}`}>
-      <div className="topbar">
-        <button className="btn small" onClick={() => setSideOpen((s) => !s)}>
-          Pages
-        </button>
-        <span className="spacer" />
-        <button className="btn small" onClick={toggleChat}>
-          {chatOpen ? 'Hide assistant' : 'Assistant'}
-        </button>
+    <PagesContext.Provider value={pages}>
+      <div className={`shell${chatOpen ? ' chat-on' : ''}${sideOpen ? ' side-on' : ''}`}>
+        <div className="topbar">
+          <button className="btn small pages-toggle" aria-expanded={sideOpen} onClick={toggleSide}>
+            Pages
+            {pendingTotal > 0 && <span className="badge" aria-label={`${pendingTotal} waiting for review`}>{pendingTotal}</span>}
+          </button>
+          <span className="spacer" />
+          <button className="btn small" aria-expanded={chatOpen} onClick={toggleChat}>
+            {chatOpen ? 'Hide assistant' : 'Assistant'}
+          </button>
+        </div>
+        <Sidebar
+          current={path}
+          items={items}
+          pendingTotal={pendingTotal}
+          user={user}
+          setUser={setUser}
+          onNavigate={() => setSideOpen(false)}
+        />
+        <PageView path={path} user={effectiveUser} version={version} onChanged={bump} />
+        {chatOpen && <ChatPanel user={effectiveUser} currentPath={path} onChanged={bump} />}
       </div>
-      <Sidebar current={path} version={version} user={user} setUser={setUser} onNavigate={() => setSideOpen(false)} />
-      <PageView path={path} user={effectiveUser} version={version} onChanged={bump} />
-      {chatOpen && <ChatPanel user={effectiveUser} currentPath={path} onChanged={bump} onClose={toggleChat} />}
-    </div>
+    </PagesContext.Provider>
   );
 }

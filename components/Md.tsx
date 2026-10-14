@@ -2,6 +2,8 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import Link from 'next/link';
+import type { PluggableList } from 'unified';
+import { usePages } from './WikiContext';
 
 export function slugify(s: string): string {
   return s
@@ -12,21 +14,35 @@ export function slugify(s: string): string {
     .join('/');
 }
 
+// [[path]] shows the page title; [[path|label]] shows the label.
+const UNLABELED = 'wiki:auto';
+
 function wikiLinks(md: string): string {
   return md.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_m, target: string, label?: string) => {
-    return `[${(label || target).trim()}](/wiki/${slugify(target)})`;
+    const href = `/wiki/${slugify(target)}`;
+    return label ? `[${label.trim()}](${href})` : `[${target.trim()}](${href} "${UNLABELED}")`;
   });
 }
 
-export default function Md({ children }: { children: string }) {
+export default function Md({ children, rehypePlugins }: { children: string; rehypePlugins?: PluggableList }) {
+  const pages = usePages();
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
+      rehypePlugins={rehypePlugins}
       components={{
-        a({ href, children }) {
-          if (href && href.startsWith('/wiki/')) return <Link href={href}>{children}</Link>;
+        a({ href, title, children }) {
+          if (href && href.startsWith('/wiki/')) {
+            const page = pages.get(href.slice('/wiki/'.length));
+            const missing = pages.size > 0 && !page;
+            return (
+              <Link href={href} className={missing ? 'missing-link' : undefined} title={missing ? 'This page does not exist yet' : undefined}>
+                {title === UNLABELED && page ? page.title : children}
+              </Link>
+            );
+          }
           return (
-            <a href={href} target="_blank" rel="noreferrer">
+            <a href={href} title={title} target="_blank" rel="noreferrer">
               {children}
             </a>
           );
