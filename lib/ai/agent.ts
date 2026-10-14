@@ -1,0 +1,69 @@
+import { getProvider, Msg } from './providers';
+import { runTool, toolDefs, ToolContext } from './tools';
+import type { ChatMsg, ChatResponse } from '../types';
+
+const SYSTEM = `You are the assistant built into a company wiki. You help people find information and keep the wiki accurate.
+
+How you work:
+- To answer a question, search the wiki first, read the relevant pages, then answer from what you read. Name the pages you used by their path. If the wiki does not cover it, say so plainly rather than guessing.
+- When someone tells you new information or asks you to change the wiki, find the right page with search_pages, read it, then propose the smallest edit that fits (replace_in_page or append_to_page). Only use create_page when no existing page is a sensible home.
+- Everything you write is a proposal. Nothing goes live until a person approves it. Never say a change is published; say it is proposed and waiting for review.
+- Keep untouched text exactly as it is. Match the page's existing style and keep edits short and factual.
+- If new information conflicts with what a page already says, do not silently overwrite. Propose the change and state the conflict in the summary and in your reply.
+- Wiki links use [[page/path]] syntax.
+- Be concise.`;
+
+export async function runAgent(opts: {
+  history: ChatMsg[];
+  providerId?: string;
+  user: string;
+  currentPath?: string;
+}): Promise<ChatResponse> {
+  const provider = getProvider(opts.providerId);
+  const last = [...opts.history].reverse().find((m) => m.role === 'user');
+  const ctx: ToolContext = {
+    user: opts.user,
+    providerId: provider.id,
+    note: last?.content ?? '',
+    changeSetId: null,
+    proposed: new Map(),
+  };
+
+  const system = opts.currentPath ? `${SYSTEM}\n\nThe person is currently viewing the page "${opts.currentPath}".` : SYSTEM;
+  const messages: Msg[] = opts.history.map((m) => ({ role: m.role, content: m.content }) as Msg);
+  const trace: string[] = [];
+  let reply = '';
+
+  for (let i = 0; i < 10; i++) {
+    const res = await provider.chat({ system, messages, tools: toolDefs });
+    messages.push({ role: 'assistant', content: res.text, toolCalls: res.toolCalls });
+    if (!res.toolCalls.length) {
+      reply = res.text;
+      break;
+    }
+    for (const tc of res.toolCalls) {
+      const result = await runTool(tc.name, tc.args, ctx);
+      trace.push(describe(tc.name, tc.args));
+      messages.push({ role: 'tool', toolCallId: tc.id, name: tc.name, content: result });
+    }
+    if (i === 9) reply = res.text || 'I ran out of steps before finishing. Try a narrower request.';
+  }
+
+  return {
+    reply,
+    trace,
+    proposed: [...ctx.proposed.entries()].map(([path, isNew]) => ({ path, isNew })),
+  };
+}
+
+function describe(name: string, a: Record<string, any>): string {
+  switch (name) {
+    case 'search_pages': return `Searched for "${a.query}"`;
+    case 'list_pages': return 'Listed pages';
+    case 'read_page': return `Read ${a.path}`;
+    case 'replace_in_page': return `Proposed edit to ${a.path}`;
+    case 'append_to_page': return `Proposed addition to ${a.path}`;
+    case 'create_page': return `Proposed new page ${a.path}`;
+    default: return name;
+  }
+}
