@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import type { PageData, PendingSet, Segment } from '@/lib/types';
 import Md from './Md';
 import SourceChip from './SourceChip';
@@ -176,10 +177,10 @@ export default function PageView({
       <div className="crumbs">{data.path.split('/').join(' / ')}</div>
       <div className="title-row">
         <h1 className="doc-title">{data.title}</h1>
-        {!editing && !pendingNew && (
+        {!editing && data.exists && (
           <div className="actions">
             <button className="btn" onClick={startEdit}>
-              {data.exists ? 'Edit' : 'Create page'}
+              Edit
             </button>
             {data.exists && (
               <button className="btn quiet" onClick={remove}>
@@ -274,13 +275,32 @@ export default function PageView({
               <Md>{data.content}</Md>
             ) : (
               <div className="empty">
-                <p>This page does not exist yet.</p>
+                <p>{data.children.length ? 'This section has no page of its own yet.' : 'This page does not exist yet.'}</p>
                 <button className="btn primary" onClick={startEdit}>
                   Create page
                 </button>
               </div>
             )}
           </article>
+
+          {data.children.length > 0 && (
+            <nav className="subpages" aria-label="Sub-pages">
+              <h2>Sub-pages</h2>
+              <ul>
+                {data.children.map((c) => (
+                  <li key={c.path}>
+                    <Link href={`/wiki/${c.path}`}>{c.title}</Link>
+                    {c.below > 0 && (
+                      <span className="muted small-text">
+                        {' '}
+                        and {c.below} page{c.below > 1 ? 's' : ''} under it
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          )}
 
           {data.sources.length > 0 && (
             <footer className="sources">

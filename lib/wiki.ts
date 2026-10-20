@@ -124,6 +124,25 @@ export async function listPages(): Promise<{ path: string; title: string }[]> {
   return out;
 }
 
+// Pages one level below a path. A child that only has pages further down (no page of its own)
+// is still listed, with how many pages sit under it.
+export async function subPages(p: string): Promise<{ path: string; title: string; exists: boolean; below: number }[]> {
+  const pages = await listPages();
+  const byPath = new Map(pages.map((x) => [x.path, x]));
+  const kids = new Map<string, number>();
+  for (const x of pages) {
+    if (!x.path.startsWith(p + '/')) continue;
+    const child = p + '/' + x.path.slice(p.length + 1).split('/')[0];
+    kids.set(child, (kids.get(child) ?? 0) + (x.path === child ? 0 : 1));
+  }
+  return [...kids.entries()]
+    .map(([path, below]) => {
+      const page = byPath.get(path);
+      return { path, title: page?.title ?? titleFor('', path), exists: !!page, below };
+    })
+    .sort((a, b) => a.title.localeCompare(b.title));
+}
+
 export async function readPage(p: string): Promise<string | null> {
   await ensureInit();
   try {

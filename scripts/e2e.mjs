@@ -258,7 +258,11 @@ try {
   check('no duplicate correction section', (remoteText.match(/Every Monday is remote\./g) ?? []).length === 1 && !/correction/i.test(remoteText), remoteText);
   for (const sg of remote) await api('POST', `/api/proposals/${sg.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
-  // 15. Search finds approved content
+  // 15. Sections list their sub-pages
+  const section = await getPage('systems');
+  check('a section without its own page lists its sub-pages', !section.exists && section.children.some((c) => c.path === 'systems/onboarding' && c.exists));
+
+  // 16. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {

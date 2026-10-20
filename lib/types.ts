@@ -44,6 +44,7 @@ export type PageData = {
   content: string;
   pending: PendingSet[];
   sources: PageSourceRef[];
+  children: { path: string; title: string; exists: boolean; below: number }[];
 };
 
 export type PageListItem = { path: string; title: string; pending: number; isNew: boolean };

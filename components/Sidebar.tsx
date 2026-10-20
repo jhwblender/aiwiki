@@ -42,7 +42,9 @@ function Branch({ node, current, depth }: { node: Node; current: string; depth: 
               )}
             </Link>
           ) : (
-            <div className="tree-folder">{k.name.replace(/[-_]/g, ' ')}</div>
+            <Link href={`/wiki/${k.path}`} className={'tree-folder' + (k.path === current ? ' active' : '')}>
+              {k.name.replace(/[-_]/g, ' ')}
+            </Link>
           )}
           {k.children.size > 0 && <Branch node={k} current={current} depth={depth + 1} />}
         </li>

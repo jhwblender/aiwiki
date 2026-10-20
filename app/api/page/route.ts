@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { deletePage, normalizePath, readPage, titleFor, writePage } from '@/lib/wiki';
+import { deletePage, normalizePath, readPage, subPages, titleFor, writePage } from '@/lib/wiki';
 import { pendingForPage, sourcesForPage } from '@/lib/proposals';
 import { fail, userFrom } from '@/lib/api';
 import type { PageData } from '@/lib/types';
@@ -22,6 +22,7 @@ export async function GET(req: NextRequest) {
       content: content ?? '',
       pending,
       sources: sourcesForPage(p),
+      children: await subPages(p),
     };
     return NextResponse.json(data);
   } catch (e) {
