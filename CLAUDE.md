@@ -53,11 +53,12 @@ Audience: starts with the systems team, eventually the whole company. Most revie
 
 ## Roadmap, in order
 
-1. **File and photo drop** into the chat panel and onto pages. Store originals under `data/assets/`, extract text (PDF, docx; vision fallback for scans), describe photos with vision, create a `file` source, and let the agent propose edits as one change set. Link the original from the source chip
-2. **Ingest queue** shared by all file sources: dedupe by content hash; diff a changed file against its previous version so content is not duplicated
-3. **Local folder watcher** on the server, feeding the same queue
-4. **Companion desktop app** (only needed when the wiki server cannot reach the model; a model on the server itself or on a machine it can reach on the network already works through `LOCAL_LLM_BASE_URL`): watches folders on a user's machine (SharePoint libraries via the OneDrive sync client, with Files On-Demand off for that folder), uploads to the queue with the user's identity, and relays calls to a local model so a remote wiki can use AI on the user's own computer
-5. **Per-folder visibility**: "feeds wiki" or "personal only". Personal-only content is searchable by that user's chat but never proposed as a wiki edit
-6. **Conflict handling**: when sources disagree, the proposal cites both and flags the conflict instead of silently picking one
-7. **Bulk review** for large drops: a per-source summary and one approval for a whole change set across pages
-8. **Real auth and roles** (likely Entra ID SSO), including who can approve
+1. **Pending-aware assistant.** Today `read_page` and `search_pages` see only approved content, plus edits staged earlier in the same agent run, so the assistant cannot see pending suggestions and each chat message starts a fresh change set. Show pending suggestions to the assistant in `read_page` as a separate, labelled section (never mixed into the approved text, and never treated as fact in answers), and let a follow-up message in the same chat revise that chat's own pending suggestion instead of creating a competing one. Do this before file drops, which will multiply pending suggestions
+2. **File and photo drop** into the chat panel and onto pages. Store originals under `data/assets/`, extract text (PDF, docx; vision fallback for scans), describe photos with vision, create a `file` source, and let the agent propose edits as one change set. Link the original from the source chip
+3. **Ingest queue** shared by all file sources: dedupe by content hash; diff a changed file against its previous version so content is not duplicated
+4. **Local folder watcher** on the server, feeding the same queue
+5. **Companion desktop app** (only needed when the wiki server cannot reach the model; a model on the server itself or on a machine it can reach on the network already works through `LOCAL_LLM_BASE_URL`): watches folders on a user's machine (SharePoint libraries via the OneDrive sync client, with Files On-Demand off for that folder), uploads to the queue with the user's identity, and relays calls to a local model so a remote wiki can use AI on the user's own computer
+6. **Per-folder visibility**: "feeds wiki" or "personal only". Personal-only content is searchable by that user's chat but never proposed as a wiki edit
+7. **Conflict handling**: when sources disagree, the proposal cites both and flags the conflict instead of silently picking one
+8. **Bulk review** for large drops: a per-source summary and one approval for a whole change set across pages
+9. **Real auth and roles** (likely Entra ID SSO), including who can approve
