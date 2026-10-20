@@ -47,7 +47,7 @@ Audience: starts with the systems team, eventually the whole company. Most revie
 ## Known gaps (do these first)
 
 1. **The Anthropic adapter has not run against the real API.** Its message format is checked against the mock, but run a full propose and approve cycle with a real key (also confirms the `server-side-fallback-2026-07-01` fallback option is accepted for the account).
-2. **The local adapter has not run against a real local model.** Only the mock has been used. Run a full cycle with Ollama or LM Studio and a tool-calling model (for example qwen2.5 14b). Ollama's default context window is small and silently truncates long prompts, so raise it (`OLLAMA_CONTEXT_LENGTH`, or `num_ctx` in a Modelfile, to 16k or more). Smaller models may send tool arguments under slightly wrong names or as broken JSON; make `runTool` tolerant and return clear errors the model can correct from.
+2. Local models: a full cycle works with qwen3.6 35b on Ollama (Windows host, wiki in WSL with mirrored networking). Near-miss tool and argument names are mapped by `normalizeCall` in `lib/ai/tools.ts`; extend its aliases when a model shows a new variant. Keep Ollama's context length at 16k or more so long pages are not cut off.
 3. Names typed in the sidebar are not authenticated; treat them as labels only.
 4. Node 18 works but `better-sqlite3` 12 declares Node 20+; use Node 20 or newer.
 

@@ -68,7 +68,59 @@ async function ensureChangeSet(ctx: ToolContext, summary: string): Promise<numbe
   return ctx.changeSetId;
 }
 
+// Smaller local models often call a tool by a slightly different name or pass an argument
+// under a near-miss key. Map unambiguous variants to the real ones so the call still runs.
+const squash = (s: string) => s.toLowerCase().replace(/[^a-z]/g, '');
+
+const ARG_ALIASES: Record<string, string[]> = {
+  path: ['page', 'pagepath', 'slug', 'pagename', 'name'],
+  query: ['q', 'search', 'term', 'terms', 'keywords'],
+  old_text: ['oldtext', 'old', 'find', 'search', 'original', 'existingtext', 'from'],
+  new_text: ['newtext', 'new', 'replace', 'replacement', 'to'],
+  text: ['content', 'markdown', 'body', 'addition'],
+  content: ['text', 'markdown', 'body'],
+  summary: ['description', 'reason', 'message'],
+};
+
+export function normalizeCall(name: string, rawArgs: unknown): { name: string; args: Record<string, any> } {
+  const def = toolDefs.find((d) => d.name === name) ?? toolDefs.find((d) => squash(d.name) === squash(String(name ?? '')));
+  let args: any = rawArgs;
+  if (typeof args === 'string') {
+    try {
+      args = JSON.parse(args);
+    } catch {
+      args = {};
+    }
+  }
+  if (!args || typeof args !== 'object' || Array.isArray(args)) args = {};
+  if (!def) return { name: String(name ?? ''), args };
+  const wanted = Object.keys((def.parameters as any).properties ?? {});
+  const out: Record<string, any> = {};
+  for (const key of wanted) {
+    if (args[key] !== undefined) {
+      out[key] = args[key];
+      continue;
+    }
+    const match = Object.keys(args).find((k) => squash(k) === squash(key) || (ARG_ALIASES[key] ?? []).includes(squash(k)));
+    if (match !== undefined && !wanted.includes(match)) out[key] = args[match];
+  }
+  return { name: def.name, args: out };
+}
+
+function missing(name: string, args: Record<string, any>): string | null {
+  const def = toolDefs.find((d) => d.name === name);
+  const required: string[] = ((def?.parameters as any)?.required ?? []) as string[];
+  const gone = required.filter((k) => args[k] === undefined || args[k] === null || String(args[k]).trim() === '');
+  if (!gone.length) return null;
+  return `Error: ${name} needs ${gone.join(', ')}. Expected arguments: ${required.join(', ')}. Call it again with all of them.`;
+}
+
 export async function runTool(name: string, args: Record<string, any>, ctx: ToolContext): Promise<string> {
+  if (!toolDefs.some((d) => d.name === name)) {
+    return `Error: there is no tool called "${name}". Available tools: ${toolDefs.map((d) => d.name).join(', ')}.`;
+  }
+  const absent = missing(name, args);
+  if (absent) return absent;
   try {
     switch (name) {
       case 'search_pages': {

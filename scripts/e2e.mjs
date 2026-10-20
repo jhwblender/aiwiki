@@ -218,7 +218,15 @@ try {
   const back = await chat('Who runs payroll?');
   check('mock says it is a test model', /scripted test model/.test(back.reply ?? ''), JSON.stringify(back));
 
-  // 12. Search finds approved content
+  // 12. Sloppy tool calls from small models still work, and unknown tools get a clear error
+  const sloppy = await chat('Staff parking is in lot B');
+  check('near-miss tool and argument names still run', sloppy.proposed?.some((p) => p.path === 'systems/onboarding'), JSON.stringify(sloppy));
+  check('an unknown tool is reported, not run', sloppy.trace?.includes('delete_page') && pageFile('systems/onboarding').includes('Edited by hand.'));
+  const parking = (await getPage('systems/onboarding')).pending;
+  check('the sloppy suggestion has the right text', parking.length === 1 && JSON.stringify(parking[0].segments).includes('lot B'));
+  for (const sg of parking) await api('POST', `/api/proposals/${sg.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+
+  // 13. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {

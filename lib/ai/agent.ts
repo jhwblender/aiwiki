@@ -1,5 +1,5 @@
 import { getProvider, Msg } from './providers';
-import { runTool, toolDefs, ToolContext } from './tools';
+import { normalizeCall, runTool, toolDefs, ToolContext } from './tools';
 import type { ChatMsg, ChatResponse } from '../types';
 
 const SYSTEM = `You are the assistant built into a company wiki. You help people find information and keep the wiki accurate.
@@ -42,8 +42,10 @@ export async function runAgent(opts: {
       break;
     }
     for (const tc of res.toolCalls) {
-      const result = await runTool(tc.name, tc.args, ctx);
-      trace.push(describe(tc.name, tc.args));
+      const call = normalizeCall(tc.name, tc.args);
+      const result = await runTool(call.name, call.args, ctx);
+      trace.push(describe(call.name, call.args));
+      // reply under the name the model used, so its own transcript stays consistent
       messages.push({ role: 'tool', toolCallId: tc.id, name: tc.name, content: result });
     }
     if (i === 9) reply = res.text || 'I ran out of steps before finishing. Try a narrower request.';

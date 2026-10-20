@@ -66,6 +66,19 @@ const SCENARIOS = [
     reply: 'I proposed a note about the rotation handover on [[systems/onboarding]].',
   },
   {
+    // calls tools the way small local models sometimes do: wrong case, near-miss argument names
+    keyword: 'parking',
+    steps: [
+      { name: 'Read_Page', args: { page: 'systems/onboarding' } },
+      { name: 'delete_page', args: { path: 'systems/onboarding' } },
+      {
+        name: 'appendToPage',
+        args: { page_path: 'systems/onboarding', content: 'Staff parking is in lot B.', description: 'Add parking info' },
+      },
+    ],
+    reply: 'I proposed a note about parking on [[systems/onboarding]].',
+  },
+  {
     keyword: 'backup',
     steps: [
       { name: 'search_pages', args: { query: 'backup' } },
@@ -88,7 +101,7 @@ export const anthropicRequests = [];
 // Shown for anything outside the scenarios, so nobody mistakes the mock for a real model
 const NOT_A_MODEL =
   'This is the scripted test model, not a real AI, so it can only run its demo scenarios ' +
-  '(try mentioning the VPN, the dashboard, the rotation or a backup policy). Connect a real model on the Settings page.';
+  '(try mentioning the VPN, the dashboard, the rotation, parking or a backup policy). Connect a real model on the Settings page.';
 
 function pick(messages) {
   const lastUser = [...messages].reverse().find((m) => m.role === 'user');
