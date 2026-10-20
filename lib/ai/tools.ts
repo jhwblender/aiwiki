@@ -1,6 +1,7 @@
 import { listPages, normalizePath, readPage, searchPages } from '../wiki';
 import { chatPending, createChangeSet, createSource, pendingCounts, pendingForPage, stageContent, stagedContent, supersede } from '../proposals';
 import type { PendingSet } from '../types';
+import { toBlocks } from '../diff';
 import type { ToolDef } from './providers';
 
 export const toolDefs: ToolDef[] = [
@@ -92,6 +93,12 @@ async function stage(ctx: ToolContext, csId: number, p: string, content: string,
     supersede(revising, csId, p, ctx.user);
     ctx.revising.set(p, revising);
   }
+}
+
+// Paragraphs of new text that already appear word for word on the page (headings excepted)
+function repeatedBlocks(existing: string, added: string): string[] {
+  const have = new Set(toBlocks(existing).map((b) => b.trim()));
+  return toBlocks(added).filter((b) => !/^#{1,6}\s/.test(b) && have.has(b.trim()));
 }
 
 const clip = (s: string, n = 400) => (s.length > n ? s.slice(0, n) + '...' : s);
@@ -231,6 +238,13 @@ export async function runTool(name: string, args: Record<string, any>, ctx: Tool
         const p = normalizePath(String(args.path ?? ''));
         const w = await working(ctx, p);
         if (!w.exists) return `No page at "${p}". Use create_page for new pages.`;
+        const repeats = repeatedBlocks(w.content, String(args.text ?? ''));
+        if (repeats.length) {
+          return (
+            `Error: this text is already on the page: "${clip(repeats[0], 160)}". Nothing was added. ` +
+            'To correct or update something, change it in place with replace_in_page instead of adding a new section.'
+          );
+        }
         const csId = await ensureChangeSet(ctx, String(args.summary ?? 'Add to page'));
         const sep = w.content.endsWith('\n') ? '\n' : '\n\n';
         await stage(ctx, csId, p, w.content + sep + String(args.text ?? '') + '\n', w.revising);

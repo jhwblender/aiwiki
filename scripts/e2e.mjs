@@ -248,7 +248,17 @@ try {
   const lunchSources = (await getPage('systems/onboarding')).sources.map((x) => x.source.note);
   check('the page lists both messages as sources', lunchSources.includes('Add the team lunch day') && lunchSources.includes('Sorry, lunch is actually on Tuesday'));
 
-  // 14. Search finds approved content
+  // 14. A correction is made in place; repeating text as a "correction" section is refused
+  const chatC = 'e2e-chat-cccc';
+  await chat('Mondays and Fridays are remote work days', 'Alex', 'local', chatC);
+  await chat('Oh whoops, only Mondays', 'Alex', 'local', chatC);
+  const remote = (await getPage('systems/onboarding')).pending;
+  const remoteText = JSON.stringify(remote.map((x) => x.segments));
+  check('the correction replaces the text', remote.length === 1 && remoteText.includes('Every Monday is remote.') && !remoteText.includes('Fridays are remote'), remoteText);
+  check('no duplicate correction section', (remoteText.match(/Every Monday is remote\./g) ?? []).length === 1 && !/correction/i.test(remoteText), remoteText);
+  for (const sg of remote) await api('POST', `/api/proposals/${sg.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+
+  // 15. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {

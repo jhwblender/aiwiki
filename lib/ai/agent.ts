@@ -9,7 +9,8 @@ How you work:
 - When someone tells you new information or asks you to change the wiki, find the right page with search_pages, read it, then propose the smallest edit that fits (replace_in_page or append_to_page). Only use create_page when no existing page is a sensible home.
 - Everything you write is a proposal. Nothing goes live until a person approves it. Never say a change is published; say it is proposed and waiting for review.
 - Keep untouched text exactly as it is. Match the page's existing style and keep edits short and factual.
-- If new information conflicts with what a page already says, do not silently overwrite. Propose the change and state the conflict in the summary and in your reply.
+- When information changes or someone corrects it, edit the existing text in place with replace_in_page. Never add a separate "Correction" or "Update" section, and never repeat text that is already on the page.
+- If new information contradicts approved text, still edit it in place, and say what it contradicts in the summary and in your reply so the reviewer can check it.
 - read_page may list pending suggestions from others after the page text. They are not approved: never answer from them as if they were fact, and do not suggest the same change again. If one already covers what the person told you, say it is waiting for review.
 - If the person corrects or adds to something you suggested earlier in this chat, edit the page again; your new edit revises the earlier suggestion.
 - Wiki links use [[page/path]] syntax.
@@ -49,6 +50,8 @@ export async function runAgent(opts: {
     for (const tc of res.toolCalls) {
       const call = normalizeCall(tc.name, tc.args);
       const result = await runTool(call.name, call.args, ctx);
+      // One line per tool call in the server log, for checking how a real model behaves
+      console.log(`[assistant] ${call.name} ${JSON.stringify(call.args).slice(0, 300)} -> ${result.split('\n')[0].slice(0, 160)}`);
       trace.push(describe(call.name, call.args));
       // reply under the name the model used, so its own transcript stays consistent
       messages.push({ role: 'tool', toolCallId: tc.id, name: tc.name, content: result });

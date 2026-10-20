@@ -79,6 +79,36 @@ const SCENARIOS = [
     reply: 'I proposed a note about parking on [[systems/onboarding]].',
   },
   {
+    // replays a real model's mistake: fixes the text in place, then also appends a "correction" copy
+    keyword: 'whoops',
+    steps: [
+      {
+        name: 'replace_in_page',
+        args: {
+          path: 'systems/onboarding',
+          old_text: 'Mondays and Fridays are remote work days.',
+          new_text: 'Every Monday is remote.',
+          summary: 'Correct the remote days',
+        },
+      },
+      {
+        name: 'append_to_page',
+        args: { path: 'systems/onboarding', text: '## Work schedule correction\n\nEvery Monday is remote.', summary: 'Correct the remote days' },
+      },
+    ],
+    reply: 'I corrected the remote days.',
+  },
+  {
+    keyword: 'remote work days',
+    steps: [
+      {
+        name: 'append_to_page',
+        args: { path: 'systems/onboarding', text: '## Work schedule\n\nMondays and Fridays are remote work days.', summary: 'Add remote days' },
+      },
+    ],
+    reply: 'I proposed the remote work days.',
+  },
+  {
     // a correction in the same chat; only works if the chat's own pending suggestion is visible
     keyword: 'tuesday',
     steps: [
