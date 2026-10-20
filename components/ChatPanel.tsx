@@ -109,7 +109,7 @@ export default function ChatPanel({
       <div className="chat-log">
         {providerList && providers.length === 0 && (
           <div className="notice">
-            No model is configured. Add ANTHROPIC_API_KEY or LOCAL_LLM_BASE_URL to .env.local and restart.
+            No AI model is set up yet. <Link href="/settings">Open Settings</Link> to connect a local model.
           </div>
         )}
         {msgs.length === 0 && providers.length > 0 && (
@@ -130,6 +130,11 @@ export default function ChatPanel({
               </details>
             )}
             {m.role === 'assistant' && !m.error ? <Md>{m.content || '(no reply)'}</Md> : <p>{m.content}</p>}
+            {m.error && (
+              <p className="small-text">
+                <Link href="/settings">Check the model settings</Link>
+              </p>
+            )}
             {m.proposed && m.proposed.length > 0 && (
               <div className="proposed">
                 <span>Waiting for review:</span>

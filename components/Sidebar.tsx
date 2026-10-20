@@ -138,10 +138,15 @@ export default function Sidebar({
           <Branch node={tree} current={current} depth={0} />
         )}
       </nav>
-      <label className="whoami">
-        <span>Your name</span>
-        <input value={user} onChange={(e) => setUser(e.target.value)} placeholder="Name shown on approvals" />
-      </label>
+      <div className="whoami">
+        <label className="whoami-name">
+          <span>Your name</span>
+          <input value={user} onChange={(e) => setUser(e.target.value)} placeholder="Name shown on approvals" />
+        </label>
+        <Link href="/settings" className="settings-link">
+          Settings
+        </Link>
+      </div>
     </aside>
   );
 }

@@ -195,7 +195,30 @@ try {
   const pendingRota = (await getPage('systems/onboarding')).pending;
   for (const s of pendingRota) await api('POST', `/api/proposals/${s.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
-  // 11. Search finds approved content
+  // 11. Settings: the connection test and clear errors when the model is unreachable
+  const mockUrl = `http://127.0.0.1:${MOCK_PORT}/v1`;
+  const st = (await api('GET', '/api/settings')).data;
+  check('settings show the local model from the environment', st.local?.baseUrl === mockUrl && st.local.model === 'mock' && st.local.hasApiKey === false);
+  const good = (await api('POST', '/api/settings/test', { baseUrl: mockUrl, model: 'mock' })).data;
+  check('connection test passes against the mock', good.ok === true && good.steps.length === 4 && good.models.includes('mock'), JSON.stringify(good));
+  const wrongModel = (await api('POST', '/api/settings/test', { baseUrl: mockUrl, model: 'nope' })).data;
+  check('connection test names a missing model', !wrongModel.ok && wrongModel.steps[1].status === 'failed' && wrongModel.steps[1].detail.includes('Available: mock'));
+  const closed = 'http://127.0.0.1:4599/v1'; // nothing listens here
+  // refused on most machines; some WSL setups let the connection time out instead
+  const UNREACHABLE = /Nothing is answering|Could not connect|No answer from/;
+  const bad = (await api('POST', '/api/settings/test', { baseUrl: closed, model: 'mock' })).data;
+  check('connection test explains an unreachable server', !bad.ok && UNREACHABLE.test(bad.steps[0].detail), JSON.stringify(bad.steps?.[0]));
+  check('settings reject a non-web address', (await api('PUT', '/api/settings', { baseUrl: 'localhost:11434', model: 'mock' })).status === 400);
+  await api('PUT', '/api/settings', { baseUrl: closed, model: 'mock', apiKey: 'secret' });
+  const after2 = (await api('GET', '/api/settings')).data;
+  check('saved settings take effect and hide the key', after2.local.baseUrl === closed && after2.local.hasApiKey === true && !JSON.stringify(after2).includes('secret'));
+  const down = await chat('Who runs payroll?');
+  check('chat says the model is unreachable', UNREACHABLE.test(down.error ?? '') && down.error.includes('127.0.0.1:4599'), JSON.stringify(down));
+  await api('PUT', '/api/settings', { baseUrl: mockUrl, model: 'mock', apiKey: '' });
+  const back = await chat('Who runs payroll?');
+  check('mock says it is a test model', /scripted test model/.test(back.reply ?? ''), JSON.stringify(back));
+
+  // 12. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {

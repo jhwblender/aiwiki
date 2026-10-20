@@ -8,11 +8,23 @@ export const ASSETS_DIR = path.join(DATA_DIR, 'assets');
 
 const g = globalThis as unknown as { __wikiDb?: Database.Database };
 
+// The connection is kept on globalThis so dev reloads reuse it, but the schema step runs once
+// per module load, so tables added in a code change appear without restarting the server.
+let migrated = false;
+
 export function db(): Database.Database {
-  if (g.__wikiDb) return g.__wikiDb;
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  const d = new Database(path.join(DATA_DIR, 'wiki.db'));
-  d.pragma('journal_mode = WAL');
+  if (g.__wikiDb && migrated) return g.__wikiDb;
+  if (!g.__wikiDb) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    g.__wikiDb = new Database(path.join(DATA_DIR, 'wiki.db'));
+    g.__wikiDb.pragma('journal_mode = WAL');
+  }
+  migrate(g.__wikiDb);
+  migrated = true;
+  return g.__wikiDb;
+}
+
+function migrate(d: Database.Database) {
   d.exec(`
     -- Every piece of information that enters the wiki traces back to a source row.
     CREATE TABLE IF NOT EXISTS sources (
@@ -63,10 +75,13 @@ export function db(): Database.Database {
       approved_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_page_sources_page ON page_sources(page_path);
+    -- Admin settings edited on the Settings page; values here override .env.local
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
     CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(path UNINDEXED, title, body);
   `);
   const cols = d.prepare('PRAGMA table_info(proposals)').all() as { name: string }[];
   if (!cols.some((c) => c.name === 'base_content')) d.exec('ALTER TABLE proposals ADD COLUMN base_content TEXT');
-  g.__wikiDb = d;
-  return d;
 }

@@ -85,6 +85,11 @@ const SCENARIOS = [
 // Requests the Anthropic route received, for the e2e script to inspect
 export const anthropicRequests = [];
 
+// Shown for anything outside the scenarios, so nobody mistakes the mock for a real model
+const NOT_A_MODEL =
+  'This is the scripted test model, not a real AI, so it can only run its demo scenarios ' +
+  '(try mentioning the VPN, the dashboard, the rotation or a backup policy). Connect a real model on the Settings page.';
+
 function pick(messages) {
   const lastUser = [...messages].reverse().find((m) => m.role === 'user');
   const text = String(lastUser?.content ?? '').toLowerCase();
@@ -97,8 +102,12 @@ function respond(body) {
   const toolTurns = messages.slice(lastUserIdx + 1).filter((m) => m.role === 'assistant').length;
   const scenario = pick(messages);
   const message = { role: 'assistant', content: '' };
-  if (!scenario) {
-    message.content = 'The wiki does not cover that yet.';
+  const offered = (body.tools ?? []).map((t) => t.function?.name);
+  if (offered.length === 1 && offered[0] === 'ping') {
+    // the Settings connection test
+    message.tool_calls = [{ id: 'call_ping', type: 'function', function: { name: 'ping', arguments: '{}' } }];
+  } else if (!scenario) {
+    message.content = /reply with the single word/i.test(String(messages.at(-1)?.content)) ? 'ready' : NOT_A_MODEL;
   } else if (toolTurns < scenario.steps.length) {
     const step = scenario.steps[toolTurns];
     message.tool_calls = [
@@ -154,7 +163,7 @@ function respondAnthropic(body) {
   const thinking = { type: 'thinking', thinking: '', signature: `sig-${turns}` };
   let content;
   let stop = 'end_turn';
-  if (!scenario) content = [thinking, { type: 'text', text: 'The wiki does not cover that yet.' }];
+  if (!scenario) content = [thinking, { type: 'text', text: NOT_A_MODEL }];
   else if (turns < scenario.steps.length) {
     const step = scenario.steps[turns];
     content = [thinking, { type: 'tool_use', id: `toolu_${turns}`, name: step.name, input: step.args }];
@@ -180,6 +189,10 @@ export function startMock(port = 4555) {
         const out = respondAnthropic(body);
         anthropicRequests.push({ beta: req.headers['anthropic-beta'], body, status: out.status });
         send(out.status, out.body);
+        return;
+      }
+      if (req.method === 'GET' && req.url?.endsWith('/models')) {
+        send(200, { object: 'list', data: [{ id: 'mock', object: 'model' }] });
         return;
       }
       if (req.method !== 'POST' || !req.url?.endsWith('/chat/completions')) {
