@@ -26,6 +26,8 @@ export type PendingSet = {
   // Its segments then show the suggestion against the text it was written for.
   conflict: boolean;
   source: SourceInfo | null;
+  // Messages this suggestion revised, oldest first (a chat refining its own suggestion)
+  earlierSources: SourceInfo[];
   segments: Segment[];
 };
 

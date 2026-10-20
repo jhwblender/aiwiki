@@ -79,6 +79,39 @@ const SCENARIOS = [
     reply: 'I proposed a note about parking on [[systems/onboarding]].',
   },
   {
+    // a correction in the same chat; only works if the chat's own pending suggestion is visible
+    keyword: 'tuesday',
+    steps: [
+      { name: 'read_page', args: { path: 'systems/onboarding' } },
+      {
+        name: 'replace_in_page',
+        args: {
+          path: 'systems/onboarding',
+          old_text: 'Team lunch is on Mondays.',
+          new_text: 'Team lunch is on Tuesdays.',
+          summary: 'Team lunch is on Tuesdays',
+        },
+      },
+    ],
+    reply: 'I updated my suggestion: team lunch is on Tuesdays.',
+  },
+  {
+    keyword: 'lunch',
+    steps: [
+      {
+        name: 'append_to_page',
+        args: { path: 'systems/onboarding', text: 'Team lunch is on Mondays.', summary: 'Add the team lunch day' },
+      },
+    ],
+    reply: 'I proposed adding the team lunch day to [[systems/onboarding]].',
+  },
+  {
+    // reports whether read_page showed pending suggestions from others
+    keyword: 'anything pending',
+    steps: [{ name: 'read_page', args: { path: 'systems/onboarding' } }],
+    reply: (toolText) => (toolText.includes('Pending suggestions from others') ? 'PENDING-SEEN' : 'PENDING-NOT-SEEN'),
+  },
+  {
     keyword: 'backup',
     steps: [
       { name: 'search_pages', args: { query: 'backup' } },
@@ -101,7 +134,21 @@ export const anthropicRequests = [];
 // Shown for anything outside the scenarios, so nobody mistakes the mock for a real model
 const NOT_A_MODEL =
   'This is the scripted test model, not a real AI, so it can only run its demo scenarios ' +
-  '(try mentioning the VPN, the dashboard, the rotation, parking or a backup policy). Connect a real model on the Settings page.';
+  '(try mentioning the VPN, the dashboard, the rotation, parking, team lunch or a backup policy). Connect a real model on the Settings page.';
+
+// Tool results in either format, so a scenario reply can depend on what the tools returned
+function toolTexts(messages) {
+  const out = [];
+  for (const m of messages) {
+    if (m.role === 'tool') out.push(String(m.content));
+    if (Array.isArray(m.content)) for (const b of m.content) if (b.type === 'tool_result') out.push(String(b.content));
+  }
+  return out.join('\n');
+}
+
+function replyFor(scenario, toolText) {
+  return typeof scenario.reply === 'function' ? scenario.reply(toolText) : scenario.reply;
+}
 
 function pick(messages) {
   const lastUser = [...messages].reverse().find((m) => m.role === 'user');
@@ -127,7 +174,7 @@ function respond(body) {
       { id: `call_${toolTurns}`, type: 'function', function: { name: step.name, arguments: JSON.stringify(step.args) } },
     ];
   } else {
-    message.content = scenario.reply;
+    message.content = replyFor(scenario, toolTexts(messages));
   }
   return {
     id: 'mock',
@@ -181,7 +228,7 @@ function respondAnthropic(body) {
     const step = scenario.steps[turns];
     content = [thinking, { type: 'tool_use', id: `toolu_${turns}`, name: step.name, input: step.args }];
     stop = 'tool_use';
-  } else content = [thinking, { type: 'text', text: scenario.reply }];
+  } else content = [thinking, { type: 'text', text: replyFor(scenario, toolTexts(msgs)) }];
   return {
     status: 200,
     body: {

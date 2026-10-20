@@ -35,8 +35,8 @@ async function api(method, url, body) {
 }
 
 const getPage = (p) => api('GET', `/api/page?path=${encodeURIComponent(p)}`).then((r) => r.data);
-const chat = (text, user = 'Alex', provider = 'local') =>
-  api('POST', '/api/chat', { messages: [{ role: 'user', content: text }], provider, user }).then((r) => r.data);
+const chat = (text, user = 'Alex', provider = 'local', chatId = undefined) =>
+  api('POST', '/api/chat', { messages: [{ role: 'user', content: text }], provider, user, chatId }).then((r) => r.data);
 const pageFile = (p) => fs.readFileSync(path.join(wikiDir, p + '.md'), 'utf8');
 const git = (...args) => execFileSync('git', ['-C', wikiDir, ...args], { encoding: 'utf8' });
 const changes = (set) => set.segments.filter((s) => s.type === 'change');
@@ -226,7 +226,29 @@ try {
   check('the sloppy suggestion has the right text', parking.length === 1 && JSON.stringify(parking[0].segments).includes('lot B'));
   for (const sg of parking) await api('POST', `/api/proposals/${sg.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
-  // 13. Search finds approved content
+  // 13. The assistant sees pending suggestions, and a chat revises its own instead of competing with it
+  const chatA = 'e2e-chat-aaaa';
+  const chatB = 'e2e-chat-bbbb';
+  await chat('Add the team lunch day', 'Alex', 'local', chatA);
+  await chat('Sorry, lunch is actually on Tuesday', 'Alex', 'local', chatA);
+  let lunch = (await getPage('systems/onboarding')).pending;
+  const lunchText = JSON.stringify(lunch[0]?.segments ?? []);
+  check('a follow-up in the same chat revises its suggestion', lunch.length === 1 && lunchText.includes('Tuesdays') && !lunchText.includes('Mondays'), lunchText);
+  check('the revised suggestion remembers the earlier message', lunch[0]?.earlierSources?.[0]?.note === 'Add the team lunch day');
+  const seen = await chat('Is anything pending on onboarding?', 'Sam', 'local', chatB);
+  check('another chat is shown the pending suggestion', seen.reply === 'PENDING-SEEN', JSON.stringify(seen));
+  await chat('Lunch moved to Tuesday', 'Sam', 'local', chatB);
+  check('another chat cannot revise someone else\'s suggestion', (await getPage('systems/onboarding')).pending.length === 1);
+  await chat('Sorry, lunch is actually on Tuesday', 'Sam', 'local', chatA);
+  check('the same chat id under another name cannot revise it', (await getPage('systems/onboarding')).pending.length === 1);
+  await api('POST', `/api/proposals/${lunch[0].proposalId}/resolve`, { action: 'approve', user: 'Kim' });
+  check('approving the revision publishes the final text', pageFile('systems/onboarding').includes('Team lunch is on Tuesdays.') && !pageFile('systems/onboarding').includes('Mondays.'));
+  const lunchCommit = git('log', '-1', '--format=%B');
+  check('the commit names both messages', (lunchCommit.match(/^Source: chat with Alex/gm) ?? []).length === 2, lunchCommit);
+  const lunchSources = (await getPage('systems/onboarding')).sources.map((x) => x.source.note);
+  check('the page lists both messages as sources', lunchSources.includes('Add the team lunch day') && lunchSources.includes('Sorry, lunch is actually on Tuesday'));
+
+  // 14. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {

@@ -54,7 +54,7 @@ function migrate(d: Database.Database) {
       new_content TEXT NOT NULL,
       base_content TEXT,               -- the live page this suggestion was written against
       is_new INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'pending',   -- pending | resolved
+      status TEXT NOT NULL DEFAULT 'pending',   -- pending | resolved | superseded
       created_at TEXT NOT NULL,
       UNIQUE (change_set_id, page_path)
     );
@@ -62,7 +62,7 @@ function migrate(d: Database.Database) {
     CREATE TABLE IF NOT EXISTS decisions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       proposal_id INTEGER NOT NULL REFERENCES proposals(id),
-      action TEXT NOT NULL,            -- approve | reject
+      action TEXT NOT NULL,            -- approve | reject | supersede
       scope TEXT NOT NULL,             -- hunk | all
       user TEXT NOT NULL,
       at TEXT NOT NULL
@@ -84,4 +84,8 @@ function migrate(d: Database.Database) {
   `);
   const cols = d.prepare('PRAGMA table_info(proposals)').all() as { name: string }[];
   if (!cols.some((c) => c.name === 'base_content')) d.exec('ALTER TABLE proposals ADD COLUMN base_content TEXT');
+  // A later chat message can revise an earlier suggestion: the old proposal points at its replacement
+  if (!cols.some((c) => c.name === 'superseded_by')) d.exec('ALTER TABLE proposals ADD COLUMN superseded_by INTEGER');
+  const csCols = d.prepare('PRAGMA table_info(change_sets)').all() as { name: string }[];
+  if (!csCols.some((c) => c.name === 'chat_id')) d.exec('ALTER TABLE change_sets ADD COLUMN chat_id TEXT');
 }

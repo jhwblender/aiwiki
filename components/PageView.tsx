@@ -53,7 +53,7 @@ function Hunk({
     <section className="hunk">
       <header className="hunk-bar">
         <span className="hunk-kind">{set.isNew ? 'New page' : kind} by AI</span>
-        <SourceChip source={set.source} />
+        <SourceChip source={set.source} earlier={set.earlierSources} />
         {showActions && (
           <span className="hunk-actions">
             <button className="btn approve small" disabled={busy} onClick={() => decide('approve')}>

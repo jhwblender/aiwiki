@@ -61,21 +61,67 @@ export function getSource(id: number | null): SourceInfo | null {
 
 // ---------- staging (used by the AI tools) ----------
 
-export function createChangeSet(sourceId: number, summary: string, createdBy: string): number {
+export function createChangeSet(sourceId: number, summary: string, createdBy: string, chatId?: string): number {
   const r = db()
-    .prepare('INSERT INTO change_sets (source_id, summary, created_by, created_at) VALUES (?, ?, ?, ?)')
-    .run(sourceId, summary, createdBy, now());
+    .prepare('INSERT INTO change_sets (source_id, summary, created_by, created_at, chat_id) VALUES (?, ?, ?, ?, ?)')
+    .run(sourceId, summary, createdBy, now(), chatId ?? null);
   return Number(r.lastInsertRowid);
 }
 
-// Content the page would have if this change set were approved as-is.
-export async function workingContent(changeSetId: number, pagePath: string): Promise<{ content: string; exists: boolean }> {
+// The newest pending suggestion for a page made earlier in the same chat by the same person,
+// brought up to date with the live page. null if there is none or it no longer fits the page.
+export async function chatPending(
+  chatId: string,
+  user: string,
+  pagePath: string,
+  excludeChangeSetId: number | null,
+): Promise<{ proposalId: number; content: string; isNew: boolean } | null> {
   const row = db()
-    .prepare('SELECT new_content FROM proposals WHERE change_set_id = ? AND page_path = ?')
+    .prepare(
+      `SELECT p.id, p.new_content, p.base_content, p.is_new FROM proposals p
+       JOIN change_sets cs ON cs.id = p.change_set_id JOIN sources s ON s.id = cs.source_id
+       WHERE p.page_path = ? AND p.status = 'pending' AND cs.chat_id = ? AND s.user = ? AND cs.id IS NOT ?
+       ORDER BY p.id DESC LIMIT 1`,
+    )
+    .get(pagePath, chatId, user, excludeChangeSetId) as { id: number; new_content: string; base_content: string | null; is_new: number } | undefined;
+  if (!row) return null;
+  const content = current(row, (await readPage(pagePath)) ?? '');
+  return content === null ? null : { proposalId: row.id, content, isNew: !!row.is_new };
+}
+
+// Retire a suggestion that a later message in the same chat replaced.
+export function supersede(oldProposalId: number, newChangeSetId: number, pagePath: string, user: string) {
+  const d = db();
+  const next = d.prepare('SELECT id FROM proposals WHERE change_set_id = ? AND page_path = ?').get(newChangeSetId, pagePath) as
+    | { id: number }
+    | undefined;
+  d.prepare("UPDATE proposals SET status = 'superseded', superseded_by = ? WHERE id = ? AND status = 'pending'").run(next?.id ?? null, oldProposalId);
+  d.prepare('INSERT INTO decisions (proposal_id, action, scope, user, at) VALUES (?, ?, ?, ?, ?)').run(oldProposalId, 'supersede', 'all', user, now());
+}
+
+// Sources of the suggestions this proposal replaced, oldest first.
+function earlierSourceIds(proposalId: number): number[] {
+  const out: number[] = [];
+  let ids = [proposalId];
+  for (let depth = 0; depth < 20 && ids.length; depth++) {
+    const rows = db()
+      .prepare(
+        `SELECT p.id, cs.source_id FROM proposals p JOIN change_sets cs ON cs.id = p.change_set_id
+         WHERE p.superseded_by IN (${ids.map(() => '?').join(',')}) ORDER BY p.id DESC`,
+      )
+      .all(...ids) as { id: number; source_id: number }[];
+    out.unshift(...rows.map((r) => r.source_id).reverse());
+    ids = rows.map((r) => r.id);
+  }
+  return [...new Set(out)];
+}
+
+// What this change set has staged for a page, or null if it has not touched it.
+export function stagedContent(changeSetId: number, pagePath: string): string | null {
+  const row = db()
+    .prepare("SELECT new_content FROM proposals WHERE change_set_id = ? AND page_path = ? AND status = 'pending'")
     .get(changeSetId, pagePath) as { new_content: string } | undefined;
-  if (row) return { content: row.new_content, exists: true };
-  const live = await readPage(pagePath);
-  return { content: live ?? '', exists: live !== null };
+  return row ? row.new_content : null;
 }
 
 export async function stageContent(changeSetId: number, pagePath: string, newContent: string): Promise<void> {
@@ -137,6 +183,7 @@ export async function pendingForPage(pagePath: string): Promise<PendingSet[]> {
       isNew: !!r.is_new && live === '',
       conflict,
       source: getSource(r.source_id),
+      earlierSources: earlierSourceIds(r.proposal_id).map((id) => getSource(id)!).filter(Boolean),
       segments: segs,
     });
   }
@@ -206,19 +253,26 @@ function log(proposalId: number, action: 'approve' | 'reject', scope: 'hunk' | '
   );
 }
 
-function recordSource(p: ProposalRow, user: string) {
+// Every message that shaped the suggestion: the ones it revised, then its own
+function allSourceIds(p: ProposalRow): number[] {
   const cs = db().prepare('SELECT source_id FROM change_sets WHERE id = ?').get(p.change_set_id) as { source_id: number } | undefined;
-  if (cs?.source_id) {
+  return [...new Set([...earlierSourceIds(p.id), ...(cs?.source_id ? [cs.source_id] : [])])];
+}
+
+function recordSource(p: ProposalRow, user: string) {
+  for (const sourceId of allSourceIds(p)) {
     db()
       .prepare('INSERT INTO page_sources (page_path, source_id, approved_by, approved_at) VALUES (?, ?, ?, ?)')
-      .run(p.page_path, cs.source_id, user, now());
+      .run(p.page_path, sourceId, user, now());
   }
 }
 
 function commitMessage(p: ProposalRow, user: string): string {
-  const cs = db().prepare('SELECT summary, source_id FROM change_sets WHERE id = ?').get(p.change_set_id) as any;
-  const src = getSource(cs?.source_id ?? null);
-  return `${cs?.summary ?? 'AI change'}\n\nSource: ${sourceLabel(src)} (source #${src?.id ?? '?'})\nChange set: #${p.change_set_id}\nApproved by: ${user}`;
+  const cs = db().prepare('SELECT summary FROM change_sets WHERE id = ?').get(p.change_set_id) as any;
+  const sources = allSourceIds(p)
+    .map((id) => getSource(id))
+    .map((src) => `Source: ${sourceLabel(src)} (source #${src?.id ?? '?'})`);
+  return `${cs?.summary ?? 'AI change'}\n\n${sources.join('\n') || 'Source: unknown'}\nChange set: #${p.change_set_id}\nApproved by: ${user}`;
 }
 
 export async function decideHunk(proposalId: number, index: number, fp: string, action: 'approve' | 'reject', user: string) {

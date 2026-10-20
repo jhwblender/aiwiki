@@ -21,6 +21,7 @@ export async function POST(req: NextRequest) {
       providerId: body.provider,
       user: userFrom(body.user),
       currentPath: typeof body.currentPath === 'string' ? body.currentPath : undefined,
+      chatId: typeof body.chatId === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(body.chatId) ? body.chatId : undefined,
     });
     return NextResponse.json(result);
   } catch (e: any) {

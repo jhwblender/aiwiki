@@ -17,7 +17,7 @@ function when(iso: string) {
   }
 }
 
-export default function SourceChip({ source }: { source: SourceInfo | null }) {
+export default function SourceChip({ source, earlier = [] }: { source: SourceInfo | null; earlier?: SourceInfo[] }) {
   const ref = useRef<HTMLDetailsElement>(null);
 
   // Close the popover on an outside click or Escape
@@ -65,6 +65,16 @@ export default function SourceChip({ source }: { source: SourceInfo | null }) {
         )}
         <dt>Received</dt>
         <dd>{when(source.detectedAt)}</dd>
+        {earlier.length > 0 && (
+          <>
+            <dt>Revises earlier messages</dt>
+            {earlier.map((e) => (
+              <dd key={e.id} className="earlier">
+                {e.note || sourceSummary(e)} <span className="muted">({when(e.detectedAt)})</span>
+              </dd>
+            ))}
+          </>
+        )}
       </dl>
     </details>
   );

@@ -7,6 +7,15 @@ import { usePages } from './WikiContext';
 
 type UiMsg = ChatMsg & { trace?: string[]; proposed?: { path: string; isNew: boolean }[]; error?: boolean };
 
+function newChat(): string {
+  // randomUUID needs https or localhost; getRandomValues also works over plain http on the network
+  const id = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
+  try {
+    localStorage.setItem('wiki-chat-id', id);
+  } catch {}
+  return id;
+}
+
 export default function ChatPanel({
   user,
   currentPath,
@@ -18,6 +27,8 @@ export default function ChatPanel({
 }) {
   const [msgs, setMsgs] = useState<UiMsg[]>([]);
   const [loaded, setLoaded] = useState(false);
+  // Identifies this conversation so a follow-up message revises its own earlier suggestion
+  const [chatId, setChatId] = useState('');
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   // null until /api/config answers, so the "no model" notice does not flash on load
@@ -29,6 +40,7 @@ export default function ChatPanel({
 
   useEffect(() => {
     try {
+      setChatId(localStorage.getItem('wiki-chat-id') || newChat());
       const saved = localStorage.getItem('wiki-chat');
       if (saved) setMsgs(JSON.parse(saved));
       setProvider(localStorage.getItem('wiki-provider') || '');
@@ -48,6 +60,12 @@ export default function ChatPanel({
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [msgs, busy, loaded]);
 
+  // Clearing starts a new conversation; later messages no longer revise earlier suggestions
+  function clear() {
+    setMsgs([]);
+    setChatId(newChat());
+  }
+
   async function send() {
     const text = input.trim();
     if (!text || busy) return;
@@ -64,6 +82,7 @@ export default function ChatPanel({
           provider: provider || providers[0]?.id,
           user,
           currentPath,
+          chatId,
         }),
       });
       const d: ChatResponse = await r.json();
@@ -101,7 +120,7 @@ export default function ChatPanel({
           </select>
         )}
         <span className="spacer" />
-        <button className="btn quiet small" disabled={busy || msgs.length === 0} onClick={() => setMsgs([])}>
+        <button className="btn quiet small" disabled={busy || msgs.length === 0} onClick={clear}>
           Clear
         </button>
       </header>

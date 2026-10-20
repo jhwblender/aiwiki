@@ -10,6 +10,8 @@ How you work:
 - Everything you write is a proposal. Nothing goes live until a person approves it. Never say a change is published; say it is proposed and waiting for review.
 - Keep untouched text exactly as it is. Match the page's existing style and keep edits short and factual.
 - If new information conflicts with what a page already says, do not silently overwrite. Propose the change and state the conflict in the summary and in your reply.
+- read_page may list pending suggestions from others after the page text. They are not approved: never answer from them as if they were fact, and do not suggest the same change again. If one already covers what the person told you, say it is waiting for review.
+- If the person corrects or adds to something you suggested earlier in this chat, edit the page again; your new edit revises the earlier suggestion.
 - Wiki links use [[page/path]] syntax.
 - Be concise.`;
 
@@ -18,6 +20,7 @@ export async function runAgent(opts: {
   providerId?: string;
   user: string;
   currentPath?: string;
+  chatId?: string;
 }): Promise<ChatResponse> {
   const provider = getProvider(opts.providerId);
   const last = [...opts.history].reverse().find((m) => m.role === 'user');
@@ -25,8 +28,10 @@ export async function runAgent(opts: {
     user: opts.user,
     providerId: provider.id,
     note: last?.content ?? '',
+    chatId: opts.chatId,
     changeSetId: null,
     proposed: new Map(),
+    revising: new Map(),
   };
 
   const system = opts.currentPath ? `${SYSTEM}\n\nThe person is currently viewing the page "${opts.currentPath}".` : SYSTEM;

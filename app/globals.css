@@ -122,9 +122,15 @@ mark.word-del { background: #f2c2c2; color: inherit; border-radius: 3px; padding
 .chip { display: inline-block; list-style: none; cursor: pointer; font-family: var(--font-ui); font-size: 12px; background: var(--teal-soft); color: var(--teal); border-radius: 10px; padding: 1px 9px; }
 summary.chip::-webkit-details-marker { display: none; }
 .chip-pop { position: absolute; z-index: 20; top: 26px; left: 0; width: 280px; margin: 0; padding: 10px 12px; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; box-shadow: 0 6px 24px rgba(23, 33, 43, 0.14); font-family: var(--font-ui); font-size: 13px; color: var(--ink); text-decoration: none; }
+/* inside a change, anchor the popover to the change box so it never spills past the page column */
+.hunk { position: relative; }
+.hunk .chip-wrap { position: static; }
+.hunk .chip-pop { left: 10px; top: 36px; width: min(320px, calc(100% - 20px)); }
+.sources .chip-pop { width: min(280px, calc(100vw - 48px)); }
 .chip-pop dt { font-size: 11px; color: var(--ink-soft); margin-top: 6px; }
 .chip-pop dt:first-child { margin-top: 0; }
 .chip-pop dd { margin: 0; overflow-wrap: anywhere; }
+.chip-pop dd.earlier + dd.earlier { margin-top: 4px; }
 
 .sources { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--rule); }
 .sources h2 { font-size: 14px; margin: 0 0 8px; color: var(--ink-soft); }
