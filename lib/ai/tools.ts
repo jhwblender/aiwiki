@@ -144,6 +144,34 @@ function repeatedBlocks(existing: string, added: string): string[] {
   return toBlocks(added).filter((b) => !/^#{1,6}\s/.test(b) && have.has(b.trim()));
 }
 
+// Page text that cites where it came from ("Based on the attached file", the file's name).
+// Sources are recorded automatically, so this only clutters the page.
+const CITES_SOURCE =
+  /\b(?:based on|according to|as (?:per|stated in|described in|shown in|listed in)|per|taken from)\s+(?:the\s+|this\s+|your\s+)?(?:attached|uploaded|provided|supplied)\b|\bbased on (?:the\s+)?["“'][^"”']+["”']|\b(?:the\s+)?(?:attached|uploaded)\s+(?:file|document|image|photo|picture|scan|pdf|spreadsheet)s?\b|\b(?:the user|the person|you) (?:said|mentioned|told me|stated|shared)\b/i;
+
+function citesSource(ctx: ToolContext, added: string, existing: string): string | null {
+  const fresh = (pattern: RegExp | string) => {
+    const has = (t: string) => (typeof pattern === 'string' ? t.toLowerCase().includes(pattern) : pattern.test(t));
+    return has(added) && !has(existing);
+  };
+  if (fresh(CITES_SOURCE)) return added.match(CITES_SOURCE)![0];
+  for (const f of ctx.files) {
+    const name = f.filename.toLowerCase();
+    // The name without its extension only counts when it is distinctive; "backup" or "keys" are ordinary words
+    const stem = name.replace(/\.[a-z0-9]+$/, '');
+    const names = /[\s_-]/.test(stem) && stem.length >= 12 ? [name, stem] : [name];
+    for (const n of names) if (fresh(n)) return f.filename;
+  }
+  return null;
+}
+
+function citationError(found: string): string {
+  return (
+    `Error: the page text mentions where it came from ("${clip(found, 80)}"). Nothing was staged. ` +
+    'Write the facts plainly without naming the file, the message or the person; the wiki records the source automatically. Call the tool again.'
+  );
+}
+
 const clip = (s: string, n = 400) => (s.length > n ? s.slice(0, n) + '...' : s);
 
 // Suggestions on this page from other chats or people, kept apart from the approved text.
@@ -280,6 +308,8 @@ export async function runTool(name: string, args: Record<string, any>, ctx: Tool
         const count = w.content.split(oldText).length - 1;
         if (count === 0) return 'old_text was not found. Call read_page and copy the exact text.';
         if (count > 1) return `old_text matches ${count} places. Include more surrounding text so it is unique.`;
+        const cited = citesSource(ctx, newText, w.content);
+        if (cited) return citationError(cited);
         const csId = await ensureChangeSet(ctx, String(args.summary ?? 'Update page'));
         await stage(ctx, csId, p, w.content.replace(oldText, () => newText), w.revising);
         ctx.proposed.set(p, false);
@@ -296,6 +326,8 @@ export async function runTool(name: string, args: Record<string, any>, ctx: Tool
             'To correct or update something, change it in place with replace_in_page instead of adding a new section.'
           );
         }
+        const cited = citesSource(ctx, String(args.text ?? ''), w.content);
+        if (cited) return citationError(cited);
         const csId = await ensureChangeSet(ctx, String(args.summary ?? 'Add to page'));
         const sep = w.content.endsWith('\n') ? '\n' : '\n\n';
         await stage(ctx, csId, p, w.content + sep + String(args.text ?? '') + '\n', w.revising);
@@ -309,6 +341,8 @@ export async function runTool(name: string, args: Record<string, any>, ctx: Tool
         if (w.exists) return `A page already exists at "${p}". Use replace_in_page or append_to_page.`;
         const rival = (await othersPending(ctx, p, null)).find((o) => o.isNew);
         if (rival) return `A new page at "${p}" is already suggested and waiting for review ("${rival.summary}"). Do not suggest it again; tell the person it is pending.`;
+        const cited = citesSource(ctx, String(args.content ?? ''), '');
+        if (cited) return citationError(cited);
         const csId = await ensureChangeSet(ctx, String(args.summary ?? 'New page'));
         await stage(ctx, csId, p, String(args.content ?? ''), null);
         ctx.proposed.set(p, true);

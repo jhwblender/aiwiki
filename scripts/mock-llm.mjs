@@ -189,6 +189,15 @@ const SCENARIOS = [
     reply: 'I proposed adding what the attached files say to [[team/onboarding]].',
   },
   {
+    // cites the file in the page text first, as a real model did, then writes it plainly
+    keyword: 'where the keys are',
+    steps: [
+      { name: 'append_to_page', args: { path: 'team/onboarding', text: 'Based on the "keys.txt" file, the spare keys are in the blue cabinet.', summary: 'Spare keys location' } },
+      { name: 'append_to_page', args: { path: 'team/onboarding', text: 'The spare keys are in the blue cabinet.', summary: 'Spare keys location' } },
+    ],
+    reply: 'I proposed where the spare keys are, from keys.txt.',
+  },
+  {
     keyword: 'backup',
     steps: [
       { name: 'search_pages', args: { query: 'backup' } },

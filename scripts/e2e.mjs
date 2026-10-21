@@ -378,7 +378,16 @@ try {
   const again = await upload([['backup-copy.pdf', textPdf(['Backup notes', 'FACT: The backup NAS is in rack 7.']), 'application/pdf']]);
   check('the same content is stored once', fs.readdirSync(path.join(dataDir, 'assets')).length >= 1 && again.status === 200);
 
-  // 20. Search finds approved content
+  // 20. Page text never cites its own source; that is what the Sources list is for
+  const keys = await upload([['keys.txt', Buffer.from('The spare keys are in the blue cabinet.\n'), 'text/plain']]);
+  const cite = await chat('Note where the keys are', 'Alex', 'local', 'e2e-chat-cite', [keys.data[0].id]);
+  const citeSet = (await getPage('team/onboarding')).pending[0];
+  const citeText = JSON.stringify(citeSet?.segments ?? []);
+  check('text that names its source is refused and rewritten', citeText.includes('The spare keys are in the blue cabinet.') && !/Based on|keys\.txt/.test(citeText), JSON.stringify({ cite, citeText }));
+  check('the file is still recorded as the source', citeSet?.source?.filename === 'keys.txt');
+  if (citeSet) await api('POST', `/api/proposals/${citeSet.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+
+  // 21. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {
