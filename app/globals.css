@@ -168,7 +168,7 @@ summary.chip::-webkit-details-marker { display: none; }
 .chat-input { display: grid; grid-template-columns: auto 1fr auto; grid-template-areas: 'text text text' 'attach . send'; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--rule); }
 .chat-input > textarea { grid-area: text; }
 .chat-input > .btn.attach { grid-area: attach; }
-.chat-input > .btn.primary { grid-area: send; }
+.chat-input > .send-group { grid-area: send; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .chat-input textarea { flex: 1; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 8px; background: var(--paper); resize: none; }
 
 /* ---------- small screens ---------- */
@@ -229,3 +229,14 @@ a.file-chip { padding-right: 10px; }
 .msg-files { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .msg.user .file-chip { background: rgba(255, 255, 255, 0.18); border-color: transparent; color: #fff; }
 .pending-files + .chat-input { border-top: 0; }
+
+/* ---------- background filing ---------- */
+.jobs { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.job { display: flex; gap: 10px; align-items: flex-start; overflow-wrap: anywhere; }
+.job-body { flex: 1; min-width: 0; }
+.job-detail p { margin: 0; }
+.job-detail { margin-top: 2px; color: var(--ink-soft); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.job-status { flex-shrink: 0; width: 64px; text-align: center; font-size: 12px; font-weight: 600; border-radius: 10px; padding: 1px 0; margin-top: 2px; background: var(--paper); color: var(--ink-soft); }
+.job.done .job-status { background: var(--add-bg); color: var(--add-edge); }
+.job.failed .job-status { background: var(--rem-bg); color: var(--rem-ink); }
+.job.working .job-status, .job.queued .job-status { background: var(--teal-soft); color: var(--teal); }

@@ -29,9 +29,37 @@ export type VersionInfo = {
 
 const now = () => new Date().toISOString();
 
-export function registerVersion(id: DocIdentity, f: StoredFile, user: string): VersionInfo {
+// What a file would be for its document, without recording anything. A version is only
+// recorded once the assistant has handled it, so a failed attempt can be tried again.
+export function checkVersion(id: DocIdentity, f: StoredFile): VersionInfo {
   const d = db();
-  return d.transaction((): VersionInfo => {
+  const doc = d.prepare('SELECT id FROM documents WHERE doc_key = ?').get(id.key) as { id: number } | undefined;
+  const latest = doc
+    ? (d
+        .prepare('SELECT version, hash, added_at FROM document_versions WHERE document_id = ? ORDER BY version DESC LIMIT 1')
+        .get(doc.id) as { version: number; hash: string; added_at: string } | undefined)
+    : undefined;
+  if (latest && latest.hash === f.hash) {
+    return { version: latest.version, status: 'unchanged', previous: { version: latest.version, hash: latest.hash, at: latest.added_at } };
+  }
+  const dup = d
+    .prepare(
+      `SELECT doc.display_name, v.added_at FROM document_versions v JOIN documents doc ON doc.id = v.document_id
+       WHERE v.hash = ? AND doc.doc_key != ? ORDER BY v.added_at LIMIT 1`,
+    )
+    .get(f.hash, id.key) as { display_name: string; added_at: string } | undefined;
+  return {
+    version: (latest?.version ?? 0) + 1,
+    status: latest ? 'changed' : 'new',
+    previous: latest ? { version: latest.version, hash: latest.hash, at: latest.added_at } : undefined,
+    duplicateOf: dup ? { displayName: dup.display_name, at: dup.added_at } : undefined,
+  };
+}
+
+export function recordVersion(id: DocIdentity, f: StoredFile, user: string, info: VersionInfo) {
+  if (info.status === 'unchanged') return;
+  const d = db();
+  d.transaction(() => {
     let doc = d.prepare('SELECT id FROM documents WHERE doc_key = ?').get(id.key) as { id: number } | undefined;
     if (!doc) {
       const r = d
@@ -39,31 +67,9 @@ export function registerVersion(id: DocIdentity, f: StoredFile, user: string): V
         .run(id.key, id.displayName, id.folderLabel ?? null, id.relPath ?? null, now());
       doc = { id: Number(r.lastInsertRowid) };
     }
-    const latest = d
-      .prepare('SELECT version, hash, added_at FROM document_versions WHERE document_id = ? ORDER BY version DESC LIMIT 1')
-      .get(doc.id) as { version: number; hash: string; added_at: string } | undefined;
-    if (latest && latest.hash === f.hash) return { version: latest.version, status: 'unchanged', previous: { version: latest.version, hash: latest.hash, at: latest.added_at } };
-    const dup = d
-      .prepare(
-        `SELECT doc.display_name, v.added_at FROM document_versions v JOIN documents doc ON doc.id = v.document_id
-         WHERE v.hash = ? AND v.document_id != ? ORDER BY v.added_at LIMIT 1`,
-      )
-      .get(f.hash, doc.id) as { display_name: string; added_at: string } | undefined;
-    const version = (latest?.version ?? 0) + 1;
-    d.prepare('INSERT INTO document_versions (document_id, version, hash, stored_path, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?)').run(
-      doc.id,
-      version,
-      f.hash,
-      f.storedPath,
-      user,
-      now(),
-    );
-    return {
-      version,
-      status: latest ? 'changed' : 'new',
-      previous: latest ? { version: latest.version, hash: latest.hash, at: latest.added_at } : undefined,
-      duplicateOf: dup ? { displayName: dup.display_name, at: dup.added_at } : undefined,
-    };
+    d.prepare(
+      'INSERT OR IGNORE INTO document_versions (document_id, version, hash, stored_path, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run(doc.id, info.version, f.hash, f.storedPath, user, now());
   })();
 }
 

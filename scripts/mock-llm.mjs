@@ -198,6 +198,17 @@ const SCENARIOS = [
     reply: 'I proposed where the spare keys are, from keys.txt.',
   },
   {
+    // the background queue's default instruction; files the same way as "file this"
+    keyword: 'file the information from the attached document',
+    steps: [
+      {
+        name: 'append_to_page',
+        args: (text) => ({ path: 'team/onboarding', text: factsIn(text).join(' ') || 'FILE-NOT-SEEN', summary: 'Add facts from a document' }),
+      },
+    ],
+    reply: 'I proposed adding what the document says to [[team/onboarding]].',
+  },
+  {
     // applies a changed document: replaces what it no longer says with what it now says
     keyword: 'apply the update',
     steps: [

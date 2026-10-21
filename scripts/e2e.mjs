@@ -409,7 +409,36 @@ try {
   const ver_copy = await upload([['parts-ver_copy.docx', await docx(['Parts list', 'FACT: Spare propellers: 8.', 'FACT: Spare batteries: 6.']), 'application/octet-stream']]);
   check('the same content under another name uploads fine', ver_copy.status === 200);
 
-  // 22. Search finds approved content
+  // 22. Background filing: one job per file, skipped when nothing is new, retried after a failure
+  const waitJob = async (id) => {
+    for (let i = 0; i < 120; i++) {
+      const job = (await api('GET', '/api/ingest')).data.find((j) => j.id === id);
+      if (job && !['queued', 'working'].includes(job.status)) return job;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    return null;
+  };
+  const qf = await upload([['printers.txt', Buffer.from('FACT: The printer is on floor 2.\n'), 'text/plain']]);
+  const q1 = await api('POST', '/api/ingest', { fileIds: [qf.data[0].id], user: 'Alex' });
+  const job1 = await waitJob(q1.data.jobs[0]);
+  check('a background job files the document', job1?.status === 'done' && job1.proposed.includes('team/onboarding'), JSON.stringify(job1));
+  const qSet = (await getPage('team/onboarding')).pending.find((p) => p.source?.filename === 'printers.txt');
+  check('the background suggestion has the file as its source', !!qSet && JSON.stringify(qSet.segments).includes('printer is on floor 2'));
+  if (qSet) await api('POST', `/api/proposals/${qSet.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  const qAgain = await upload([['printers.txt', Buffer.from('FACT: The printer is on floor 2.\n'), 'text/plain']]);
+  const job2 = await waitJob((await api('POST', '/api/ingest', { fileIds: [qAgain.data[0].id], user: 'Alex' })).data.jobs[0]);
+  check('an unchanged file is skipped without asking the model', job2?.status === 'skipped' && /Unchanged/.test(job2.detail ?? ''), JSON.stringify(job2));
+  await api('PUT', '/api/settings', { baseUrl: 'http://127.0.0.1:4599/v1', model: 'mock' });
+  const qDown = await upload([['phones.txt', Buffer.from('FACT: The desk phone extension is 4021.\n'), 'text/plain']]);
+  const job3 = await waitJob((await api('POST', '/api/ingest', { fileIds: [qDown.data[0].id], user: 'Alex', provider: 'local' })).data.jobs[0]);
+  check('a job fails clearly when the model is unreachable', job3?.status === 'failed' && UNREACHABLE.test(job3.detail ?? ''), JSON.stringify(job3));
+  await api('PUT', '/api/settings', { baseUrl: mockUrl, model: 'mock' });
+  check('a failed job can be retried', (await api('POST', `/api/ingest/${job3.id}/retry`)).status === 200);
+  const job3b = await waitJob(job3.id);
+  check('the retried job succeeds', job3b?.status === 'done', JSON.stringify(job3b));
+  for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+
+  // 23. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {

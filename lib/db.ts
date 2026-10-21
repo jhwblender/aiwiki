@@ -131,6 +131,25 @@ function migrate(d: Database.Database) {
       PRIMARY KEY (document_id, version)
     );
     CREATE INDEX IF NOT EXISTS idx_document_versions_hash ON document_versions(hash);
+    -- Files waiting to be filed in the background (see lib/queue.ts)
+    CREATE TABLE IF NOT EXISTS ingest_jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      file_id INTEGER NOT NULL REFERENCES files(id),
+      doc_key TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      folder_label TEXT,
+      rel_path TEXT,
+      user TEXT NOT NULL,
+      note TEXT,
+      current_path TEXT,
+      status TEXT NOT NULL,            -- queued | working | done | skipped | failed
+      detail TEXT,                     -- the assistant's reply, or why it was skipped or failed
+      proposed TEXT,                   -- JSON list of pages with suggestions
+      created_at TEXT NOT NULL,
+      started_at TEXT,
+      finished_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_ingest_jobs_status ON ingest_jobs(status, id);
     -- Extra sources of a change set, when one message brought several files
     CREATE TABLE IF NOT EXISTS change_set_sources (
       change_set_id INTEGER NOT NULL REFERENCES change_sets(id),
@@ -150,4 +169,6 @@ function migrate(d: Database.Database) {
   if (!cols.some((c) => c.name === 'superseded_by')) d.exec('ALTER TABLE proposals ADD COLUMN superseded_by INTEGER');
   const csCols = d.prepare('PRAGMA table_info(change_sets)').all() as { name: string }[];
   if (!csCols.some((c) => c.name === 'chat_id')) d.exec('ALTER TABLE change_sets ADD COLUMN chat_id TEXT');
+  const jobCols = d.prepare('PRAGMA table_info(ingest_jobs)').all() as { name: string }[];
+  if (!jobCols.some((c) => c.name === 'provider')) d.exec('ALTER TABLE ingest_jobs ADD COLUMN provider TEXT');
 }

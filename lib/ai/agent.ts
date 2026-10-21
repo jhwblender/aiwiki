@@ -2,7 +2,7 @@ import { getProvider, Msg } from './providers';
 import { normalizeCall, runTool, toolDefs, ToolContext } from './tools';
 import type { ChatMsg, ChatResponse } from '../types';
 import { getFile } from '../files';
-import { dropIdentity, prepareFile, registerVersion } from '../ingest';
+import { checkVersion, dropIdentity, prepareFile, recordVersion, type DocIdentity, type VersionInfo } from '../ingest';
 
 const SYSTEM = `You are the assistant built into a company wiki. You help people find information and keep the wiki accurate.
 
@@ -38,7 +38,9 @@ export async function runAgent(opts: {
   user: string;
   currentPath?: string;
   chatId?: string;
-  attachments?: number[]; // file ids attached to the latest message
+  // Files attached to the latest message: a file id, or one with its document identity and version
+  // already worked out (the ingest queue does that before deciding whether to run at all)
+  attachments?: (number | { id: number; identity: DocIdentity; info?: VersionInfo })[];
 }): Promise<ChatResponse> {
   const provider = getProvider(opts.providerId);
   const last = [...opts.history].reverse().find((m) => m.role === 'user');
@@ -59,17 +61,27 @@ export async function runAgent(opts: {
   let reply = '';
 
   // Read attached files before the model starts, and hand their content over with the message
+  // Files read for this message; their versions are recorded once the assistant has finished
+  const handled: { identity: DocIdentity; file: NonNullable<ReturnType<typeof getFile>>; info: VersionInfo }[] = [];
   if (opts.attachments?.length) {
     const sections: string[] = [];
-    for (const id of opts.attachments) {
-      const f = getFile(id);
+    for (const att of opts.attachments) {
+      const f = getFile(typeof att === 'number' ? att : att.id);
       if (!f) continue;
       try {
-        const id = dropIdentity(f.filename);
-        const info = registerVersion(id, f, opts.user);
-        const prepared = await prepareFile(f, (image, prompt) => provider.describeImage(image, prompt), info, f.filename);
-        ctx.files.push({ filename: f.filename, hash: f.hash, storedPath: f.storedPath, version: info.version });
-        trace.push(`Read ${f.filename}${prepared.note ? ` (${prepared.note})` : ''}`);
+        const identity = typeof att === 'number' ? dropIdentity(f.filename) : att.identity;
+        const info = (typeof att !== 'number' && att.info) || checkVersion(identity, f);
+        const prepared = await prepareFile(f, (image, prompt) => provider.describeImage(image, prompt), info, identity.displayName);
+        handled.push({ identity, file: f, info });
+        ctx.files.push({
+          filename: identity.displayName,
+          hash: f.hash,
+          storedPath: f.storedPath,
+          version: info.version,
+          folderLabel: identity.folderLabel,
+          relPath: identity.relPath,
+        });
+        trace.push(`Read ${identity.displayName}${prepared.note ? ` (${prepared.note})` : ''}`);
         sections.push(prepared.section);
       } catch (e: any) {
         trace.push(`Could not read ${f.filename}`);
@@ -108,6 +120,8 @@ export async function runAgent(opts: {
     }
     if (i === 9) reply = res.text || 'I ran out of steps before finishing. Try a narrower request.';
   }
+
+  for (const h of handled) recordVersion(h.identity, h.file, opts.user, h.info);
 
   if (ctx.proposed.size === 0 && CLAIMS_CHANGE.test(reply)) {
     reply += '\n\n_No change was actually suggested, so nothing is waiting for review. Try asking again, more specifically._';

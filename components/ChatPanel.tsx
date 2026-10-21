@@ -125,6 +125,74 @@ export default function ChatPanel({
   const ready = pending.filter((p) => p.status === 'ready' && p.file).map((p) => p.file!);
   const uploading = pending.some((p) => p.status === 'uploading');
 
+  // Hand the files to the background queue: one job each, results show up as suggestions on pages
+  async function fileInBackground() {
+    if (!ready.length || busy || uploading) return;
+    const note = input.trim();
+    const sent: UiMsg = { role: 'user', content: note || 'File these in the background.', attachments: ready };
+    setBusy(true);
+    try {
+      const r = await fetch('/api/ingest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileIds: ready.map((f) => f.id), note: note || undefined, user, currentPath, provider: provider || providers[0]?.id }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Could not queue the files.');
+      const n = ready.length;
+      setMsgs((m) => [
+        ...m,
+        sent,
+        {
+          role: 'assistant',
+          content: `Filing ${n === 1 ? 'this file' : `these ${n} files`} in the background, one at a time. Suggestions appear on the pages as each one is done, and the [Settings page](/settings#background) shows progress.`,
+        },
+      ]);
+      setPending([]);
+      setInput('');
+      void followJobs(d.jobs as number[]);
+    } catch (e: any) {
+      setMsgs((m) => [...m, sent, { role: 'assistant', content: e.message, error: true }]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Watch queued jobs: refresh the page as each finishes, then summarise in the chat
+  async function followJobs(ids: number[]) {
+    const open = new Set(ids);
+    const finished: any[] = [];
+    for (let i = 0; i < 400 && open.size; i++) {
+      await new Promise((r) => setTimeout(r, 3000));
+      let jobs: any[] = [];
+      try {
+        jobs = await (await fetch('/api/ingest', { cache: 'no-store' })).json();
+      } catch {
+        continue;
+      }
+      let changed = false;
+      for (const j of jobs) {
+        if (open.has(j.id) && j.status !== 'queued' && j.status !== 'working') {
+          open.delete(j.id);
+          finished.push(j);
+          changed = true;
+        }
+      }
+      if (changed) onChanged();
+    }
+    if (!finished.length) return;
+    const lines = finished.map((j) => {
+      if (j.status === 'done') {
+        return j.proposed.length
+          ? `- ${j.displayName}: suggestions on ${j.proposed.map((p: string) => `[[${p}]]`).join(', ')}`
+          : `- ${j.displayName}: nothing to add`;
+      }
+      if (j.status === 'skipped') return `- ${j.displayName}: skipped. ${j.detail ?? ''}`;
+      return `- ${j.displayName}: failed. ${j.detail ?? ''} You can try again from the [Settings page](/settings#background).`;
+    });
+    setMsgs((m) => [...m, { role: 'assistant', content: `Background filing finished:\n\n${lines.join('\n')}` }]);
+  }
+
   async function send() {
     const text = input.trim() || (ready.length ? 'Add what is useful from the attached files to the wiki.' : '');
     if (!text || busy || uploading) return;
@@ -332,13 +400,20 @@ export default function ChatPanel({
             }
           }}
         />
-        <button
-          className="btn primary"
-          disabled={busy || uploading || (!input.trim() && !ready.length) || providers.length === 0}
-          onClick={send}
-        >
-          Send
-        </button>
+        <span className="send-group">
+          {ready.length > 0 && (
+            <button className="btn" disabled={busy || uploading || providers.length === 0} onClick={fileInBackground}>
+              File in the background
+            </button>
+          )}
+          <button
+            className="btn primary"
+            disabled={busy || uploading || (!input.trim() && !ready.length) || providers.length === 0}
+            onClick={send}
+          >
+            Send
+          </button>
+        </span>
       </div>
     </aside>
   );

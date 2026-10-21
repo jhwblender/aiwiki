@@ -35,6 +35,15 @@ function pairMarks(seg: Extract<Segment, { type: 'change' }>) {
   return { removed: removed.join('\n\n'), added: added.join('\n\n'), marked };
 }
 
+// Tab text for a suggestion; when two share a summary, the file or person tells them apart
+function tabLabel(p: PendingSet, all: PendingSet[]): string {
+  const short = (t: string, n: number) => (t.length > n ? t.slice(0, n) + '...' : t);
+  const twin = all.some((o) => o !== p && o.summary === p.summary);
+  if (!twin || !p.source) return short(p.summary, 36);
+  const from = p.source.kind === 'file' ? p.source.filename : p.source.user;
+  return `${short(p.summary, 24)} (${short(from ?? '', 20)})`;
+}
+
 // A suggestion to move or remove the whole page
 function OpCard({ op, busy, decide }: { op: PendingOp; busy: boolean; decide: (action: 'approve' | 'reject') => void }) {
   return (
@@ -304,7 +313,7 @@ export default function PageView({
                 <div className="tabs" role="tablist">
                   {data.pending.map((p, i) => (
                     <button key={p.proposalId} role="tab" aria-selected={i === setIdx} className={'tab' + (i === setIdx ? ' on' : '')} onClick={() => setSetIdx(i)}>
-                      {p.summary.length > 36 ? p.summary.slice(0, 36) + '...' : p.summary}
+                      {tabLabel(p, data.pending)}
                     </button>
                   ))}
                 </div>

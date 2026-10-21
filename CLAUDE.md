@@ -25,6 +25,8 @@ Audience: starts with the systems team, eventually the whole company. Most revie
 - **Page structure**: paths nest up to 5 levels; every page lists its sub-pages and sidebar folders open their section. `movePage` in `lib/wiki.ts` moves a page with everything under it and rewrites `[[links]]` and `/wiki/` links on every page in one commit; `movePageWithRecords` in `lib/proposals.ts` carries pending suggestions, sources and structural suggestions along
 - **Structural suggestions**: the assistant's `move_page` and `remove_page` tools stage rows in `page_ops`, shown as a card on the page with Approve and Reject (`/api/ops/:id`, decisions in `op_decisions`). Splits and merges combine these with the normal edit tools
 - **Files (`lib/files.ts`)**: uploads go to `/api/files`, are classified by their first bytes (PDF, docx, text, PNG, JPEG, GIF, WebP; 25 MB, 10 per message) and stored once per SHA-256 under `data/assets/`. Extracted text is cached in `file_text` by hash: PDF text layer via unpdf, scanned pages rendered with @napi-rs/canvas and read by the vision model, Word via mammoth, photos described by `provider.describeImage`. The agent reads attachments before its loop and passes them inside `<<<Attached file>>>` markers as information, not instructions. Each file becomes a `file` source (filename, hash, version, stored path); extra files in one message link through `change_set_sources`. Originals open from the source chip (`/api/sources/:id/file`); photos can be shown on pages with `/api/files/:id`
+- **Documents and versions (`lib/ingest.ts`)**: every file belongs to a document (`drop:<name>` for drops, later `folder:<label>:<path>`), and each distinct content is a version. `checkVersion` decides new, unchanged or changed without writing; `recordVersion` writes only after the assistant finished, so failures can be retried. An unchanged file is pointed out (and skipped in the queue); a changed one is reduced to the paragraphs that changed
+- **Ingest queue (`lib/queue.ts`)**: `ingest_jobs` processed one at a time by an in-process worker, resumed at startup by `instrumentation.ts` (Node-only code lives in `instrumentation-node.ts`). Jobs run the same agent as the chat, with the model picked in the chat. Chat offers "File in the background"; Settings lists recent jobs with Try again
 - **`lib/settings.ts`**: Settings page values (local model address, model, key) stored in SQLite, overriding `.env.local`
 - **`components/`**: `Shell` (mounted once from `app/wiki/layout.tsx` so chat survives navigation), `Sidebar`, `PageView` (inline review), `wordMarks` (changed-word highlights), `ChatPanel`, `SourceChip`, `Md` (markdown plus `[[wiki links]]`)
 
@@ -60,10 +62,9 @@ Audience: starts with the systems team, eventually the whole company. Most revie
 
 ## Roadmap, in order
 
-1. **Ingest queue** shared by all file sources: dedupe by content hash; diff a changed file against its previous version so content is not duplicated
-2. **Local folder watcher** on the server, feeding the same queue
-3. **Companion desktop app** (only needed when the wiki server cannot reach the model; a model on the server itself or on a machine it can reach on the network already works through `LOCAL_LLM_BASE_URL`): watches folders on a user's machine (SharePoint libraries via the OneDrive sync client, with Files On-Demand off for that folder), uploads to the queue with the user's identity, and relays calls to a local model so a remote wiki can use AI on the user's own computer
-4. **Per-folder visibility**: "feeds wiki" or "personal only". Personal-only content is searchable by that user's chat but never proposed as a wiki edit
-5. **Conflict handling**: when sources disagree, the proposal cites both and flags the conflict instead of silently picking one
-6. **Bulk review** for large drops: a per-source summary and one approval for a whole change set across pages
-7. **Real auth and roles** (likely Entra ID SSO), including who can approve
+1. **Local folder watcher** on the server, feeding the same queue
+2. **Companion desktop app** (only needed when the wiki server cannot reach the model; a model on the server itself or on a machine it can reach on the network already works through `LOCAL_LLM_BASE_URL`): watches folders on a user's machine (SharePoint libraries via the OneDrive sync client, with Files On-Demand off for that folder), uploads to the queue with the user's identity, and relays calls to a local model so a remote wiki can use AI on the user's own computer
+3. **Per-folder visibility**: "feeds wiki" or "personal only". Personal-only content is searchable by that user's chat but never proposed as a wiki edit
+4. **Conflict handling**: when sources disagree, the proposal cites both and flags the conflict instead of silently picking one
+5. **Bulk review** for large drops: a per-source summary and one approval for a whole change set across pages
+6. **Real auth and roles** (likely Entra ID SSO), including who can approve
