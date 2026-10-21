@@ -16,6 +16,7 @@ function pathFrom(pathname: string): string {
 
 export default function Shell() {
   const path = pathFrom(usePathname() || '');
+  // The name is set on the Settings page and kept in this browser
   const [user, setUserState] = useState('');
   const [version, setVersion] = useState(0);
   const [chatOpen, setChatOpen] = useState(false);
@@ -45,12 +46,6 @@ export default function Shell() {
   const pages = useMemo(() => new Map(items.map((i) => [i.path, i])), [items]);
   const pendingTotal = items.reduce((n, i) => n + i.pending, 0);
 
-  const setUser = (u: string) => {
-    setUserState(u);
-    try {
-      localStorage.setItem('wiki-user', u);
-    } catch {}
-  };
   const bump = useCallback(() => setVersion((v) => v + 1), []);
   const effectiveUser = user.trim() || 'anonymous';
 
@@ -87,7 +82,6 @@ export default function Shell() {
           items={items}
           pendingTotal={pendingTotal}
           user={user}
-          setUser={setUser}
           onNavigate={() => setSideOpen(false)}
         />
         <PageView path={path} user={effectiveUser} version={version} onChanged={bump} />

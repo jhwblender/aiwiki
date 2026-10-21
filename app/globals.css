@@ -69,6 +69,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .whoami { display: flex; flex-direction: column; gap: 4px; padding: 10px 14px; border-top: 1px solid var(--rule); font-size: 12px; color: var(--ink-soft); }
 .whoami-name { display: flex; flex-direction: column; gap: 4px; }
 .settings-link { font-size: 13px; align-self: flex-start; }
+.whoami strong { color: var(--ink); font-weight: 600; }
+.name-missing { color: var(--rem-ink); }
 .whoami input { padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); font-size: 14px; color: var(--ink); }
 
 /* ---------- page ---------- */

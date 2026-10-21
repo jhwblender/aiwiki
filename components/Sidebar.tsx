@@ -58,14 +58,12 @@ export default function Sidebar({
   items,
   pendingTotal,
   user,
-  setUser,
   onNavigate,
 }: {
   current: string;
   items: PageListItem[];
   pendingTotal: number;
   user: string;
-  setUser: (u: string) => void;
   onNavigate: () => void;
 }) {
   const router = useRouter();
@@ -141,10 +139,15 @@ export default function Sidebar({
         )}
       </nav>
       <div className="whoami">
-        <label className="whoami-name">
-          <span>Your name</span>
-          <input value={user} onChange={(e) => setUser(e.target.value)} placeholder="Name shown on approvals" />
-        </label>
+        {user.trim() ? (
+          <span>
+            Approving as <strong>{user.trim()}</strong>
+          </span>
+        ) : (
+          <Link href="/settings#your-name" className="name-missing">
+            Set your name so approvals show who made them
+          </Link>
+        )}
         <Link href="/settings" className="settings-link">
           Settings
         </Link>

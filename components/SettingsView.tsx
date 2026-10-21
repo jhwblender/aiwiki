@@ -22,6 +22,29 @@ export default function SettingsView() {
   const [busy, setBusy] = useState<'' | 'test' | 'save'>('');
   const [test, setTest] = useState<TestResult | null>(null);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+  const [name, setName] = useState('');
+  const [savedName, setSavedName] = useState('');
+  const [nameNote, setNameNote] = useState('');
+
+  useEffect(() => {
+    try {
+      const n = localStorage.getItem('wiki-user') || '';
+      setName(n);
+      setSavedName(n);
+    } catch {}
+  }, []);
+
+  function saveName() {
+    const n = name.trim().slice(0, 60);
+    try {
+      localStorage.setItem('wiki-user', n);
+      setSavedName(n);
+      setName(n);
+      setNameNote(n ? `Saved. Your edits and approvals will show ${n}.` : 'Name removed. Edits and approvals will show anonymous.');
+    } catch {
+      setNameNote('This browser would not save the name.');
+    }
+  }
 
   function load(s: Settings) {
     setSaved(s);
@@ -99,6 +122,31 @@ export default function SettingsView() {
             )
           ) : (
             <>
+              <section className="card" id="your-name">
+                <h2>Your name</h2>
+                <p className="muted small-text">Shown on your edits and approvals. It is saved in this browser only.</p>
+                <label className="field">
+                  <span>Name</span>
+                  <input
+                    value={name}
+                    onChange={(e) => {
+                      setName(e.target.value);
+                      setNameNote('');
+                    }}
+                    onKeyDown={(e) => e.key === 'Enter' && saveName()}
+                    placeholder="For example Jesse Wood"
+                    autoComplete="name"
+                    maxLength={60}
+                  />
+                </label>
+                <div className="editor-bar">
+                  <button className="btn primary" disabled={name.trim() === savedName} onClick={saveName}>
+                    Save name
+                  </button>
+                  {nameNote && <span className="muted small-text">{nameNote}</span>}
+                </div>
+              </section>
+
               <section className="card">
                 <h2>Local AI model</h2>
                 <p className="muted small-text">
