@@ -168,6 +168,85 @@ export async function writePage(p: string, content: string, author: string, mess
   });
 }
 
+// ---------- moving ----------
+
+function safePath(target: string): string | null {
+  try {
+    return normalizePath(target);
+  } catch {
+    return null;
+  }
+}
+
+function movedPath(p: string, from: string, to: string): string | null {
+  if (p === from) return to;
+  if (p.startsWith(from + '/')) return to + p.slice(from.length);
+  return null;
+}
+
+// Point [[links]] and /wiki/ links at a page's new path. Labels are kept.
+export function rewriteLinks(md: string, from: string, to: string): string {
+  return md
+    .replace(/\[\[([^\]|]+)(\|[^\]]+)?\]\]/g, (whole, target: string, label = '') => {
+      const p = safePath(target);
+      const next = p && movedPath(p, from, to);
+      return next ? `[[${next}${label}]]` : whole;
+    })
+    .replace(/\]\(\/wiki\/([^)\s#]+)/g, (whole, target: string) => {
+      const next = movedPath(target, from, to);
+      return next ? `](/wiki/${next}` : whole;
+    });
+}
+
+// Which pages a move would touch, checked before anything is written.
+export async function planMove(from: string, to: string): Promise<{ moves: [string, string][] }> {
+  await ensureInit();
+  if (from === 'index') throw new Error('The home page cannot be moved.');
+  if (to === from) throw new Error('The new path is the same as the old one.');
+  if (to.startsWith(from + '/')) throw new Error('A page cannot be moved inside itself.');
+  const all = await listPageFiles();
+  const existing = new Set(all);
+  const moves = all.flatMap((p) => {
+    const next = movedPath(p, from, to);
+    return next ? [[p, next] as [string, string]] : [];
+  });
+  if (!moves.length) throw new Error(`There is no page at "${from}".`);
+  for (const [, next] of moves) {
+    normalizePath(next); // throws when the new path is too deep
+    if (existing.has(next)) throw new Error(`A page already exists at "${next}".`);
+  }
+  return { moves };
+}
+
+// Move a page and every page under it, fix links everywhere, and record it as one change.
+export async function movePage(from: string, to: string, author: string, message: string): Promise<[string, string][]> {
+  const { moves } = await planMove(from, to);
+  await serial(async () => {
+    const touched: string[] = [];
+    for (const [oldPath, newPath] of moves) {
+      const content = await fs.readFile(fileFor(oldPath), 'utf8');
+      await fs.mkdir(path.dirname(fileFor(newPath)), { recursive: true });
+      await fs.writeFile(fileFor(newPath), content);
+      await fs.rm(fileFor(oldPath));
+      db().prepare('DELETE FROM pages_fts WHERE path = ?').run(oldPath);
+      touched.push(oldPath + '.md', newPath + '.md');
+    }
+    for (const p of await listPageFiles()) {
+      const content = await fs.readFile(fileFor(p), 'utf8');
+      const next = rewriteLinks(content, from, to);
+      if (next !== content) {
+        await fs.writeFile(fileFor(p), next);
+        touched.push(p + '.md');
+      }
+      indexPage(p, next);
+    }
+    await git.raw(['add', '-A', '--', ...new Set(touched)]);
+    const who = author.replace(/[<>\n]/g, '').trim() || 'anonymous';
+    await git.commit(message, undefined, { '--author': `${who} <${who.replace(/\s+/g, '.')}@wiki.local>` });
+  });
+  return moves;
+}
+
 export async function deletePage(p: string, author: string): Promise<void> {
   await ensureInit();
   await serial(async () => {

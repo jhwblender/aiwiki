@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import type { PageData, PendingSet, Segment } from '@/lib/types';
-import Md from './Md';
+import Md, { slugify } from './Md';
 import SourceChip from './SourceChip';
 import { markWords, rehypeMarks } from './wordMarks';
 
@@ -154,8 +154,21 @@ export default function PageView({
     });
   }
 
+  async function move() {
+    const next = window.prompt(
+      'Move or rename this page. Type its new path, for example systems/networking/vpn. Pages under it move too, and links to it are updated.',
+      path,
+    );
+    const to = next ? slugify(next) : '';
+    if (!to || to === path) return;
+    await guarded(async () => {
+      const d = await post('/api/page/move', { from: path, to, user });
+      router.push(`/wiki/${d.path}`);
+    });
+  }
+
   async function remove() {
-    if (!window.confirm('Delete this page? The history stays in git.')) return;
+    if (!window.confirm('Delete this page? Earlier versions are kept and can be restored.')) return;
     await guarded(async () => {
       const r = await fetch(`/api/page?path=${encodeURIComponent(path)}&user=${encodeURIComponent(user)}`, { method: 'DELETE' });
       if (!r.ok) throw new Error((await r.json()).error || 'Delete failed');
@@ -182,6 +195,11 @@ export default function PageView({
             <button className="btn" onClick={startEdit}>
               Edit
             </button>
+            {data.path !== 'index' && (
+              <button className="btn quiet" onClick={move}>
+                Move
+              </button>
+            )}
             {data.exists && (
               <button className="btn quiet" onClick={remove}>
                 Delete

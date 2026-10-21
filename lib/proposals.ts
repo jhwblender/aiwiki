@@ -1,5 +1,5 @@
 import { db } from './db';
-import { readPage, writePage, titleFor } from './wiki';
+import { movePage, readPage, rewriteLinks, writePage, titleFor } from './wiki';
 import { fromBlocks, hunkCount, normalize, rebase, resolveHunk, segments, toBlocks } from './diff';
 import type { PageSourceRef, PendingSet, SourceInfo } from './types';
 
@@ -225,6 +225,33 @@ export function sourceLabel(s: SourceInfo | null): string {
   if (s.kind === 'chat') return `chat with ${s.user}`;
   if (s.kind === 'file') return `${s.filename ?? 'file'}${s.folderLabel ? ` (${s.folderLabel})` : ''}`;
   return s.user;
+}
+
+// ---------- moving pages ----------
+
+// Move pages (a person's move, or an approved suggestion) and carry their pending
+// suggestions and recorded sources along. Links inside pending suggestions are rewritten too,
+// in both the suggested text and the text it was written against, so they still line up.
+export async function movePageWithRecords(from: string, to: string, user: string, message: string) {
+  const moves = await movePage(from, to, user, message);
+  const d = db();
+  for (const [oldPath, newPath] of moves) {
+    d.prepare("UPDATE proposals SET page_path = ? WHERE page_path = ? AND status = 'pending'").run(newPath, oldPath);
+    d.prepare('UPDATE page_sources SET page_path = ? WHERE page_path = ?').run(newPath, oldPath);
+  }
+  const rows = d.prepare("SELECT id, new_content, base_content FROM proposals WHERE status = 'pending'").all() as {
+    id: number;
+    new_content: string;
+    base_content: string | null;
+  }[];
+  for (const r of rows) {
+    const next = rewriteLinks(r.new_content, from, to);
+    const base = r.base_content === null ? null : rewriteLinks(r.base_content, from, to);
+    if (next !== r.new_content || base !== r.base_content) {
+      d.prepare('UPDATE proposals SET new_content = ?, base_content = ? WHERE id = ?').run(next, base, r.id);
+    }
+  }
+  return moves;
 }
 
 // ---------- deciding ----------

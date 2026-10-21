@@ -262,7 +262,37 @@ try {
   const section = await getPage('systems');
   check('a section without its own page lists its sub-pages', !section.exists && section.children.some((c) => c.path === 'systems/onboarding' && c.exists));
 
-  // 16. Search finds approved content
+  // 16. Moving a page takes its sub-pages, pending suggestions and incoming links along
+  await api('PUT', '/api/page', { path: 'systems/onboarding/first-week', content: '# First week\n\nShadow the on-call engineer.\n', user: 'Jordan' });
+  await api('PUT', '/api/page', {
+    path: 'team/handbook',
+    content: '# Handbook\n\nSee [[systems/onboarding]], [[systems/onboarding/first-week|week one]] and [the guide](/wiki/systems/onboarding).\n',
+    user: 'Jordan',
+  });
+  await chat('Add the team lunch day', 'Alex', 'local', 'e2e-chat-move');
+  const beforeMove = (await getPage('systems/onboarding')).pending.length;
+  const mv = await api('POST', '/api/page/move', { from: 'systems/onboarding', to: 'team/onboarding', user: 'Kim' });
+  check('move succeeds', mv.status === 200 && mv.data.moved === 2, JSON.stringify(mv.data));
+  check('the page and its sub-page are at the new path',
+    fs.existsSync(path.join(wikiDir, 'team/onboarding.md')) && fs.existsSync(path.join(wikiDir, 'team/onboarding/first-week.md')) &&
+    !fs.existsSync(path.join(wikiDir, 'systems/onboarding.md')));
+  const handbook = pageFile('team/handbook');
+  check('links to the moved pages are rewritten',
+    handbook.includes('[[team/onboarding]]') && handbook.includes('[[team/onboarding/first-week|week one]]') && handbook.includes('(/wiki/team/onboarding)'), handbook);
+  check('the home page link is rewritten', pageFile('index').includes('[[team/onboarding]]'));
+  const movedPage = await getPage('team/onboarding');
+  check('pending suggestions follow the page', beforeMove === 1 && movedPage.pending.length === 1 && (await getPage('systems/onboarding')).pending.length === 0);
+  check('recorded sources follow the page', movedPage.sources.length > 0);
+  check('the move is recorded under the mover', git('log', '-1', '--format=%an %s').trim() === 'Kim Move systems/onboarding to team/onboarding');
+  check('search finds the page at its new path', (await api('GET', '/api/search?q=shadow')).data.some((h) => h.path === 'team/onboarding/first-week'));
+  check('moving onto an existing page is refused', (await api('POST', '/api/page/move', { from: 'team/handbook', to: 'team/onboarding', user: 'Kim' })).status === 400);
+  check('moving a page inside itself is refused', (await api('POST', '/api/page/move', { from: 'team', to: 'team/sub', user: 'Kim' })).status === 400);
+  check('the home page cannot be moved', (await api('POST', '/api/page/move', { from: 'index', to: 'home', user: 'Kim' })).status === 400);
+  const lunchMoved = (await getPage('team/onboarding')).pending[0];
+  const ok2 = await api('POST', `/api/proposals/${lunchMoved.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
+  check('a moved suggestion can still be approved', ok2.status === 200 && pageFile('team/onboarding').includes('Team lunch is on Mondays.'), JSON.stringify(ok2.data));
+
+  // 17. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {
