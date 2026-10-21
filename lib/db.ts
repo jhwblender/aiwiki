@@ -150,6 +150,26 @@ function migrate(d: Database.Database) {
       finished_at TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_ingest_jobs_status ON ingest_jobs(status, id);
+    -- Folders on the server that feed the wiki (see lib/watcher.ts) and the files seen in them
+    CREATE TABLE IF NOT EXISTS watched_folders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      label TEXT NOT NULL UNIQUE,
+      path TEXT NOT NULL,              -- server path; shown on Settings only, never in sources
+      user TEXT NOT NULL,              -- recorded as the contributor of its files
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      last_scan_at TEXT,
+      last_error TEXT
+    );
+    CREATE TABLE IF NOT EXISTS watched_files (
+      folder_id INTEGER NOT NULL REFERENCES watched_folders(id),
+      rel_path TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      mtime_ms INTEGER NOT NULL,
+      hash TEXT NOT NULL,
+      seen_at TEXT NOT NULL,
+      PRIMARY KEY (folder_id, rel_path)
+    );
     -- Extra sources of a change set, when one message brought several files
     CREATE TABLE IF NOT EXISTS change_set_sources (
       change_set_id INTEGER NOT NULL REFERENCES change_sets(id),

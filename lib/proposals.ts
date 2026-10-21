@@ -246,7 +246,10 @@ export function sourcesForPage(pagePath: string): PageSourceRef[] {
 export function sourceLabel(s: SourceInfo | null): string {
   if (!s) return 'unknown source';
   if (s.kind === 'chat') return `chat with ${s.user}`;
-  if (s.kind === 'file') return `${s.filename ?? 'file'}${s.folderLabel ? ` (${s.folderLabel})` : ''}`;
+  if (s.kind === 'file') {
+    const where = s.folderLabel ? `${s.folderLabel}: ${s.relPath ?? s.filename}, ` : '';
+    return `${s.filename ?? 'file'} (${where}version ${s.version}, from ${s.user}${s.contentHash ? `, content ${s.contentHash.slice(0, 12)}` : ''})`;
+  }
   return s.user;
 }
 

@@ -63,8 +63,8 @@ export default function BackgroundJobs() {
     <section className="card" id="background">
       <h2>Background filing</h2>
       <p className="muted small-text">
-        Files sent with &quot;File in the background&quot; are read one at a time. What they add shows up as suggestions on the pages, to approve
-        there.
+        Files sent with &quot;File in the background&quot; are read one at a time. What they add shows up as suggestions on the pages, to
+        approve there.
       </p>
       {error && <div className="error">{error}</div>}
       {!jobs ? (

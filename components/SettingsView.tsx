@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import BackgroundJobs from './BackgroundJobs';
+import WatchedFolders from './WatchedFolders';
 
 type Settings = {
   local: { baseUrl: string; model: string; visionModel: string; hasApiKey: boolean };
@@ -310,6 +311,8 @@ export default function SettingsView() {
                     : 'Not set up. Add ANTHROPIC_API_KEY to .env.local and restart the wiki to use Claude.'}
                 </p>
               </section>
+
+              <WatchedFolders />
 
               <BackgroundJobs />
             </>

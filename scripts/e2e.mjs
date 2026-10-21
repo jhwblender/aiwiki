@@ -75,6 +75,8 @@ const server = spawn(path.join(ROOT, 'node_modules/.bin/next'), ['dev', '-p', St
     ANTHROPIC_API_KEY: 'mock-key',
     ANTHROPIC_BASE_URL: `http://127.0.0.1:${MOCK_PORT}`,
     ANTHROPIC_MODEL: 'claude-sonnet-5-5',
+    // the checks trigger folder scans themselves
+    WATCH_INTERVAL_SECONDS: '3600',
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -438,7 +440,53 @@ try {
   check('the retried job succeeds', job3b?.status === 'done', JSON.stringify(job3b));
   for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
-  // 23. Search finds approved content
+  // 23. Watched folders: existing and changed documents are filed with the folder label and relative path
+  const watchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aiwiki-watch-'));
+  const writeOld = (rel, text) => {
+    const full = path.join(watchDir, rel);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, text);
+    const past = new Date(Date.now() - 60_000); // older than the settle time, as if synced a minute ago
+    fs.utimesSync(full, past, past);
+  };
+  writeOld('Safety/procedures.txt', 'FACT: The fire drill is in March.\n');
+  writeOld('~$procedures.docx', 'lock file');
+  writeOld('notes.exe', 'not a document');
+  const added = await api('POST', '/api/folders', { label: 'Ops share', path: watchDir, user: 'Alex', fileExisting: true });
+  check('a folder can be watched', added.status === 200 && added.data.fileCount === 1, JSON.stringify(added.data));
+  const folderJob = await waitJob((await api('GET', '/api/ingest')).data.find((j) => j.displayName === 'procedures.txt')?.id);
+  check('a document in the folder is filed', folderJob?.status === 'done' && folderJob.folderLabel === 'Ops share' && folderJob.relPath === 'Safety/procedures.txt', JSON.stringify(folderJob));
+  let fSet = (await getPage('team/onboarding')).pending.find((p) => p.source?.filename === 'procedures.txt');
+  check('its source names the folder and the path inside it', fSet?.source?.folderLabel === 'Ops share' && fSet.source.relPath === 'Safety/procedures.txt' && fSet.source.version === 1);
+  check('the full server path never appears in sources', !JSON.stringify(await getPage('team/onboarding')).includes(watchDir));
+  await api('POST', `/api/proposals/${fSet.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
+  check('the approval names the folder file', git('log', '-1', '--format=%B').includes('procedures.txt (Ops share: Safety/procedures.txt, version 1, from Alex'), git('log', '-1', '--format=%B'));
+  const folderId = added.data.id;
+  check('an unchanged folder sends nothing', (await api('POST', `/api/folders/${folderId}/scan`)).data.queued === 0);
+  const past = new Date(Date.now() - 30_000);
+  fs.utimesSync(path.join(watchDir, 'Safety/procedures.txt'), past, past);
+  check('a file that was only touched sends nothing', (await api('POST', `/api/folders/${folderId}/scan`)).data.queued === 0);
+  writeOld('Safety/procedures.txt', 'FACT: The fire drill is in April.\n');
+  check('a changed file is sent again', (await api('POST', `/api/folders/${folderId}/scan`)).data.queued === 1);
+  const changedJob = await waitJob((await api('GET', '/api/ingest')).data.find((j) => j.displayName === 'procedures.txt' && j.status !== 'done' && j.status !== 'skipped')?.id
+    ?? (await api('GET', '/api/ingest')).data[0].id);
+  fSet = (await getPage('team/onboarding')).pending.find((p) => p.source?.filename === 'procedures.txt');
+  check('the changed file is filed as version 2', changedJob?.status === 'done' && fSet?.source?.version === 2, JSON.stringify({ changedJob, src: fSet?.source }));
+  if (fSet) await api('POST', `/api/proposals/${fSet.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  writeOld('Safety/fresh.txt', 'FACT: First aid kits are by each exit.\n');
+  const quiet = await api('POST', '/api/folders', { label: 'Quiet share', path: watchDir, user: 'Alex', fileExisting: false });
+  check('a folder can start without filing what is already there', quiet.status === 200 && quiet.data.fileCount === 2 && !(await api('GET', '/api/ingest')).data.some((j) => j.folderLabel === 'Quiet share'));
+  writeOld('Safety/new-rule.txt', 'FACT: Visitors sign in at reception.\n');
+  check('later documents in that folder are filed', (await api('POST', `/api/folders/${quiet.data.id}/scan`)).data.queued === 1);
+  check('a missing folder is refused clearly', /cannot find the folder/.test((await api('POST', '/api/folders', { label: 'Nope', path: '/no/such/dir', user: 'Alex' })).data.error ?? ''));
+  check('the same label cannot be used twice', (await api('POST', '/api/folders', { label: 'Ops share', path: watchDir, user: 'Alex' })).status === 400);
+  await waitJob((await api('GET', '/api/ingest')).data[0].id);
+  for (const f of (await api('GET', '/api/folders')).data) await api('DELETE', `/api/folders/${f.id}`);
+  check('folders can stop being watched', (await api('GET', '/api/folders')).data.length === 0);
+  for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  fs.rmSync(watchDir, { recursive: true, force: true });
+
+  // 24. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {
