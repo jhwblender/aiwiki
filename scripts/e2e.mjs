@@ -475,10 +475,11 @@ try {
   fSet = (await getPage('team/onboarding')).pending.find((p) => p.source?.filename === 'procedures.txt');
   check('the changed file is filed as version 2', changedJob?.status === 'done' && fSet?.source?.version === 2, JSON.stringify({ changedJob, src: fSet?.source }));
   if (fSet) await api('POST', `/api/proposals/${fSet.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
-  writeOld('Safety/fresh.txt', 'FACT: First aid kits are by each exit.\n');
-  const quiet = await api('POST', '/api/folders', { label: 'Quiet share', path: watchDir, user: 'Alex', fileExisting: false });
+  writeOld('Quiet/fresh.txt', 'FACT: First aid kits are by each exit.\n');
+  writeOld('Quiet/old.txt', 'FACT: The old rule.\n');
+  const quiet = await api('POST', '/api/folders', { label: 'Quiet share', path: path.join(watchDir, 'Quiet'), user: 'Alex', fileExisting: false });
   check('a folder can start without filing what is already there', quiet.status === 200 && quiet.data.fileCount === 2 && !(await api('GET', '/api/ingest')).data.some((j) => j.folderLabel === 'Quiet share'));
-  writeOld('Safety/new-rule.txt', 'FACT: Visitors sign in at reception.\n');
+  writeOld('Quiet/new-rule.txt', 'FACT: Visitors sign in at reception.\n');
   check('later documents in that folder are filed', (await api('POST', `/api/folders/${quiet.data.id}/scan`)).data.queued === 1);
   check('a missing folder is refused clearly', /cannot find the folder/.test((await api('POST', '/api/folders', { label: 'Nope', path: '/no/such/dir', user: 'Alex' })).data.error ?? ''));
   check('the same label cannot be used twice', (await api('POST', '/api/folders', { label: 'Ops share', path: watchDir, user: 'Alex' })).status === 400);
@@ -546,7 +547,42 @@ try {
   check('an unknown request says so', (await fetch(`${BASE}/api/chat/runs/nope`)).status === 404);
   for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
-  // 27. Search finds approved content
+  // 27. Watched folders that are renamed, nested or added twice
+  const nest_base = fs.mkdtempSync(path.join(os.tmpdir(), 'aiwiki-nest-'));
+  const nest_put = (rel, text) => {
+    const full = path.join(nest_base, rel);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, text);
+    const past = new Date(Date.now() - 60_000);
+    fs.utimesSync(full, past, past);
+  };
+  nest_put('nest_outer/a.txt', 'FACT: Outer fact one.\n');
+  nest_put('nest_outer/nest_inner/b.txt', 'FACT: Inner fact two.\n');
+  const nest_outer = await api('POST', '/api/folders', { label: 'Outer', path: path.join(nest_base, 'nest_outer'), user: 'Alex', fileExisting: false });
+  const nest_inner = await api('POST', '/api/folders', { label: 'Inner', path: path.join(nest_base, 'nest_outer/nest_inner'), user: 'Alex', fileExisting: false });
+  const nest_listed = (await api('GET', '/api/folders')).data;
+  check('nesting is shown on both folders', nest_listed.find((f) => f.label === 'Inner')?.insideOf === 'Outer' && nest_listed.find((f) => f.label === 'Outer')?.contains.includes('Inner'), JSON.stringify(nest_listed));
+  nest_put('nest_outer/nest_inner/b.txt', 'FACT: Inner fact two, changed.\n');
+  const nest_qOuter = (await api('POST', `/api/folders/${nest_outer.data.id}/scan`)).data.queued;
+  const nest_qInner = (await api('POST', `/api/folders/${nest_inner.data.id}/scan`)).data.queued;
+  check('a file in a nested folder is filed once, by the nest_inner folder', nest_qOuter === 0 && nest_qInner === 1, JSON.stringify({ nest_qOuter, nest_qInner }));
+  check('the same folder cannot be watched twice', /already watched as "Outer"/.test((await api('POST', '/api/folders', { label: 'Again', path: path.join(nest_base, 'nest_outer'), user: 'Alex' })).data.error ?? ''));
+  fs.renameSync(path.join(nest_base, 'nest_outer'), path.join(nest_base, 'renamed'));
+  await api('POST', `/api/folders/${nest_outer.data.id}/scan`);
+  const nest_lost = (await api('GET', '/api/folders')).data.find((f) => f.label === 'Outer');
+  check('a renamed folder is reported, not treated as empty', /can no longer be found/.test(nest_lost?.lastError ?? ''), JSON.stringify(nest_lost));
+  const nest_repoint = await api('PATCH', `/api/folders/${nest_outer.data.id}`, { path: path.join(nest_base, 'renamed') });
+  check('a folder can be pointed at its new location', nest_repoint.status === 200 && !(await api('GET', '/api/folders')).data.find((f) => f.label === 'Outer').lastError);
+  // the inner folder moved along with it, so the outer one now sees its file; it is already filed and skipped
+  const afterMove = (await api('POST', `/api/folders/${nest_outer.data.id}/scan`)).data.queued;
+  const afterJobs = afterMove ? [await waitJob((await api('GET', '/api/ingest')).data[0].id)] : [];
+  check('nothing is filed again after pointing it at the new location', afterJobs.every((j) => j?.status === 'skipped'), JSON.stringify({ afterMove, afterJobs }));
+  await waitJob((await api('GET', '/api/ingest')).data[0].id);
+  for (const f of (await api('GET', '/api/folders')).data) await api('DELETE', `/api/folders/${f.id}`);
+  for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  fs.rmSync(nest_base, { recursive: true, force: true });
+
+  // 28. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {

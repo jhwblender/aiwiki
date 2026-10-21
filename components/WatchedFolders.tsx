@@ -10,6 +10,8 @@ type Folder = {
   lastScanAt: string | null;
   lastError: string | null;
   fileCount: number;
+  insideOf: string | null;
+  contains: string[];
 };
 
 function ago(iso: string | null) {
@@ -99,6 +101,15 @@ export default function WatchedFolders() {
                   {f.fileCount} document{f.fileCount === 1 ? '' : 's'}, {ago(f.lastScanAt)}
                   {f.user && f.user !== 'anonymous' ? `, filed as ${f.user}` : ''}
                 </div>
+                {f.insideOf && (
+                  <div className="muted small-text">Inside &quot;{f.insideOf}&quot;. Its documents are filed under this folder only.</div>
+                )}
+                {f.contains.length > 0 && (
+                  <div className="muted small-text">
+                    Leaves out {f.contains.map((c) => `"${c}"`).join(', ')}, which {f.contains.length > 1 ? 'are' : 'is'} watched
+                    separately.
+                  </div>
+                )}
                 {f.lastError && <div className="small-text error-text">{f.lastError}</div>}
               </div>
               <div className="folder-actions">
@@ -114,6 +125,22 @@ export default function WatchedFolders() {
                   }
                 >
                   Check now
+                </button>
+                <button
+                  className="btn small quiet"
+                  disabled={busy}
+                  onClick={() => {
+                    const next = window.prompt(`New location of "${f.label}" on the wiki server:`, f.path);
+                    if (next && next.trim() !== f.path) {
+                      call(
+                        `/api/folders/${f.id}`,
+                        { method: 'PATCH', body: JSON.stringify({ path: next }) },
+                        () => `"${f.label}" now points to its new location.`,
+                      );
+                    }
+                  }}
+                >
+                  Change folder
                 </button>
                 <button
                   className="btn small quiet"

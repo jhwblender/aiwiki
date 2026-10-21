@@ -105,7 +105,9 @@ async function runJob(row: any) {
   const info = checkVersion(identity, f);
   // Nothing new: do not spend a model call on it
   if (info.status === 'unchanged') return finish(row.id, 'skipped', `Unchanged since ${day(info.previous!.at)}.`);
-  if (info.status === 'new' && info.duplicateOf) {
+  // The same content already filed under another name or folder (a copy, a renamed subfolder, or
+  // a folder watched inside another): it is in the wiki already
+  if (info.duplicateOf) {
     // Remember this name too, so a later change to it is compared against this content
     recordVersion(identity, f, row.user, info);
     return finish(row.id, 'skipped', `Same content as "${info.duplicateOf.displayName}", added ${day(info.duplicateOf.at)}.`);
