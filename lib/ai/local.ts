@@ -121,12 +121,54 @@ export function localProvider(s: LocalModelSettings): Provider {
       const msg = data.choices?.[0]?.message ?? {};
       return { text: msg.content ?? '', toolCalls: parseToolCalls(msg) };
     },
+    describeImage(image, prompt) {
+      return describeLocalImage(s, image, prompt);
+    },
   };
+}
+
+export async function describeLocalImage(s: LocalModelSettings, image: { data: Buffer; mime: string }, prompt: string): Promise<string> {
+  const model = s.visionModel || s.model;
+  const data = await localRequest(
+    s,
+    '/chat/completions',
+    {
+      model,
+      temperature: 0,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: `data:${image.mime};base64,${image.data.toString('base64')}` } },
+          ],
+        },
+      ],
+    },
+    300,
+  );
+  const text = String(data.choices?.[0]?.message?.content ?? '').trim();
+  if (!text) throw new Error(`${model} returned nothing for the image. It may not be able to read images; set a vision model on the Settings page.`);
+  return text;
 }
 
 // ---------- connection test (Settings page) ----------
 
-export type TestStep = { label: string; status: 'passed' | 'failed' | 'skipped'; detail: string };
+// optional steps do not stop the assistant from working, so they do not fail the whole test
+export type TestStep = { label: string; status: 'passed' | 'failed' | 'skipped'; detail: string; optional?: boolean };
+
+// A small picture with one word on it, to check the model can actually read images
+async function wordPicture(word: string): Promise<Buffer> {
+  const { createCanvas } = await import('@napi-rs/canvas');
+  const canvas = createCanvas(320, 120);
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, 320, 120);
+  g.fillStyle = '#000000';
+  g.font = 'bold 64px sans-serif';
+  g.fillText(word, 40, 85);
+  return canvas.toBuffer('image/png');
+}
 
 export async function testLocalModel(s: LocalModelSettings): Promise<{ ok: boolean; steps: TestStep[]; models: string[] }> {
   const steps: TestStep[] = [];
@@ -201,5 +243,28 @@ export async function testLocalModel(s: LocalModelSettings): Promise<{ ok: boole
     steps.push({ label: 'Use wiki tools', status: 'failed', detail: e.message });
   }
 
-  return { ok: steps.every((st) => st.status === 'passed'), steps, models };
+  // 5. Photos and scanned pages need a model that can see images
+  const visionLabel = 'Read photos (optional)';
+  const visionModel = s.visionModel || s.model;
+  if (s.visionModel && models.length && !models.includes(s.visionModel)) {
+    steps.push({ label: visionLabel, status: 'failed', optional: true, detail: `${s.visionModel} is not on this server. Available: ${models.join(', ')}.` });
+  } else {
+    try {
+      const answer = await describeLocalImage(s, { data: await wordPicture('WIKI'), mime: 'image/png' }, 'What single word is written in this image? Reply with just the word.');
+      if (/wiki/i.test(answer)) {
+        steps.push({ label: visionLabel, status: 'passed', optional: true, detail: `${visionModel} can read images, so photos and scanned PDFs work.` });
+      } else {
+        steps.push({
+          label: visionLabel,
+          status: 'failed',
+          optional: true,
+          detail: `${visionModel} could not read a test image (it answered "${answer.slice(0, 60)}"). Text files, PDFs and Word documents still work. For photos, set a vision model such as qwen2.5vl.`,
+        });
+      }
+    } catch (e: any) {
+      steps.push({ label: visionLabel, status: 'failed', optional: true, detail: `${e.message} Text files, PDFs and Word documents still work.` });
+    }
+  }
+
+  return { ok: steps.every((st) => st.status === 'passed' || st.optional), steps, models };
 }

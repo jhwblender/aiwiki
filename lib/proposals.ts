@@ -51,6 +51,7 @@ function rowToSource(r: any): SourceInfo | null {
     version: r.version,
     note: r.note,
     detectedAt: r.detected_at,
+    hasFile: r.kind === 'file' && !!r.stored_path,
   };
 }
 
@@ -66,6 +67,17 @@ export function createChangeSet(sourceId: number, summary: string, createdBy: st
     .prepare('INSERT INTO change_sets (source_id, summary, created_by, created_at, chat_id) VALUES (?, ?, ?, ?, ?)')
     .run(sourceId, summary, createdBy, now(), chatId ?? null);
   return Number(r.lastInsertRowid);
+}
+
+// A message with several files: the change set's first file is its main source, the rest are linked here
+export function linkExtraSource(changeSetId: number, sourceId: number) {
+  db().prepare('INSERT OR IGNORE INTO change_set_sources (change_set_id, source_id) VALUES (?, ?)').run(changeSetId, sourceId);
+}
+
+function extraSourceIds(changeSetId: number): number[] {
+  return (db().prepare('SELECT source_id FROM change_set_sources WHERE change_set_id = ? ORDER BY source_id').all(changeSetId) as { source_id: number }[]).map(
+    (r) => r.source_id,
+  );
 }
 
 // The newest pending suggestion for a page made earlier in the same chat by the same person,
@@ -184,6 +196,7 @@ export async function pendingForPage(pagePath: string): Promise<PendingSet[]> {
       conflict,
       source: getSource(r.source_id),
       earlierSources: earlierSourceIds(r.proposal_id).map((id) => getSource(id)!).filter(Boolean),
+      alsoSources: extraSourceIds(r.change_set_id).map((id) => getSource(id)!).filter(Boolean),
       segments: segs,
     });
   }
@@ -390,7 +403,7 @@ function log(proposalId: number, action: 'approve' | 'reject', scope: 'hunk' | '
 // Every message that shaped the suggestion: the ones it revised, then its own
 function allSourceIds(p: ProposalRow): number[] {
   const cs = db().prepare('SELECT source_id FROM change_sets WHERE id = ?').get(p.change_set_id) as { source_id: number } | undefined;
-  return [...new Set([...earlierSourceIds(p.id), ...(cs?.source_id ? [cs.source_id] : [])])];
+  return [...new Set([...earlierSourceIds(p.id), ...(cs?.source_id ? [cs.source_id] : []), ...extraSourceIds(p.change_set_id)])];
 }
 
 function recordSource(p: ProposalRow, user: string) {

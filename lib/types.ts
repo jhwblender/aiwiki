@@ -13,6 +13,7 @@ export type SourceInfo = {
   version: number;
   note: string | null;
   detectedAt: string;
+  hasFile: boolean; // the original file is stored and can be opened from the source chip
 };
 
 export type PendingSet = {
@@ -28,6 +29,8 @@ export type PendingSet = {
   source: SourceInfo | null;
   // Messages this suggestion revised, oldest first (a chat refining its own suggestion)
   earlierSources: SourceInfo[];
+  // Other files that came in the same message
+  alsoSources: SourceInfo[];
   segments: Segment[];
 };
 
@@ -65,6 +68,8 @@ export type PageData = {
 export type PageListItem = { path: string; title: string; pending: number; isNew: boolean };
 
 export type ChatMsg = { role: 'user' | 'assistant'; content: string };
+
+export type Attachment = { id: number; name: string; mime: string; size: number; kind: string };
 
 export type ChatResponse = {
   reply: string;

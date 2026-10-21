@@ -2,7 +2,8 @@ import { db } from './db';
 
 // Settings saved from the Settings page win over .env.local, which stays the default.
 
-export type LocalModelSettings = { baseUrl: string; model: string; apiKey: string };
+// visionModel reads photos and scanned pages; blank means the main model does it
+export type LocalModelSettings = { baseUrl: string; model: string; apiKey: string; visionModel: string };
 
 const DEFAULT_LOCAL_MODEL = 'qwen2.5:14b-instruct';
 
@@ -24,14 +25,16 @@ export function localModelSettings(): LocalModelSettings {
     baseUrl: cleanBaseUrl(get('local.baseUrl') ?? process.env.LOCAL_LLM_BASE_URL ?? ''),
     model: (get('local.model') ?? process.env.LOCAL_LLM_MODEL ?? '') || DEFAULT_LOCAL_MODEL,
     apiKey: get('local.apiKey') ?? process.env.LOCAL_LLM_API_KEY ?? '',
+    visionModel: get('local.visionModel') ?? process.env.LOCAL_LLM_VISION_MODEL ?? '',
   };
 }
 
 // apiKey: undefined keeps the saved key, '' clears it
-export function saveLocalModelSettings(input: { baseUrl: string; model: string; apiKey?: string }) {
+export function saveLocalModelSettings(input: { baseUrl: string; model: string; apiKey?: string; visionModel?: string }) {
   const baseUrl = cleanBaseUrl(input.baseUrl);
   if (baseUrl && !/^https?:\/\/[^\s/]+/i.test(baseUrl)) throw new Error('The server address must start with http:// or https://');
   set('local.baseUrl', baseUrl);
   set('local.model', input.model.trim());
+  if (input.visionModel !== undefined) set('local.visionModel', input.visionModel.trim());
   if (input.apiKey !== undefined) set('local.apiKey', input.apiKey.trim());
 }

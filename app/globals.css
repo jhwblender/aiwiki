@@ -193,6 +193,7 @@ a.btn { display: inline-block; text-decoration: none; color: var(--ink); }
 .card h2 { font-size: 17px; margin: 0 0 4px; }
 .field { display: flex; flex-direction: column; gap: 4px; margin-top: 14px; font-size: 13px; font-weight: 500; }
 .field input { padding: 8px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); font-size: 15px; font-weight: 400; }
+.field-help { margin: 4px 0 0; }
 .presets { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
 .btn.picked { border-color: var(--teal); background: var(--teal-soft); }
 .check { display: flex; align-items: center; gap: 6px; margin-top: 8px; }

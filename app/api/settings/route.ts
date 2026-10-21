@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 function view() {
   const local = localModelSettings();
   return {
-    local: { baseUrl: local.baseUrl, model: local.model, hasApiKey: !!local.apiKey },
+    local: { baseUrl: local.baseUrl, model: local.model, visionModel: local.visionModel, hasApiKey: !!local.apiKey },
     anthropic: { configured: !!process.env.ANTHROPIC_API_KEY, model: anthropicModel() },
   };
 }
@@ -26,6 +26,7 @@ export async function PUT(req: NextRequest) {
       baseUrl: String(b.baseUrl ?? ''),
       model: String(b.model ?? ''),
       apiKey: typeof b.apiKey === 'string' ? b.apiKey : undefined,
+      visionModel: typeof b.visionModel === 'string' ? b.visionModel : undefined,
     });
     return NextResponse.json(view());
   } catch (e) {

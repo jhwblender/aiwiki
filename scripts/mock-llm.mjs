@@ -178,6 +178,17 @@ const SCENARIOS = [
     reply: 'I have proposed moving the handbook.',
   },
   {
+    // files every FACT line it finds in the attached files, proving extraction reached the model
+    keyword: 'file this',
+    steps: [
+      {
+        name: 'append_to_page',
+        args: (text) => ({ path: 'team/onboarding', text: factsIn(text).join(' ') || 'FILE-NOT-SEEN', summary: 'Add facts from the attached files' }),
+      },
+    ],
+    reply: 'I proposed adding what the attached files say to [[team/onboarding]].',
+  },
+  {
     keyword: 'backup',
     steps: [
       { name: 'search_pages', args: { query: 'backup' } },
@@ -227,8 +238,35 @@ function pick(messages) {
   return SCENARIOS.find((s) => text.includes(s.keyword));
 }
 
+// Images arrive as image_url parts (OpenAI format) or image blocks (Anthropic format)
+function hasImage(messages) {
+  return messages.some(
+    (m) => Array.isArray(m.content) && m.content.some((p) => p.type === 'image_url' || p.type === 'image'),
+  );
+}
+
+function describeMockImage(messages) {
+  const prompt = messages
+    .flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+    .filter((p) => p.type === 'text')
+    .map((p) => p.text)
+    .join(' ');
+  if (/what single word/i.test(prompt)) return 'WIKI';
+  const page = prompt.match(/page (\d+) of \d+ of a scanned document/i);
+  if (page) return `FACT: Scanned page ${page[1]} says the generator is tested monthly.`;
+  return 'A photo of a server rack. FACT: The rack label reads RACK-7.';
+}
+
+// Every "FACT: ..." line in the attached files, so the mock can prove it read them
+function factsIn(text) {
+  return [...String(text).matchAll(/FACT: ([^\n]+)/g)].map((m) => m[1].trim());
+}
+
 function respond(body) {
   const messages = body.messages ?? [];
+  if (hasImage(messages)) {
+    return { id: 'mock', object: 'chat.completion', model: body.model, choices: [{ index: 0, message: { role: 'assistant', content: describeMockImage(messages) }, finish_reason: 'stop' }] };
+  }
   const lastUserIdx = messages.findLastIndex((m) => m.role === 'user' && !isNudge(m));
   const toolTurns = messages.slice(lastUserIdx + 1).filter((m) => m.role === 'assistant').length;
   const scenario = pick(messages);
@@ -243,9 +281,8 @@ function respond(body) {
     message.content = scenario.steps[toolTurns].text; // a reply with no tool call
   } else if (toolTurns < scenario.steps.length) {
     const step = scenario.steps[toolTurns];
-    message.tool_calls = [
-      { id: `call_${toolTurns}`, type: 'function', function: { name: step.name, arguments: JSON.stringify(step.args) } },
-    ];
+    const args = typeof step.args === 'function' ? step.args(String(messages[lastUserIdx]?.content ?? '')) : step.args;
+    message.tool_calls = [{ id: `call_${toolTurns}`, type: 'function', function: { name: step.name, arguments: JSON.stringify(args) } }];
   } else {
     message.content = replyFor(scenario, toolTexts(messages));
   }
@@ -289,6 +326,15 @@ function respondAnthropic(body) {
   const error = validateAnthropic(body);
   if (error) return { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: error } } };
   const msgs = body.messages;
+  if (hasImage(msgs)) {
+    return {
+      status: 200,
+      body: {
+        id: 'msg_img', type: 'message', role: 'assistant', model: body.model, content: [{ type: 'text', text: describeMockImage(msgs) }],
+        stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 10, output_tokens: 10 },
+      },
+    };
+  }
   const lastUserText = [...msgs].reverse().find((m) => m.role === 'user' && textOf(m.content) && !isNudge(m))?.content;
   const lastUserIdx = msgs.findLastIndex((m) => m.role === 'user' && textOf(m.content) && !isNudge(m));
   const turns = msgs.slice(lastUserIdx + 1).filter((m) => m.role === 'assistant').length;
@@ -300,7 +346,8 @@ function respondAnthropic(body) {
   else if (turns < scenario.steps.length && scenario.steps[turns].text) content = [thinking, { type: 'text', text: scenario.steps[turns].text }];
   else if (turns < scenario.steps.length) {
     const step = scenario.steps[turns];
-    content = [thinking, { type: 'tool_use', id: `toolu_${turns}`, name: step.name, input: step.args }];
+    const args = typeof step.args === 'function' ? step.args(textOf(lastUserText ?? '')) : step.args;
+    content = [thinking, { type: 'tool_use', id: `toolu_${turns}`, name: step.name, input: args }];
     stop = 'tool_use';
   } else content = [thinking, { type: 'text', text: replyFor(scenario, toolTexts(msgs)) }];
   return {

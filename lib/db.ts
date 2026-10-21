@@ -93,6 +93,31 @@ function migrate(d: Database.Database) {
       user TEXT NOT NULL,
       at TEXT NOT NULL
     );
+    -- Files dropped into the chat or onto a page; the original is kept under assets/
+    CREATE TABLE IF NOT EXISTS files (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      hash TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      mime TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      kind TEXT NOT NULL,              -- pdf | docx | text | image
+      stored_path TEXT NOT NULL,       -- relative to the data directory
+      uploaded_by TEXT NOT NULL,
+      uploaded_at TEXT NOT NULL
+    );
+    -- Extracted text per content hash, so the same file is only read once
+    CREATE TABLE IF NOT EXISTS file_text (
+      hash TEXT PRIMARY KEY,
+      text TEXT NOT NULL,
+      method TEXT NOT NULL,            -- text | docx | pdf-text | pdf-scan | vision
+      created_at TEXT NOT NULL
+    );
+    -- Extra sources of a change set, when one message brought several files
+    CREATE TABLE IF NOT EXISTS change_set_sources (
+      change_set_id INTEGER NOT NULL REFERENCES change_sets(id),
+      source_id INTEGER NOT NULL REFERENCES sources(id),
+      PRIMARY KEY (change_set_id, source_id)
+    );
     -- Admin settings edited on the Settings page; values here override .env.local
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,

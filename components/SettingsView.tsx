@@ -3,10 +3,14 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 
 type Settings = {
-  local: { baseUrl: string; model: string; hasApiKey: boolean };
+  local: { baseUrl: string; model: string; visionModel: string; hasApiKey: boolean };
   anthropic: { configured: boolean; model: string };
 };
-type TestResult = { ok: boolean; steps: { label: string; status: 'passed' | 'failed' | 'skipped'; detail: string }[]; models: string[] };
+type TestResult = {
+  ok: boolean;
+  steps: { label: string; status: 'passed' | 'failed' | 'skipped'; detail: string; optional?: boolean }[];
+  models: string[];
+};
 
 const PRESETS = [
   { label: 'Ollama', url: 'http://localhost:11434/v1' },
@@ -17,6 +21,7 @@ export default function SettingsView() {
   const [saved, setSaved] = useState<Settings | null>(null);
   const [baseUrl, setBaseUrl] = useState('');
   const [model, setModel] = useState('');
+  const [visionModel, setVisionModel] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [clearKey, setClearKey] = useState(false);
   const [busy, setBusy] = useState<'' | 'test' | 'save'>('');
@@ -50,6 +55,7 @@ export default function SettingsView() {
     setSaved(s);
     setBaseUrl(s.local.baseUrl);
     setModel(s.local.model);
+    setVisionModel(s.local.visionModel);
     setApiKey('');
     setClearKey(false);
   }
@@ -62,7 +68,12 @@ export default function SettingsView() {
   }, []);
 
   const dirty =
-    !!saved && (baseUrl.trim() !== saved.local.baseUrl || model.trim() !== saved.local.model || apiKey.trim() !== '' || clearKey);
+    !!saved &&
+    (baseUrl.trim() !== saved.local.baseUrl ||
+      model.trim() !== saved.local.model ||
+      visionModel.trim() !== saved.local.visionModel ||
+      apiKey.trim() !== '' ||
+      clearKey);
 
   async function runTest() {
     setBusy('test');
@@ -72,7 +83,7 @@ export default function SettingsView() {
       const r = await fetch('/api/settings/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ baseUrl, model, apiKey: clearKey ? '' : apiKey }),
+        body: JSON.stringify({ baseUrl, model, visionModel, apiKey: clearKey ? '' : apiKey }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'The test could not run.');
@@ -91,7 +102,7 @@ export default function SettingsView() {
       const r = await fetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ baseUrl, model, apiKey: clearKey ? '' : apiKey.trim() || undefined }),
+        body: JSON.stringify({ baseUrl, model, visionModel, apiKey: clearKey ? '' : apiKey.trim() || undefined }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Save failed.');
@@ -207,6 +218,21 @@ export default function SettingsView() {
                 )}
 
                 <label className="field">
+                  <span>Model for photos and scans (optional)</span>
+                  <input
+                    value={visionModel}
+                    onChange={(e) => setVisionModel(e.target.value)}
+                    placeholder={`Leave blank to use ${model.trim() || 'the model above'}`}
+                    list="model-options"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                </label>
+                <p className="muted small-text field-help">
+                  Only needed if the main model cannot read images. Vision models include qwen2.5vl and llava.
+                </p>
+
+                <label className="field">
                   <span>API key (optional)</span>
                   <input
                     type="password"
@@ -242,7 +268,11 @@ export default function SettingsView() {
                 {test && (
                   <div className="test-result" role="status">
                     <p className={'test-summary ' + (test.ok ? 'passed' : 'failed')}>
-                      {test.ok ? 'Everything works.' : 'The connection test found a problem.'}
+                      {!test.ok
+                        ? 'The connection test found a problem.'
+                        : test.steps.some((st) => st.optional && st.status !== 'passed')
+                          ? 'The assistant works. Photos and scanned documents need a model that can read images.'
+                          : 'Everything works.'}
                       {test.ok && dirty && ' Save the settings to start using them.'}
                     </p>
                     <ol className="test-steps">

@@ -1,7 +1,8 @@
 import { listPages, normalizePath, planMove, readPage, searchPages } from '../wiki';
-import { chatPending, chatPendingOp, pendingOpsForPage, stageOp, supersedeOp, createChangeSet, createSource, pendingCounts, pendingForPage, stageContent, stagedContent, supersede } from '../proposals';
+import { linkExtraSource, chatPending, chatPendingOp, pendingOpsForPage, stageOp, supersedeOp, createChangeSet, createSource, pendingCounts, pendingForPage, stageContent, stagedContent, supersede } from '../proposals';
 import type { PendingSet } from '../types';
 import { toBlocks } from '../diff';
+import { fileVersion } from '../files';
 import type { ToolDef } from './providers';
 
 export const toolDefs: ToolDef[] = [
@@ -89,12 +90,28 @@ export type ToolContext = {
   changeSetId: number | null;
   proposed: Map<string, boolean>; // path -> isNew
   revising: Map<string, number>; // path -> earlier suggestion from this chat that this run replaces
+  files: { filename: string; hash: string; storedPath: string }[]; // files attached to this message
 };
 
 async function ensureChangeSet(ctx: ToolContext, summary: string): Promise<number> {
   if (ctx.changeSetId) return ctx.changeSetId;
-  const sourceId = createSource({ kind: 'chat', user: ctx.user, filename: 'Chat', note: ctx.note.slice(0, 400) });
-  ctx.changeSetId = createChangeSet(sourceId, summary, `ai:${ctx.providerId}`, ctx.chatId);
+  const note = ctx.note.slice(0, 400);
+  // Each attached file is its own source; without files the chat message is the source
+  const sourceIds = ctx.files.length
+    ? ctx.files.map((f) =>
+        createSource({
+          kind: 'file',
+          user: ctx.user,
+          filename: f.filename,
+          contentHash: f.hash,
+          version: fileVersion(f.filename, f.hash, ctx.user),
+          storedPath: f.storedPath,
+          note,
+        }),
+      )
+    : [createSource({ kind: 'chat', user: ctx.user, filename: 'Chat', note })];
+  ctx.changeSetId = createChangeSet(sourceIds[0], summary, `ai:${ctx.providerId}`, ctx.chatId);
+  for (const id of sourceIds.slice(1)) linkExtraSource(ctx.changeSetId, id);
   return ctx.changeSetId;
 }
 

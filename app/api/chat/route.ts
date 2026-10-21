@@ -21,6 +21,9 @@ export async function POST(req: NextRequest) {
       providerId: body.provider,
       user: userFrom(body.user),
       currentPath: typeof body.currentPath === 'string' ? body.currentPath : undefined,
+      attachments: Array.isArray(body.attachments)
+        ? body.attachments.map(Number).filter((n: number) => Number.isInteger(n) && n > 0).slice(0, 10)
+        : undefined,
       chatId: typeof body.chatId === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(body.chatId) ? body.chatId : undefined,
     });
     return NextResponse.json(result);

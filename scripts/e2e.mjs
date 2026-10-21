@@ -10,6 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { anthropicRequests, startMock } from './mock-llm.mjs';
+import { docx, photo, scannedPdf, textPdf } from './fixtures.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const APP_PORT = 3100;
@@ -35,8 +36,16 @@ async function api(method, url, body) {
 }
 
 const getPage = (p) => api('GET', `/api/page?path=${encodeURIComponent(p)}`).then((r) => r.data);
-const chat = (text, user = 'Alex', provider = 'local', chatId = undefined) =>
-  api('POST', '/api/chat', { messages: [{ role: 'user', content: text }], provider, user, chatId }).then((r) => r.data);
+const chat = (text, user = 'Alex', provider = 'local', chatId = undefined, attachments = undefined) =>
+  api('POST', '/api/chat', { messages: [{ role: 'user', content: text }], provider, user, chatId, attachments }).then((r) => r.data);
+
+async function upload(files, user = 'Alex') {
+  const form = new FormData();
+  for (const [name, data, type] of files) form.append('file', new Blob([data], { type }), name);
+  form.append('user', user);
+  const r = await fetch(BASE + '/api/files', { method: 'POST', body: form });
+  return { status: r.status, data: await r.json() };
+}
 const pageFile = (p) => fs.readFileSync(path.join(wikiDir, p + '.md'), 'utf8');
 const git = (...args) => execFileSync('git', ['-C', wikiDir, ...args], { encoding: 'utf8' });
 const changes = (set) => set.segments.filter((s) => s.type === 'change');
@@ -200,7 +209,7 @@ try {
   const st = (await api('GET', '/api/settings')).data;
   check('settings show the local model from the environment', st.local?.baseUrl === mockUrl && st.local.model === 'mock' && st.local.hasApiKey === false);
   const good = (await api('POST', '/api/settings/test', { baseUrl: mockUrl, model: 'mock' })).data;
-  check('connection test passes against the mock', good.ok === true && good.steps.length === 4 && good.models.includes('mock'), JSON.stringify(good));
+  check('connection test passes against the mock', good.ok === true && good.steps.length === 5 && good.steps[4].status === 'passed' && good.models.includes('mock'), JSON.stringify(good));
   const wrongModel = (await api('POST', '/api/settings/test', { baseUrl: mockUrl, model: 'nope' })).data;
   check('connection test names a missing model', !wrongModel.ok && wrongModel.steps[1].status === 'failed' && wrongModel.steps[1].detail.includes('Available: mock'));
   const closed = 'http://127.0.0.1:4599/v1'; // nothing listens here
@@ -334,7 +343,42 @@ try {
   const qa = await chat('Who runs payroll?');
   check('ordinary answers are not flagged', !/No change was actually suggested/.test(qa.reply ?? ''));
 
-  // 19. Search finds approved content
+  // 19. Dropped files: documents, photos and scans become suggestions with file sources
+  const up = await upload([
+    ['backup.pdf', textPdf(['Backup notes', 'FACT: The backup NAS is in rack 7.']), 'application/pdf'],
+    ['generator.docx', await docx(['Generator', 'FACT: The generator is in the basement.']), 'application/octet-stream'],
+    ['rack.png', photo(), 'image/png'],
+    ['scan.pdf', scannedPdf(2), 'application/pdf'],
+  ]);
+  check('files upload', up.status === 200 && up.data.length === 4, JSON.stringify(up.data));
+  check('file kinds are recognised', up.data.map((f) => f.kind).join() === 'pdf,docx,image,pdf');
+  const ids = up.data.map((f) => f.id);
+  const filed = await chat('Please file this into onboarding', 'Alex', 'local', 'e2e-chat-files', ids);
+  check('the assistant read every file', ['backup.pdf', 'generator.docx', 'rack.png', 'scan.pdf'].every((n) => filed.trace?.includes(`Read ${n}`)), JSON.stringify(filed));
+  const filedSet = (await getPage('team/onboarding')).pending[0];
+  const filedText = JSON.stringify(filedSet?.segments ?? []);
+  check('text from a PDF reaches the suggestion', filedText.includes('backup NAS is in rack 7'), filedText);
+  check('text from a Word file reaches the suggestion', filedText.includes('generator is in the basement'));
+  check('a photo is described by the vision model', filedText.includes('RACK-7'));
+  check('a scanned PDF is read page by page', filedText.includes('Scanned page 1') && filedText.includes('Scanned page 2'));
+  check('each file is a source', filedSet?.source?.kind === 'file' && filedSet.source.filename === 'backup.pdf' && filedSet.alsoSources.length === 3,
+    JSON.stringify({ source: filedSet?.source, also: filedSet?.alsoSources?.map((x) => x.filename) }));
+  check('sources keep the message and a content hash', filedSet?.source?.note === 'Please file this into onboarding' && /^[0-9a-f]{64}$/.test(filedSet?.source?.contentHash ?? ''));
+  const original = await fetch(`${BASE}/api/sources/${filedSet.source.id}/file`);
+  const originalBytes = Buffer.from(await original.arrayBuffer());
+  check('the original opens from its source', original.status === 200 && original.headers.get('content-type') === 'application/pdf' && originalBytes.subarray(0, 4).toString() === '%PDF');
+  const img = await fetch(`${BASE}/api/files/${ids[2]}`);
+  check('a photo can be shown on a page', img.status === 200 && img.headers.get('content-type') === 'image/png');
+  await api('POST', `/api/proposals/${filedSet.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
+  const fileCommit = git('log', '-1', '--format=%B');
+  check('approval records every file', ['backup.pdf', 'generator.docx', 'rack.png', 'scan.pdf'].every((n) => fileCommit.includes(n)), fileCommit);
+  check('stored files stay inside the data folder', fs.existsSync(path.join(dataDir, 'assets')) && !JSON.stringify(filedSet).includes(dataDir));
+  const exe = await upload([['notes.exe', Buffer.from('MZ binary'), 'application/octet-stream']]);
+  check('unsupported files are refused with a reason', exe.status === 400 && /not supported/.test(exe.data.error ?? ''));
+  const again = await upload([['backup-copy.pdf', textPdf(['Backup notes', 'FACT: The backup NAS is in rack 7.']), 'application/pdf']]);
+  check('the same content is stored once', fs.readdirSync(path.join(dataDir, 'assets')).length >= 1 && again.status === 200);
+
+  // 20. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {

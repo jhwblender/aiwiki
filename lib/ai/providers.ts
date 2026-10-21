@@ -16,6 +16,8 @@ export interface Provider {
   id: 'anthropic' | 'local';
   label: string;
   chat(req: { system: string; messages: Msg[]; tools: ToolDef[] }): Promise<{ text: string; toolCalls: ToolCall[]; raw?: unknown }>;
+  // Read a photo or a scanned page and answer the prompt about it in text
+  describeImage(image: { data: Buffer; mime: string }, prompt: string): Promise<string>;
 }
 
 // ---------- Anthropic ----------
@@ -84,6 +86,26 @@ function anthropicProvider(): Provider {
       }
       if (res.stop_reason === 'max_tokens' && !toolCalls.length) text += '\n\n(The reply was cut off because it was too long.)';
       return { text, toolCalls, raw: res.content };
+    },
+    async describeImage(image, prompt) {
+      const res = await client.messages.create({
+        model,
+        max_tokens: 4000,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: { type: 'base64', media_type: image.mime as 'image/png', data: image.data.toString('base64') },
+              },
+              { type: 'text', text: prompt },
+            ],
+          },
+        ],
+      });
+      if (res.stop_reason === 'refusal') throw new Error('The model declined to describe this image.');
+      return res.content.map((b) => (b.type === 'text' ? b.text : '')).join('').trim();
     },
   };
 }

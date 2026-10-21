@@ -17,6 +17,7 @@ export async function POST(req: NextRequest) {
       baseUrl: cleanBaseUrl(String(b.baseUrl ?? '')),
       model: String(b.model ?? '').trim(),
       apiKey: typeof b.apiKey === 'string' && b.apiKey.trim() ? b.apiKey.trim() : saved.apiKey,
+      visionModel: String(b.visionModel ?? '').trim(),
     });
     return NextResponse.json(result);
   } catch (e) {
