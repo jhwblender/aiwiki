@@ -6,7 +6,8 @@ Audience: starts with the systems team, eventually the whole company. Most revie
 
 ## Commands
 
-- `npm run dev` starts the app on http://localhost:3000
+- `./start.sh` is the one-command start for people running the wiki: installs packages when needed, creates `.env.local`, rebuilds into `.next-prod` only when code changed, and starts the optimised server (`--dev`, `--open`, `--shortcut` for a Windows desktop launcher)
+- `npm run dev` starts the development server on http://localhost:3000
 - `npm run build` type checks and builds; run it before calling any change done (while `npm run dev` is running, use `NEXT_DIST_DIR=.next-e2e npx next build` so the two do not share `.next`)
 - `npm run e2e` runs the end-to-end check (needs nothing running; uses ports 3100 and 4556)
 - `npm run mock-llm` starts the scripted mock model on port 4555; set `LOCAL_LLM_BASE_URL=http://127.0.0.1:4555/v1` to click through the UI without a real model
@@ -55,7 +56,7 @@ Audience: starts with the systems team, eventually the whole company. Most revie
 2. Local models: a full cycle works with qwen3.6 35b on Ollama (Windows host, wiki in WSL with mirrored networking). Near-miss tool and argument names are mapped by `normalizeCall` in `lib/ai/tools.ts`; extend its aliases when a model shows a new variant. Keep Ollama's context length at 16k or more so long pages are not cut off.
 3. **Photos and scans have only been tested with the mock.** Run the Settings connection test against a real vision model (for example qwen2.5vl on Ollama) and drop a real photo and a scanned PDF. Text PDFs and Word files do not need a vision model.
 4. Names set on the Settings page are not authenticated; treat them as labels only.
-5. Node 18 works but `better-sqlite3` 12 declares Node 20+; use Node 20 or newer.
+5. Node 18 works in every test so far, but `better-sqlite3` 12 declares Node 20+ and `unpdf` declares Node 22+; use Node 22 or newer.
 
 ## Roadmap, in order
 
