@@ -5,7 +5,7 @@ import Link from 'next/link';
 import type { PageData, PendingOp, PendingSet, Segment } from '@/lib/types';
 import Md, { slugify } from './Md';
 import SourceChip from './SourceChip';
-import { markWords, rehypeMarks } from './wordMarks';
+import { markTableRows, markWords, rehypeMarks } from './wordMarks';
 
 const insMarks = [rehypeMarks('word-ins')];
 const delMarks = [rehypeMarks('word-del')];
@@ -24,7 +24,7 @@ function pairMarks(seg: Extract<Segment, { type: 'change' }>) {
   let marked = false;
   if (removed.length === added.length) {
     removed.forEach((r, i) => {
-      const m = markWords(r, added[i]);
+      const m = markTableRows(r, added[i]) ?? markWords(r, added[i]);
       if (m) {
         removed[i] = m.removed;
         added[i] = m.added;
@@ -110,7 +110,7 @@ function Hunk({
         )}
       </header>
       {seg.removed.length > 0 && (
-        <div className="removed" aria-label="Text to be removed">
+        <div className={'removed' + (text.marked ? ' has-marks' : '')} aria-label="Text to be removed">
           <Md rehypePlugins={text.marked ? delMarks : undefined}>{text.removed}</Md>
         </div>
       )}

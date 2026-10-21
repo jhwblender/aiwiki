@@ -121,6 +121,9 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .removed * { text-decoration: line-through; text-decoration-color: rgba(155, 58, 58, 0.6); }
 mark.word-ins { background: #b9e2c7; color: inherit; border-radius: 3px; padding: 0 2px; }
 mark.word-del { background: #f2c2c2; color: inherit; border-radius: 3px; padding: 0 2px; }
+/* when the changed words are marked, strike only those; the rest of the old text is unchanged */
+.removed.has-marks * { text-decoration: none; }
+.removed.has-marks mark.word-del { text-decoration: line-through; text-decoration-color: rgba(155, 58, 58, 0.6); }
 .missing-link { color: var(--rem-ink); text-decoration-style: dotted; }
 
 .chip-wrap { position: relative; display: inline-block; }
@@ -259,3 +262,9 @@ a.file-chip { padding-right: 10px; }
 @keyframes live-pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
 .live-steps { margin: 6px 0 0; padding-left: 18px; font-size: 12px; color: var(--ink-soft); }
 @media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+
+/* typed messages keep their line breaks */
+.plain-text { white-space: pre-wrap; }
+/* tables in chat replies */
+.msg table { border-collapse: collapse; display: block; overflow-x: auto; font-size: 13px; margin: 6px 0; }
+.msg th, .msg td { border: 1px solid var(--rule); padding: 3px 8px; }

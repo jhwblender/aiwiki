@@ -414,7 +414,7 @@ export default function ChatPanel({
                 </ul>
               </details>
             )}
-            {m.role === 'assistant' && !m.error ? <Md>{m.content || '(no reply)'}</Md> : <p>{m.content}</p>}
+            {m.role === 'assistant' && !m.error ? <Md>{m.content || '(no reply)'}</Md> : <p className="plain-text">{m.content}</p>}
             {m.attachments && m.attachments.length > 0 && (
               <div className="msg-files">
                 {m.attachments.map((a) => (

@@ -1,4 +1,4 @@
-import { diffWordsWithSpace } from 'diff';
+import { diffArrays, diffWordsWithSpace } from 'diff';
 import type { Root, Element, ElementContent, RootContent } from 'hast';
 
 // Inside an edited paragraph, highlight the words that actually changed so a reviewer
@@ -49,6 +49,37 @@ function render(pieces: Piece[]): string {
     else merged.push({ text: p.text, changed });
   });
   return merged.map((p) => (p.changed ? wrap(p.text) : p.text)).join('');
+}
+
+// ---------- tables ----------
+
+const isTable = (block: string) => block.split('\n').every((l) => l.trim().startsWith('|'));
+const isSeparator = (line: string) => /^\|?[\s:|-]+\|?$/.test(line.trim());
+
+// Mark the text of every cell in a row
+function markRow(line: string): string {
+  if (isSeparator(line)) return line;
+  return line.replace(/\|([^|]+)(?=\|)/g, (whole, cell: string) => {
+    const m = cell.match(/^(\s*)([\s\S]*?)(\s*)$/)!;
+    return m[2] ? `|${m[1]}${OPEN}${m[2]}${CLOSE}${m[3]}` : whole;
+  });
+}
+
+// In an edited table, mark the rows that changed instead of the whole table
+export function markTableRows(oldTable: string, newTable: string): { removed: string; added: string } | null {
+  if (!isTable(oldTable) || !isTable(newTable)) return null;
+  const oldRows: string[] = [];
+  const newRows: string[] = [];
+  for (const part of diffArrays(oldTable.split('\n'), newTable.split('\n'))) {
+    const rows = part.value as string[];
+    if (part.removed) oldRows.push(...rows.map(markRow));
+    else if (part.added) newRows.push(...rows.map(markRow));
+    else {
+      oldRows.push(...rows);
+      newRows.push(...rows);
+    }
+  }
+  return { removed: oldRows.join('\n'), added: newRows.join('\n') };
 }
 
 export function rehypeMarks(className: string) {
