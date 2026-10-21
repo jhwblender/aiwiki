@@ -1,6 +1,7 @@
 import { diffArrays } from 'diff';
 import { db } from './db';
 import { toBlocks } from './diff';
+import { indexDocument } from './docsearch';
 import { extractText, type DescribeImage, type StoredFile } from './files';
 
 // Every file that reaches the wiki (chat drops now, watched folders next) goes through here.
@@ -70,6 +71,8 @@ export function recordVersion(id: DocIdentity, f: StoredFile, user: string, info
     d.prepare(
       'INSERT OR IGNORE INTO document_versions (document_id, version, hash, stored_path, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?)',
     ).run(doc.id, info.version, f.hash, f.storedPath, user, now());
+    // Keep the document searchable for the assistant
+    indexDocument(doc.id);
   })();
 }
 

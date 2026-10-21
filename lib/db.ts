@@ -131,6 +131,8 @@ function migrate(d: Database.Database) {
       PRIMARY KEY (document_id, version)
     );
     CREATE INDEX IF NOT EXISTS idx_document_versions_hash ON document_versions(hash);
+    -- Searchable text of the latest version of each document, in parts (see lib/docsearch.ts)
+    CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(document_id UNINDEXED, part UNINDEXED, parts UNINDEXED, text);
     -- Files waiting to be filed in the background (see lib/queue.ts)
     CREATE TABLE IF NOT EXISTS ingest_jobs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

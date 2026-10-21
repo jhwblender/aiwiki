@@ -255,6 +255,24 @@ const SCENARIOS = [
     reply: 'Done.',
   },
   {
+    // answers from an original document that the wiki does not cover
+    keyword: 'what does the manual say',
+    steps: [
+      { name: 'search_documents', args: { query: 'torque motor screws' } },
+      { name: 'read_document', args: (_text, tools) => ({ document: tools.match(/document (\d+)/)?.[1] ?? 'none', part: 1 }) },
+    ],
+    reply: (tools) => (tools.includes('2 Nm') ? 'DOC-SEEN: 2 Nm, from the manual (not in the wiki yet)' : 'DOC-NOT-SEEN'),
+  },
+  {
+    keyword: 'add the torque spec',
+    steps: [
+      { name: 'search_documents', args: { query: 'torque' } },
+      { name: 'read_document', args: (_text, tools) => ({ document: tools.match(/document (\d+)/)?.[1] ?? 'none' }) },
+      { name: 'append_to_page', args: { path: 'team/onboarding', text: 'Motor screws are torqued to 2 Nm.', summary: 'Add the motor screw torque' } },
+    ],
+    reply: 'I proposed adding the torque spec to [[team/onboarding]].',
+  },
+  {
     keyword: 'backup',
     steps: [
       { name: 'search_pages', args: { query: 'backup' } },
@@ -347,7 +365,7 @@ function respond(body) {
     message.content = scenario.steps[toolTurns].text; // a reply with no tool call
   } else if (toolTurns < scenario.steps.length) {
     const step = scenario.steps[toolTurns];
-    const args = typeof step.args === 'function' ? step.args(String(messages[lastUserIdx]?.content ?? '')) : step.args;
+    const args = typeof step.args === 'function' ? step.args(String(messages[lastUserIdx]?.content ?? ''), toolTexts(messages)) : step.args;
     message.tool_calls = [{ id: `call_${toolTurns}`, type: 'function', function: { name: step.name, arguments: JSON.stringify(args) } }];
   } else {
     message.content = replyFor(scenario, toolTexts(messages));
@@ -412,7 +430,7 @@ function respondAnthropic(body) {
   else if (turns < scenario.steps.length && scenario.steps[turns].text) content = [thinking, { type: 'text', text: scenario.steps[turns].text }];
   else if (turns < scenario.steps.length) {
     const step = scenario.steps[turns];
-    const args = typeof step.args === 'function' ? step.args(textOf(lastUserText ?? '')) : step.args;
+    const args = typeof step.args === 'function' ? step.args(textOf(lastUserText ?? ''), toolTexts(msgs)) : step.args;
     content = [thinking, { type: 'tool_use', id: `toolu_${turns}`, name: step.name, input: args }];
     stop = 'tool_use';
   } else content = [thinking, { type: 'text', text: replyFor(scenario, toolTexts(msgs)) }];

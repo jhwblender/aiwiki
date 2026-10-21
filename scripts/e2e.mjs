@@ -582,7 +582,19 @@ try {
   for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
   fs.rmSync(nest_base, { recursive: true, force: true });
 
-  // 28. Search finds approved content
+  // 28. The assistant can look up detail in the original documents
+  const manual = await upload([['manual.txt', Buffer.from('Motor maintenance\n\nTorque the motor screws to 2 Nm with blue threadlocker.\n'), 'text/plain']]);
+  await waitJob((await api('POST', '/api/ingest', { fileIds: [manual.data[0].id], user: 'Alex', provider: 'local', note: 'Just keep this on file.' })).data.jobs[0]);
+  const fromDoc = await chat('What does the manual say about torque?', 'Sam');
+  check('an answer can come from an original document', fromDoc.reply?.startsWith('DOC-SEEN') && fromDoc.trace?.some((t) => t.startsWith('Searched documents')), JSON.stringify(fromDoc));
+  check('nothing is suggested just by looking something up', fromDoc.proposed?.length === 0);
+  await chat('Please add the torque spec', 'Sam', 'local', 'e2e-chat-torque');
+  const torque = (await getPage('team/onboarding')).pending.find((p) => JSON.stringify(p.segments).includes('2 Nm'));
+  check('a suggestion based on a document records it as the source', torque?.source?.kind === 'file' && torque.source.filename === 'manual.txt' && torque.source.user === 'Sam',
+    JSON.stringify(torque?.source));
+  if (torque) await api('POST', `/api/proposals/${torque.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+
+  // 29. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {

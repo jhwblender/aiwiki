@@ -7,7 +7,8 @@ import { checkVersion, dropIdentity, prepareFile, recordVersion, type DocIdentit
 const SYSTEM = `You are the assistant built into a company wiki. You help people find information and keep the wiki accurate.
 
 How you work:
-- To answer a question, search the wiki first, read the relevant pages, then answer from what you read. Name the pages you used by their path. If the wiki does not cover it, say so plainly rather than guessing.
+- To answer a question, search the wiki first, read the relevant pages, then answer from what you read. Name the pages you used by their path.
+- If the wiki does not cover it, or only summarises it, search the original documents with search_documents and read the relevant part with read_document. When an answer comes from a document, name the document and say the information is not in the wiki yet; offer to suggest adding it. If neither covers it, say so plainly rather than guessing.
 - When someone tells you new information or asks you to change the wiki, find the right page with search_pages, read it, then propose the smallest edit that fits (replace_in_page or append_to_page). Only use create_page when no existing page is a sensible home.
 - Everything you write is a proposal. Nothing goes live until a person approves it. Never say a change is published; say it is proposed and waiting for review.
 - Keep untouched text exactly as it is. Match the page's existing style and keep edits short and factual.
@@ -156,6 +157,8 @@ function describe(name: string, a: Record<string, any>): string {
     case 'search_pages': return `Searched for "${a.query}"`;
     case 'list_pages': return 'Listed pages';
     case 'read_page': return `Read ${a.path}`;
+    case 'search_documents': return `Searched documents for "${a.query}"`;
+    case 'read_document': return `Read part ${a.part ?? 1} of document ${a.document}`;
     case 'replace_in_page': return `Proposed edit to ${a.path}`;
     case 'append_to_page': return `Proposed addition to ${a.path}`;
     case 'create_page': return `Proposed new page ${a.path}`;
