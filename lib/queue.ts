@@ -1,4 +1,5 @@
 import { db } from './db';
+import { changed } from './pulse';
 import { getFile } from './files';
 import { checkVersion, recordVersion, type DocIdentity } from './ingest';
 import { runAgent } from './ai/agent';
@@ -89,6 +90,7 @@ export function retryJob(id: number) {
 }
 
 function finish(id: number, status: JobStatus, detail: string, proposed: string[] = []) {
+  changed();
   db()
     .prepare('UPDATE ingest_jobs SET status = ?, detail = ?, proposed = ?, finished_at = ? WHERE id = ?')
     .run(status, detail.slice(0, 2000), JSON.stringify(proposed), now(), id);

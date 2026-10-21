@@ -1,4 +1,5 @@
 import { db } from './db';
+import { changed } from './pulse';
 import { deletePage, movePage, planMove, readPage, rewriteLinks, writePage, titleFor } from './wiki';
 import { fromBlocks, hunkCount, normalize, rebase, resolveHunk, segments, toBlocks } from './diff';
 import type { PageSourceRef, PendingOp, PendingSet, SourceInfo } from './types';
@@ -103,6 +104,7 @@ export async function chatPending(
 
 // Retire a suggestion that a later message in the same chat replaced.
 export function supersede(oldProposalId: number, newChangeSetId: number, pagePath: string, user: string) {
+  changed();
   const d = db();
   const next = d.prepare('SELECT id FROM proposals WHERE change_set_id = ? AND page_path = ?').get(newChangeSetId, pagePath) as
     | { id: number }
@@ -143,6 +145,7 @@ export async function stageContent(changeSetId: number, pagePath: string, newCon
   const d = db();
   if (live !== null && normalize(live) === content) {
     d.prepare('DELETE FROM proposals WHERE change_set_id = ? AND page_path = ?').run(changeSetId, pagePath);
+    changed();
     return false;
   }
   d.prepare(
@@ -150,6 +153,7 @@ export async function stageContent(changeSetId: number, pagePath: string, newCon
      VALUES (?, ?, ?, ?, ?, 'pending', ?)
      ON CONFLICT (change_set_id, page_path) DO UPDATE SET new_content = excluded.new_content, status = 'pending'`,
   ).run(changeSetId, pagePath, content, normalize(live ?? ''), live === null ? 1 : 0, now());
+  changed();
   return true;
 }
 
@@ -286,6 +290,7 @@ export async function movePageWithRecords(from: string, to: string, user: string
 // ---------- structural suggestions (move, remove) ----------
 
 export function stageOp(changeSetId: number, kind: 'move' | 'remove', pagePath: string, newPath: string | null): number {
+  changed();
   const r = db()
     .prepare("INSERT INTO page_ops (change_set_id, kind, page_path, new_path, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)")
     .run(changeSetId, kind, pagePath, newPath, now());
@@ -305,6 +310,7 @@ export function chatPendingOp(chatId: string, user: string, pagePath: string, ex
 }
 
 export function supersedeOp(opId: number) {
+  changed();
   db().prepare("UPDATE page_ops SET status = 'superseded' WHERE id = ? AND status = 'pending'").run(opId);
 }
 
@@ -376,6 +382,7 @@ export async function decideOp(opId: number, action: 'approve' | 'reject', user:
     if (path) d.prepare('INSERT INTO page_sources (page_path, source_id, approved_by, approved_at) VALUES (?, ?, ?, ?)').run(path, cs.source_id, user, now());
   }
   d.prepare("UPDATE page_ops SET status = 'resolved' WHERE id = ?").run(opId);
+  changed();
   return { path };
 }
 
@@ -444,6 +451,7 @@ export async function decideHunk(proposalId: number, index: number, fp: string, 
   log(p.id, action, 'hunk', user);
   const left = hunkCount(segments(action === 'approve' ? r.current : live, r.proposed));
   if (left === 0) db().prepare("UPDATE proposals SET status = 'resolved' WHERE id = ?").run(p.id);
+  changed();
 }
 
 export async function decideAll(proposalId: number, action: 'approve' | 'reject', user: string) {
@@ -456,6 +464,7 @@ export async function decideAll(proposalId: number, action: 'approve' | 'reject'
   }
   db().prepare("UPDATE proposals SET status = 'resolved' WHERE id = ?").run(p.id);
   log(p.id, action, 'all', user);
+  changed();
 }
 
 export { titleFor };

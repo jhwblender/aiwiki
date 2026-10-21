@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { changed } from './pulse';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import simpleGit, { SimpleGit } from 'simple-git';
@@ -166,6 +167,7 @@ export async function writePage(p: string, content: string, author: string, mess
       // nothing to commit
     }
   });
+  changed();
 }
 
 // ---------- moving ----------
@@ -244,6 +246,7 @@ export async function movePage(from: string, to: string, author: string, message
     const who = author.replace(/[<>\n]/g, '').trim() || 'anonymous';
     await git.commit(message, undefined, { '--author': `${who} <${who.replace(/\s+/g, '.')}@wiki.local>` });
   });
+  changed();
   return moves;
 }
 
@@ -260,6 +263,7 @@ export async function deletePage(p: string, author: string, message = `Delete ${
       // ignore
     }
   });
+  changed();
 }
 
 export async function history(p: string, limit = 20) {

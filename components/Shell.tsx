@@ -43,12 +43,39 @@ export default function Shell() {
   useEffect(() => {
     setSideOpen(false);
     if (window.matchMedia(NARROW).matches) setChatOpen(false);
+    // Settings' "Back to wiki" returns here
+    try {
+      sessionStorage.setItem('wiki-last-path', path);
+    } catch {}
   }, [path]);
 
   const pages = useMemo(() => new Map(items.map((i) => [i.path, i])), [items]);
   const pendingTotal = items.reduce((n, i) => n + i.pending, 0);
 
   const bump = useCallback(() => setVersion((v) => v + 1), []);
+
+  // Refresh when anything changes on the server: background filing, watched folders, other people
+  useEffect(() => {
+    let last = '';
+    let stopped = false;
+    const check = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const { stamp } = await (await fetch('/api/pulse', { cache: 'no-store' })).json();
+        if (!stopped && last && stamp !== last) bump();
+        last = stamp;
+      } catch {}
+    };
+    void check();
+    const t = setInterval(check, 4000);
+    const onVisible = () => void check();
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      stopped = true;
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [bump]);
   const effectiveUser = user.trim() || 'anonymous';
 
   function toggleChat() {
