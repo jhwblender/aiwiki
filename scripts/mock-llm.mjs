@@ -198,6 +198,22 @@ const SCENARIOS = [
     reply: 'I proposed where the spare keys are, from keys.txt.',
   },
   {
+    // applies a changed document: replaces what it no longer says with what it now says
+    keyword: 'apply the update',
+    steps: [
+      {
+        name: 'replace_in_page',
+        args: (text) => ({
+          path: 'team/onboarding',
+          old_text: text.match(/No longer says:\n\s+FACT: ([^\n]+)/)?.[1] ?? 'CHANGE-NOT-SEEN',
+          new_text: text.match(/Now says:\n\s+FACT: ([^\n]+)/)?.[1] ?? 'CHANGE-NOT-SEEN',
+          summary: 'Update from the new version of the parts list',
+        }),
+      },
+    ],
+    reply: 'I proposed updating the page for the new version of the parts list.',
+  },
+  {
     keyword: 'backup',
     steps: [
       { name: 'search_pages', args: { query: 'backup' } },

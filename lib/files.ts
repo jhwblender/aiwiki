@@ -143,20 +143,16 @@ async function extractFresh(f: StoredFile, data: Buffer, describe: DescribeImage
 }
 
 // Text the assistant reads for a file, cached by content hash.
-export async function extractText(f: StoredFile, describe: DescribeImage | null): Promise<{ text: string; method: string; truncated: boolean }> {
+// text is cut to what the assistant reads; full is the whole text, for comparing versions
+export async function extractText(
+  f: StoredFile,
+  describe: DescribeImage | null,
+): Promise<{ text: string; full: string; method: string; truncated: boolean }> {
   const cached = db().prepare('SELECT text, method FROM file_text WHERE hash = ?').get(f.hash) as { text: string; method: string } | undefined;
   const full = cached ?? (await extractFresh(f, await readStored(f), describe));
   if (!cached) {
     db().prepare('INSERT OR REPLACE INTO file_text (hash, text, method, created_at) VALUES (?, ?, ?, ?)').run(f.hash, full.text, full.method, new Date().toISOString());
   }
   const truncated = full.text.length > MAX_TEXT_CHARS;
-  return { text: truncated ? full.text.slice(0, MAX_TEXT_CHARS) : full.text, method: full.method, truncated };
-}
-
-// How many earlier versions of a file with this name this person has dropped
-export function fileVersion(filename: string, hash: string, user: string): number {
-  const rows = db()
-    .prepare("SELECT DISTINCT content_hash FROM sources WHERE kind = 'file' AND filename = ? AND user = ? AND content_hash != ?")
-    .all(filename, user, hash) as unknown[];
-  return rows.length + 1;
+  return { text: truncated ? full.text.slice(0, MAX_TEXT_CHARS) : full.text, full: full.text, method: full.method, truncated };
 }

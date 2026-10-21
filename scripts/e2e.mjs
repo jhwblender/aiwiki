@@ -387,7 +387,29 @@ try {
   check('the file is still recorded as the source', citeSet?.source?.filename === 'keys.txt');
   if (citeSet) await api('POST', `/api/proposals/${citeSet.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
-  // 21. Search finds approved content
+  // 21. A re-sent file is recognised, and an updated file is reduced to what changed
+  const ver_v1 = await upload([['parts.docx', await docx(['Parts list', 'FACT: Spare propellers: 8.', 'FACT: Spare batteries: 4.']), 'application/octet-stream']]);
+  const ver_r1 = await chat('Please file this', 'Alex', 'local', 'e2e-chat-ver_v1', [ver_v1.data[0].id]);
+  check('the first version is read in full', ver_r1.trace?.includes('Read parts.docx'), JSON.stringify(ver_r1.trace));
+  const ver_s1 = (await getPage('team/onboarding')).pending[0];
+  await api('POST', `/api/proposals/${ver_s1.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
+  check('the first version is filed', pageFile('team/onboarding').includes('Spare batteries: 4.'));
+  const ver_v2 = await upload([['parts.docx', await docx(['Parts list', 'FACT: Spare propellers: 8.', 'FACT: Spare batteries: 6.']), 'application/octet-stream']]);
+  const ver_r2 = await chat('Please apply the update', 'Alex', 'local', 'e2e-chat-ver_v2', [ver_v2.data[0].id]);
+  check('a changed file is reduced to its changes', ver_r2.trace?.some((t) => t === 'Read parts.docx (parts.docx has 1 change since version 1)'), JSON.stringify(ver_r2.trace));
+  const ver_s2 = (await getPage('team/onboarding')).pending[0];
+  const ver_s2Text = JSON.stringify(ver_s2?.segments ?? []);
+  check('the change updates the existing statement', ver_s2Text.includes('Spare batteries: 6.') && !ver_s2Text.includes('CHANGE-NOT-SEEN') && changes(ver_s2).length === 1, ver_s2Text);
+  check('the source records version 2', ver_s2?.source?.version === 2 && ver_s2.source.filename === 'parts.docx');
+  await api('POST', `/api/proposals/${ver_s2.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
+  check('unchanged parts are not added again', (pageFile('team/onboarding').match(/Spare propellers: 8\./g) ?? []).length === 1 && !pageFile('team/onboarding').includes('Spare batteries: 4.'));
+  const ver_v3 = await upload([['parts.docx', await docx(['Parts list', 'FACT: Spare propellers: 8.', 'FACT: Spare batteries: 6.']), 'application/octet-stream']]);
+  const ver_r3 = await chat('What is in this file?', 'Alex', 'local', 'e2e-chat-ver_v3', [ver_v3.data[0].id]);
+  check('the same file sent again is recognised', ver_r3.trace?.some((t) => /parts\.docx is unchanged since/.test(t)), JSON.stringify(ver_r3.trace));
+  const ver_copy = await upload([['parts-ver_copy.docx', await docx(['Parts list', 'FACT: Spare propellers: 8.', 'FACT: Spare batteries: 6.']), 'application/octet-stream']]);
+  check('the same content under another name uploads fine', ver_copy.status === 200);
+
+  // 22. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {

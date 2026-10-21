@@ -112,6 +112,25 @@ function migrate(d: Database.Database) {
       method TEXT NOT NULL,            -- text | docx | pdf-text | pdf-scan | vision
       created_at TEXT NOT NULL
     );
+    -- A document seen by the wiki (a dropped file name, later a file in a watched folder) and its versions
+    CREATE TABLE IF NOT EXISTS documents (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      doc_key TEXT NOT NULL UNIQUE,
+      display_name TEXT NOT NULL,
+      folder_label TEXT,
+      rel_path TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS document_versions (
+      document_id INTEGER NOT NULL REFERENCES documents(id),
+      version INTEGER NOT NULL,
+      hash TEXT NOT NULL,
+      stored_path TEXT NOT NULL,
+      added_by TEXT NOT NULL,
+      added_at TEXT NOT NULL,
+      PRIMARY KEY (document_id, version)
+    );
+    CREATE INDEX IF NOT EXISTS idx_document_versions_hash ON document_versions(hash);
     -- Extra sources of a change set, when one message brought several files
     CREATE TABLE IF NOT EXISTS change_set_sources (
       change_set_id INTEGER NOT NULL REFERENCES change_sets(id),

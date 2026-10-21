@@ -1,7 +1,8 @@
 import { getProvider, Msg } from './providers';
 import { normalizeCall, runTool, toolDefs, ToolContext } from './tools';
 import type { ChatMsg, ChatResponse } from '../types';
-import { extractText, getFile } from '../files';
+import { getFile } from '../files';
+import { dropIdentity, prepareFile, registerVersion } from '../ingest';
 
 const SYSTEM = `You are the assistant built into a company wiki. You help people find information and keep the wiki accurate.
 
@@ -64,16 +65,12 @@ export async function runAgent(opts: {
       const f = getFile(id);
       if (!f) continue;
       try {
-        const out = await extractText(f, (image, prompt) => provider.describeImage(image, prompt));
-        ctx.files.push({ filename: f.filename, hash: f.hash, storedPath: f.storedPath });
-        trace.push(`Read ${f.filename}`);
-        const how = out.method === 'vision' ? 'photo, described by the vision model' : out.method === 'pdf-scan' ? 'scanned PDF, read page by page' : f.kind;
-        sections.push(
-          `<<<Attached file "${f.filename}" (${how})>>>\n${out.text}\n` +
-            (out.truncated ? '(The file is longer; only the beginning is shown.)\n' : '') +
-            (f.kind === 'image' ? `To show this photo on a page, use ![short description](/api/files/${f.id})\n` : '') +
-            '<<<End of file>>>',
-        );
+        const id = dropIdentity(f.filename);
+        const info = registerVersion(id, f, opts.user);
+        const prepared = await prepareFile(f, (image, prompt) => provider.describeImage(image, prompt), info, f.filename);
+        ctx.files.push({ filename: f.filename, hash: f.hash, storedPath: f.storedPath, version: info.version });
+        trace.push(`Read ${f.filename}${prepared.note ? ` (${prepared.note})` : ''}`);
+        sections.push(prepared.section);
       } catch (e: any) {
         trace.push(`Could not read ${f.filename}`);
         sections.push(`<<<Attached file "${f.filename}" could not be read: ${e?.message ?? e}>>>`);
