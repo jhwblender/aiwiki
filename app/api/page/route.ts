@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { deletePage, normalizePath, readPage, subPages, titleFor, writePage } from '@/lib/wiki';
-import { pendingForPage, sourcesForPage } from '@/lib/proposals';
+import { pendingForPage, pendingOpsForPage, sourcesForPage } from '@/lib/proposals';
 import { fail, userFrom } from '@/lib/api';
 import type { PageData } from '@/lib/types';
 
@@ -21,6 +21,7 @@ export async function GET(req: NextRequest) {
       title: titleFor(content ?? draft ?? '', p),
       content: content ?? '',
       pending,
+      ops: await pendingOpsForPage(p),
       sources: sourcesForPage(p),
       children: await subPages(p),
     };

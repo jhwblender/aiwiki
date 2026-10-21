@@ -142,6 +142,27 @@ const SCENARIOS = [
     reply: (toolText) => (toolText.includes('Pending suggestions from others') ? 'PENDING-SEEN' : 'PENDING-NOT-SEEN'),
   },
   {
+    keyword: 'tidy the handbook',
+    steps: [{ name: 'move_page', args: { from: 'team/handbook', to: 'guides/handbook', summary: 'Handbooks belong under guides' } }],
+    reply: 'I proposed moving the handbook to [[guides/handbook]].',
+  },
+  {
+    keyword: 'merge first week',
+    steps: [
+      {
+        name: 'append_to_page',
+        args: { path: 'team/onboarding', text: '## First week\n\nShadow the on-call engineer for the whole week.', summary: 'Merge the first week page into onboarding' },
+      },
+      { name: 'remove_page', args: { path: 'team/onboarding/first-week', summary: 'Merge the first week page into onboarding' } },
+    ],
+    reply: 'I proposed merging the first week page into [[team/onboarding]].',
+  },
+  {
+    keyword: 'move it again',
+    steps: [{ name: 'move_page', args: { path: 'team/handbook', new_path: 'policies/handbook', summary: 'Handbooks are policies' } }],
+    reply: 'I changed my suggestion: move the handbook to policies instead.',
+  },
+  {
     keyword: 'backup',
     steps: [
       { name: 'search_pages', args: { query: 'backup' } },

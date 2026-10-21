@@ -1,7 +1,7 @@
 import { db } from './db';
-import { movePage, readPage, rewriteLinks, writePage, titleFor } from './wiki';
+import { deletePage, movePage, planMove, readPage, rewriteLinks, writePage, titleFor } from './wiki';
 import { fromBlocks, hunkCount, normalize, rebase, resolveHunk, segments, toBlocks } from './diff';
-import type { PageSourceRef, PendingSet, SourceInfo } from './types';
+import type { PageSourceRef, PendingOp, PendingSet, SourceInfo } from './types';
 
 const now = () => new Date().toISOString();
 
@@ -197,9 +197,19 @@ export function pendingCounts(): Map<string, { count: number; isNew: boolean; ti
        FROM proposals WHERE status = 'pending' GROUP BY page_path`,
     )
     .all() as { page_path: string; n: number; is_new: number; new_content: string | null }[];
-  return new Map(
+  const out = new Map(
     rows.map((r) => [r.page_path, { count: r.n, isNew: !!r.is_new, title: titleFor(r.new_content ?? '', r.page_path) }]),
   );
+  const ops = db().prepare("SELECT page_path, COUNT(*) AS n FROM page_ops WHERE status = 'pending' GROUP BY page_path").all() as {
+    page_path: string;
+    n: number;
+  }[];
+  for (const o of ops) {
+    const cur = out.get(o.page_path);
+    if (cur) cur.count += o.n;
+    else out.set(o.page_path, { count: o.n, isNew: false, title: titleFor('', o.page_path) });
+  }
+  return out;
 }
 
 export function sourcesForPage(pagePath: string): PageSourceRef[] {
@@ -238,6 +248,7 @@ export async function movePageWithRecords(from: string, to: string, user: string
   for (const [oldPath, newPath] of moves) {
     d.prepare("UPDATE proposals SET page_path = ? WHERE page_path = ? AND status = 'pending'").run(newPath, oldPath);
     d.prepare('UPDATE page_sources SET page_path = ? WHERE page_path = ?').run(newPath, oldPath);
+    d.prepare("UPDATE page_ops SET page_path = ? WHERE page_path = ? AND status = 'pending'").run(newPath, oldPath);
   }
   const rows = d.prepare("SELECT id, new_content, base_content FROM proposals WHERE status = 'pending'").all() as {
     id: number;
@@ -252,6 +263,102 @@ export async function movePageWithRecords(from: string, to: string, user: string
     }
   }
   return moves;
+}
+
+// ---------- structural suggestions (move, remove) ----------
+
+export function stageOp(changeSetId: number, kind: 'move' | 'remove', pagePath: string, newPath: string | null): number {
+  const r = db()
+    .prepare("INSERT INTO page_ops (change_set_id, kind, page_path, new_path, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)")
+    .run(changeSetId, kind, pagePath, newPath, now());
+  return Number(r.lastInsertRowid);
+}
+
+// This chat's pending move or removal of a page, so a follow-up message can replace it
+export function chatPendingOp(chatId: string, user: string, pagePath: string, excludeChangeSetId: number | null): number | null {
+  const row = db()
+    .prepare(
+      `SELECT o.id FROM page_ops o JOIN change_sets cs ON cs.id = o.change_set_id JOIN sources s ON s.id = cs.source_id
+       WHERE o.page_path = ? AND o.status = 'pending' AND cs.chat_id = ? AND s.user = ? AND cs.id IS NOT ?
+       ORDER BY o.id DESC LIMIT 1`,
+    )
+    .get(pagePath, chatId, user, excludeChangeSetId) as { id: number } | undefined;
+  return row?.id ?? null;
+}
+
+export function supersedeOp(opId: number) {
+  db().prepare("UPDATE page_ops SET status = 'superseded' WHERE id = ? AND status = 'pending'").run(opId);
+}
+
+async function staleReason(kind: string, pagePath: string, newPath: string | null): Promise<string | null> {
+  if (kind === 'remove') return (await readPage(pagePath)) === null ? 'This page no longer exists.' : null;
+  try {
+    await planMove(pagePath, newPath ?? '');
+    return null;
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
+  }
+}
+
+type OpRow = { id: number; change_set_id: number; kind: 'move' | 'remove'; page_path: string; new_path: string | null; status: string };
+
+export async function pendingOpsForPage(pagePath: string): Promise<PendingOp[]> {
+  const rows = db()
+    .prepare(
+      `SELECT o.*, cs.summary, cs.created_by, cs.created_at AS cs_created, cs.source_id FROM page_ops o
+       JOIN change_sets cs ON cs.id = o.change_set_id WHERE o.page_path = ? AND o.status = 'pending' ORDER BY o.id`,
+    )
+    .all(pagePath) as (OpRow & { summary: string; created_by: string; cs_created: string; source_id: number })[];
+  const out: PendingOp[] = [];
+  for (const r of rows) {
+    out.push({
+      opId: r.id,
+      changeSetId: r.change_set_id,
+      kind: r.kind,
+      newPath: r.new_path,
+      summary: r.summary,
+      createdBy: r.created_by,
+      createdAt: r.cs_created,
+      source: getSource(r.source_id),
+      stale: await staleReason(r.kind, r.page_path, r.new_path),
+    });
+  }
+  return out;
+}
+
+function opMessage(r: OpRow, user: string): string {
+  const cs = db().prepare('SELECT summary, source_id FROM change_sets WHERE id = ?').get(r.change_set_id) as any;
+  const src = getSource(cs?.source_id ?? null);
+  return `${cs?.summary ?? (r.kind === 'move' ? 'Move page' : 'Remove page')}\n\nSource: ${sourceLabel(src)} (source #${src?.id ?? '?'})\nChange set: #${r.change_set_id}\nApproved by: ${user}`;
+}
+
+export async function decideOp(opId: number, action: 'approve' | 'reject', user: string): Promise<{ path: string | null }> {
+  const d = db();
+  const r = d.prepare('SELECT * FROM page_ops WHERE id = ?').get(opId) as OpRow | undefined;
+  if (!r) throw new Error('Suggestion not found');
+  if (r.status !== 'pending') throw new Error('This change was already resolved');
+  let path: string | null = r.page_path;
+  if (action === 'approve') {
+    const stale = await staleReason(r.kind, r.page_path, r.new_path);
+    if (stale) throw new Error(`${stale} Reject this suggestion instead.`);
+  }
+  // Record the decision before acting, so a failure part way cannot leave a done change without a record
+  d.prepare('INSERT INTO op_decisions (op_id, action, user, at) VALUES (?, ?, ?, ?)').run(opId, action, user, now());
+  if (action === 'approve') {
+    const cs = d.prepare('SELECT source_id FROM change_sets WHERE id = ?').get(r.change_set_id) as { source_id: number };
+    if (r.kind === 'move') {
+      await movePageWithRecords(r.page_path, r.new_path!, user, opMessage(r, user));
+      path = r.new_path;
+    } else {
+      await deletePage(r.page_path, user, opMessage(r, user));
+      // Suggestions to edit a page that is gone can no longer apply
+      d.prepare("UPDATE proposals SET status = 'resolved' WHERE page_path = ? AND status = 'pending'").run(r.page_path);
+      path = null;
+    }
+    if (path) d.prepare('INSERT INTO page_sources (page_path, source_id, approved_by, approved_at) VALUES (?, ?, ?, ?)').run(path, cs.source_id, user, now());
+  }
+  d.prepare("UPDATE page_ops SET status = 'resolved' WHERE id = ?").run(opId);
+  return { path };
 }
 
 // ---------- deciding ----------

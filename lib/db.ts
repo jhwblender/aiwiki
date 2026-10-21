@@ -75,6 +75,24 @@ function migrate(d: Database.Database) {
       approved_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_page_sources_page ON page_sources(page_path);
+    -- Suggested structural changes: move a page (with its sub-pages) or remove it
+    CREATE TABLE IF NOT EXISTS page_ops (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      change_set_id INTEGER NOT NULL REFERENCES change_sets(id),
+      kind TEXT NOT NULL,              -- move | remove
+      page_path TEXT NOT NULL,
+      new_path TEXT,                   -- for moves
+      status TEXT NOT NULL DEFAULT 'pending',   -- pending | resolved | superseded
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_page_ops_page ON page_ops(page_path, status);
+    CREATE TABLE IF NOT EXISTS op_decisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      op_id INTEGER NOT NULL REFERENCES page_ops(id),
+      action TEXT NOT NULL,            -- approve | reject
+      user TEXT NOT NULL,
+      at TEXT NOT NULL
+    );
     -- Admin settings edited on the Settings page; values here override .env.local
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,

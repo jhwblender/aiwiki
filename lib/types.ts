@@ -31,6 +31,20 @@ export type PendingSet = {
   segments: Segment[];
 };
 
+// A suggested move or removal of a whole page, reviewed on that page
+export type PendingOp = {
+  opId: number;
+  changeSetId: number;
+  kind: 'move' | 'remove';
+  newPath: string | null;
+  summary: string;
+  createdBy: string;
+  createdAt: string;
+  source: SourceInfo | null;
+  // Why it can no longer be applied, if the wiki changed since it was suggested
+  stale: string | null;
+};
+
 export type PageSourceRef = {
   source: SourceInfo;
   approvedBy: string;
@@ -43,6 +57,7 @@ export type PageData = {
   title: string;
   content: string;
   pending: PendingSet[];
+  ops: PendingOp[];
   sources: PageSourceRef[];
   children: { path: string; title: string; exists: boolean; below: number }[];
 };

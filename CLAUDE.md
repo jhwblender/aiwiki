@@ -21,6 +21,8 @@ Audience: starts with the systems team, eventually the whole company. Most revie
 - **`lib/proposals.ts`**: sources, change sets, proposals, decisions and page_sources (schema in `lib/db.ts`)
 - **`lib/ai/`**: `providers.ts` (registry and Anthropic adapter), `local.ts` (OpenAI-compatible adapter for Ollama, LM Studio and vLLM, plus the Settings connection test), `tools.ts` (wiki tools), `agent.ts` (tool loop, max 10 steps)
 - **Pending awareness**: `read_page` shows the approved page plus a separately labelled list of other people's pending suggestions. Each chat sends a `chatId`; a later message in the same chat (same name) edits on top of that chat's pending suggestion and supersedes it (`proposals.superseded_by`), and approval records every message in the chain as a source
+- **Page structure**: paths nest up to 5 levels; every page lists its sub-pages and sidebar folders open their section. `movePage` in `lib/wiki.ts` moves a page with everything under it and rewrites `[[links]]` and `/wiki/` links on every page in one commit; `movePageWithRecords` in `lib/proposals.ts` carries pending suggestions, sources and structural suggestions along
+- **Structural suggestions**: the assistant's `move_page` and `remove_page` tools stage rows in `page_ops`, shown as a card on the page with Approve and Reject (`/api/ops/:id`, decisions in `op_decisions`). Splits and merges combine these with the normal edit tools
 - **`lib/settings.ts`**: Settings page values (local model address, model, key) stored in SQLite, overriding `.env.local`
 - **`components/`**: `Shell` (mounted once from `app/wiki/layout.tsx` so chat survives navigation), `Sidebar`, `PageView` (inline review), `wordMarks` (changed-word highlights), `ChatPanel`, `SourceChip`, `Md` (markdown plus `[[wiki links]]`)
 
@@ -55,12 +57,11 @@ Audience: starts with the systems team, eventually the whole company. Most revie
 
 ## Roadmap, in order
 
-1. **Page structure and reorganising.** Paths already nest up to 5 levels (`systems/networking/vlans`) and the sidebar shows them as a tree, but nothing can move pages. Add, in order: folder labels in the sidebar that open the parent page, or an automatic list of its sub-pages when it has none; a "Sub-pages" list at the bottom of every page; a human Move or rename action that also rewrites `[[links]]` on other pages; then AI tools to suggest a move, rename, split or merge. An AI reorganisation is one change set (pages created, pages removed, links rewritten) reviewed inline: the old page shows "Suggested move to X" with Approve and Reject, and approving applies every part together. Do this before file drops, which will create many pages that need sorting
-2. **File and photo drop** into the chat panel and onto pages. Store originals under `data/assets/`, extract text (PDF, docx; vision fallback for scans), describe photos with vision, create a `file` source, and let the agent propose edits as one change set. Link the original from the source chip
-3. **Ingest queue** shared by all file sources: dedupe by content hash; diff a changed file against its previous version so content is not duplicated
-4. **Local folder watcher** on the server, feeding the same queue
-5. **Companion desktop app** (only needed when the wiki server cannot reach the model; a model on the server itself or on a machine it can reach on the network already works through `LOCAL_LLM_BASE_URL`): watches folders on a user's machine (SharePoint libraries via the OneDrive sync client, with Files On-Demand off for that folder), uploads to the queue with the user's identity, and relays calls to a local model so a remote wiki can use AI on the user's own computer
-6. **Per-folder visibility**: "feeds wiki" or "personal only". Personal-only content is searchable by that user's chat but never proposed as a wiki edit
-7. **Conflict handling**: when sources disagree, the proposal cites both and flags the conflict instead of silently picking one
-8. **Bulk review** for large drops: a per-source summary and one approval for a whole change set across pages
-9. **Real auth and roles** (likely Entra ID SSO), including who can approve
+1. **File and photo drop** into the chat panel and onto pages. Store originals under `data/assets/`, extract text (PDF, docx; vision fallback for scans), describe photos with vision, create a `file` source, and let the agent propose edits as one change set. Link the original from the source chip
+2. **Ingest queue** shared by all file sources: dedupe by content hash; diff a changed file against its previous version so content is not duplicated
+3. **Local folder watcher** on the server, feeding the same queue
+4. **Companion desktop app** (only needed when the wiki server cannot reach the model; a model on the server itself or on a machine it can reach on the network already works through `LOCAL_LLM_BASE_URL`): watches folders on a user's machine (SharePoint libraries via the OneDrive sync client, with Files On-Demand off for that folder), uploads to the queue with the user's identity, and relays calls to a local model so a remote wiki can use AI on the user's own computer
+5. **Per-folder visibility**: "feeds wiki" or "personal only". Personal-only content is searchable by that user's chat but never proposed as a wiki edit
+6. **Conflict handling**: when sources disagree, the proposal cites both and flags the conflict instead of silently picking one
+7. **Bulk review** for large drops: a per-source summary and one approval for a whole change set across pages
+8. **Real auth and roles** (likely Entra ID SSO), including who can approve

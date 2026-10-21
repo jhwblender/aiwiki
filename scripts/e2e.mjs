@@ -292,7 +292,41 @@ try {
   const ok2 = await api('POST', `/api/proposals/${lunchMoved.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
   check('a moved suggestion can still be approved', ok2.status === 200 && pageFile('team/onboarding').includes('Team lunch is on Mondays.'), JSON.stringify(ok2.data));
 
-  // 17. Search finds approved content
+  // 17. The assistant suggests moves and merges; nothing changes until a person approves
+  const chatR = 'e2e-chat-reorg';
+  await chat('Please tidy the handbook', 'Alex', 'local', chatR);
+  let hb = await getPage('team/handbook');
+  check('a suggested move waits on the page', hb.ops.length === 1 && hb.ops[0].kind === 'move' && hb.ops[0].newPath === 'guides/handbook' && !hb.ops[0].stale, JSON.stringify(hb.ops));
+  check('the page has not moved yet', fs.existsSync(path.join(wikiDir, 'team/handbook.md')));
+  check('the sidebar counts the suggested move', (await api('GET', '/api/pages')).data.find((p) => p.path === 'team/handbook')?.pending === 1);
+  await chat('Actually move it again', 'Alex', 'local', chatR);
+  hb = await getPage('team/handbook');
+  check('a follow-up replaces the earlier move suggestion', hb.ops.length === 1 && hb.ops[0].newPath === 'policies/handbook', JSON.stringify(hb.ops));
+  const seenMove = await chat('Is anything pending on onboarding?', 'Sam', 'local', 'e2e-chat-other');
+  check('pending moves do not confuse other chats', !seenMove.error);
+  const okMove = await api('POST', `/api/ops/${hb.ops[0].opId}`, { action: 'approve', user: 'Kim' });
+  check('approving the move moves the page', okMove.data.path === 'policies/handbook' && fs.existsSync(path.join(wikiDir, 'policies/handbook.md')) && !fs.existsSync(path.join(wikiDir, 'team/handbook.md')));
+  check('the approved move names its source', git('log', '-1', '--format=%B').includes('Source: chat with Alex') && git('log', '-1', '--format=%an').trim() === 'Kim');
+
+  await chat('Merge first week into onboarding', 'Alex', 'local', 'e2e-chat-merge');
+  const fw = await getPage('team/onboarding/first-week');
+  check('a suggested removal waits on the page', fw.ops.length === 1 && fw.ops[0].kind === 'remove');
+  const ob = (await getPage('team/onboarding')).pending;
+  check('the merged text is a normal suggestion on the target', ob.length === 1 && JSON.stringify(ob[0].segments).includes('whole week'));
+  await api('POST', `/api/proposals/${ob[0].proposalId}/resolve`, { action: 'approve', user: 'Kim' });
+  await api('POST', `/api/ops/${fw.ops[0].opId}`, { action: 'approve', user: 'Kim' });
+  check('approving the removal deletes the old page', !fs.existsSync(path.join(wikiDir, 'team/onboarding/first-week.md')) && pageFile('team/onboarding').includes('whole week'));
+
+  await chat('Please tidy the handbook', 'Alex', 'local', 'e2e-chat-stale'); // handbook is gone from team/, so nothing to move
+  await api('PUT', '/api/page', { path: 'team/handbook', content: '# Handbook draft\n', user: 'Jordan' });
+  await chat('Please tidy the handbook', 'Alex', 'local', 'e2e-chat-stale2');
+  await api('PUT', '/api/page', { path: 'guides/handbook', content: '# Someone got there first\n', user: 'Jordan' });
+  const staleOp = (await getPage('team/handbook')).ops[0];
+  check('a move whose target now exists is marked out of date', !!staleOp?.stale, JSON.stringify(staleOp));
+  check('an out-of-date move cannot be approved', (await api('POST', `/api/ops/${staleOp.opId}`, { action: 'approve', user: 'Kim' })).status === 400);
+  check('an out-of-date move can be rejected', (await api('POST', `/api/ops/${staleOp.opId}`, { action: 'reject', user: 'Kim' })).status === 200 && (await getPage('team/handbook')).ops.length === 0);
+
+  // 18. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {

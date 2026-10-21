@@ -247,7 +247,7 @@ export async function movePage(from: string, to: string, author: string, message
   return moves;
 }
 
-export async function deletePage(p: string, author: string): Promise<void> {
+export async function deletePage(p: string, author: string, message = `Delete ${p}`): Promise<void> {
   await ensureInit();
   await serial(async () => {
     await fs.rm(fileFor(p), { force: true });
@@ -255,7 +255,7 @@ export async function deletePage(p: string, author: string): Promise<void> {
     await git.add(p + '.md');
     const who = author.replace(/[<>\n]/g, '').trim() || 'anonymous';
     try {
-      await git.commit(`Delete ${p}`, [p + '.md'], { '--author': `${who} <${who.replace(/\s+/g, '.')}@wiki.local>` });
+      await git.commit(message, [p + '.md'], { '--author': `${who} <${who.replace(/\s+/g, '.')}@wiki.local>` });
     } catch {
       // ignore
     }

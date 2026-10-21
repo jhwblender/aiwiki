@@ -1,5 +1,5 @@
-import { listPages, normalizePath, readPage, searchPages } from '../wiki';
-import { chatPending, createChangeSet, createSource, pendingCounts, pendingForPage, stageContent, stagedContent, supersede } from '../proposals';
+import { listPages, normalizePath, planMove, readPage, searchPages } from '../wiki';
+import { chatPending, chatPendingOp, pendingOpsForPage, stageOp, supersedeOp, createChangeSet, createSource, pendingCounts, pendingForPage, stageContent, stagedContent, supersede } from '../proposals';
 import type { PendingSet } from '../types';
 import { toBlocks } from '../diff';
 import type { ToolDef } from './providers';
@@ -51,6 +51,32 @@ export const toolDefs: ToolDef[] = [
       type: 'object',
       properties: { path: { type: 'string', description: 'For example "vendors/acme-pumps"' }, content: { type: 'string' }, summary: { type: 'string' } },
       required: ['path', 'content', 'summary'],
+    },
+  },
+  {
+    name: 'move_page',
+    description:
+      'Propose moving or renaming a page. Pages under it move too, and links to it are updated everywhere. ' +
+      'Paths can nest up to 5 levels, for example "systems/networking/vpn". Not done until a human approves.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Current path of the page' },
+        new_path: { type: 'string', description: 'Where it should live' },
+        summary: { type: 'string', description: 'One short sentence explaining why, for the reviewer.' },
+      },
+      required: ['path', 'new_path', 'summary'],
+    },
+  },
+  {
+    name: 'remove_page',
+    description:
+      'Propose removing a page, for example after its content was merged into another page. ' +
+      'Only use this once the content lives somewhere else. Not done until a human approves.',
+    parameters: {
+      type: 'object',
+      properties: { path: { type: 'string' }, summary: { type: 'string', description: 'Why it can go, for the reviewer.' } },
+      required: ['path', 'summary'],
     },
   },
 ];
@@ -132,7 +158,8 @@ const PENDING_HEADER =
 const squash = (s: string) => s.toLowerCase().replace(/[^a-z]/g, '');
 
 const ARG_ALIASES: Record<string, string[]> = {
-  path: ['page', 'pagepath', 'slug', 'pagename', 'name'],
+  path: ['page', 'pagepath', 'slug', 'pagename', 'name', 'from', 'oldpath', 'source'],
+  new_path: ['newpath', 'to', 'destination', 'target', 'newname'],
   query: ['q', 'search', 'term', 'terms', 'keywords'],
   old_text: ['oldtext', 'old', 'find', 'search', 'original', 'existingtext', 'from'],
   new_text: ['newtext', 'new', 'replace', 'replacement', 'to'],
@@ -217,6 +244,13 @@ export async function runTool(name: string, args: Record<string, any>, ctx: Tool
           );
         }
         if (others.length) parts.push(`---\n${PENDING_HEADER}\n${describePending(others)}`);
+        const ops = await pendingOpsForPage(p);
+        if (ops.length) {
+          parts.push(
+            '---\nPending structural suggestions for this page, NOT approved:\n' +
+              ops.map((o) => `- ${o.kind === 'move' ? `move to "${o.newPath}"` : 'remove this page'}: "${o.summary}"`).join('\n'),
+          );
+        }
         return parts.join('\n\n');
       }
       case 'replace_in_page': {
@@ -262,6 +296,36 @@ export async function runTool(name: string, args: Record<string, any>, ctx: Tool
         await stage(ctx, csId, p, String(args.content ?? ''), null);
         ctx.proposed.set(p, true);
         return `Proposed new page "${p}". It is pending human review and not live yet.`;
+      }
+      case 'move_page': {
+        const p = normalizePath(String(args.path ?? ''));
+        const to = normalizePath(String(args.new_path ?? ''));
+        try {
+          await planMove(p, to);
+        } catch (e: any) {
+          return `Error: ${e.message}`;
+        }
+        const csId = await ensureChangeSet(ctx, String(args.summary ?? 'Move page'));
+        if (ctx.chatId) {
+          const earlier = chatPendingOp(ctx.chatId, ctx.user, p, csId);
+          if (earlier) supersedeOp(earlier);
+        }
+        stageOp(csId, 'move', p, to);
+        ctx.proposed.set(p, false);
+        return `Proposed moving "${p}" to "${to}". It is pending human review; until then keep using "${p}" for this page and any edits to it.`;
+      }
+      case 'remove_page': {
+        const p = normalizePath(String(args.path ?? ''));
+        if (p === 'index') return 'Error: the home page cannot be removed.';
+        if ((await readPage(p)) === null) return `No page at "${p}".`;
+        const csId = await ensureChangeSet(ctx, String(args.summary ?? 'Remove page'));
+        if (ctx.chatId) {
+          const earlier = chatPendingOp(ctx.chatId, ctx.user, p, csId);
+          if (earlier) supersedeOp(earlier);
+        }
+        stageOp(csId, 'remove', p, null);
+        ctx.proposed.set(p, false);
+        return `Proposed removing "${p}". It is pending human review.`;
       }
       default:
         return `Unknown tool ${name}.`;

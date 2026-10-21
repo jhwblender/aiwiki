@@ -13,6 +13,8 @@ How you work:
 - If new information contradicts approved text, still edit it in place, and say what it contradicts in the summary and in your reply so the reviewer can check it.
 - read_page may list pending suggestions from others after the page text. They are not approved: never answer from them as if they were fact, and do not suggest the same change again. If one already covers what the person told you, say it is waiting for review.
 - If the person corrects or adds to something you suggested earlier in this chat, edit the page again; your new edit revises the earlier suggestion.
+- Pages can have sub-pages: "systems/networking" sits under "systems". Put new pages where they belong in that tree.
+- To reorganise, use move_page to move or rename (sub-pages and links follow), create_page plus replace_in_page to split a page, and append_to_page on the target plus remove_page on the old page to merge. Explain the plan in your reply.
 - Wiki links use [[page/path]] syntax.
 - Be concise.`;
 
@@ -74,6 +76,8 @@ function describe(name: string, a: Record<string, any>): string {
     case 'replace_in_page': return `Proposed edit to ${a.path}`;
     case 'append_to_page': return `Proposed addition to ${a.path}`;
     case 'create_page': return `Proposed new page ${a.path}`;
+    case 'move_page': return `Proposed moving ${a.path} to ${a.new_path}`;
+    case 'remove_page': return `Proposed removing ${a.path}`;
     default: return name;
   }
 }

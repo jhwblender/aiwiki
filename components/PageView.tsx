@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import type { PageData, PendingSet, Segment } from '@/lib/types';
+import type { PageData, PendingOp, PendingSet, Segment } from '@/lib/types';
 import Md, { slugify } from './Md';
 import SourceChip from './SourceChip';
 import { markWords, rehypeMarks } from './wordMarks';
@@ -33,6 +33,40 @@ function pairMarks(seg: Extract<Segment, { type: 'change' }>) {
     });
   }
   return { removed: removed.join('\n\n'), added: added.join('\n\n'), marked };
+}
+
+// A suggestion to move or remove the whole page
+function OpCard({ op, busy, decide }: { op: PendingOp; busy: boolean; decide: (action: 'approve' | 'reject') => void }) {
+  return (
+    <div className={'review op-card' + (op.stale ? ' conflict' : '')}>
+      <div className="review-head">
+        <div>
+          <div className="review-title">{op.summary}</div>
+          <div className="small-text">
+            {op.kind === 'move' ? (
+              <>
+                Suggested move to <strong>{op.newPath}</strong>. Pages under it move too, and links to it are updated.
+              </>
+            ) : (
+              'Suggested removal of this page.'
+            )}{' '}
+            <SourceChip source={op.source} />
+          </div>
+          {op.stale && <div className="muted small-text">{op.stale} It can no longer be applied.</div>}
+        </div>
+        <div className="actions">
+          {!op.stale && (
+            <button className="btn approve" disabled={busy} onClick={() => decide('approve')}>
+              {op.kind === 'move' ? 'Approve move' : 'Approve removal'}
+            </button>
+          )}
+          <button className="btn reject" disabled={busy} onClick={() => decide('reject')}>
+            Reject
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function Hunk({
@@ -129,8 +163,8 @@ export default function PageView({
       await load();
       onChanged();
     } catch (e: any) {
+      await load(); // reload first: a successful load clears the error
       setError(e.message);
-      await load();
     } finally {
       setBusy(false);
     }
@@ -228,6 +262,20 @@ export default function PageView({
         </div>
       ) : (
         <>
+          {data.ops.map((op) => (
+            <OpCard
+              key={op.opId}
+              op={op}
+              busy={busy}
+              decide={(action) =>
+                guarded(async () => {
+                  const d = await post(`/api/ops/${op.opId}`, { action, user });
+                  if (action === 'approve') router.push(d.path ? `/wiki/${d.path}` : '/wiki/index');
+                })
+              }
+            />
+          ))}
+
           {data.pending.length > 0 && set && (
             <div className={'review' + (set.conflict ? ' conflict' : '')}>
               {data.pending.length > 1 && (

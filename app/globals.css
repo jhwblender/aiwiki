@@ -100,6 +100,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 /* ---------- proposals, shown in place ---------- */
 /* stays in view while the reviewer scrolls through a long page */
 .review { position: sticky; top: 0; z-index: 10; margin-bottom: 20px; border: 1px solid var(--teal); border-radius: 8px; background: var(--panel); overflow: hidden; box-shadow: 0 4px 14px rgba(23, 33, 43, 0.08); }
+.review.op-card { position: static; }
 .review.conflict { position: static; border-color: var(--rem-ink); }
 .conflict-preview { padding: 0 14px 4px; border-top: 1px solid var(--rule); }
 .review-head { display: flex; justify-content: space-between; gap: 12px; padding: 12px 14px; align-items: center; flex-wrap: wrap; }
