@@ -28,6 +28,8 @@ How you work:
 const CLAIMS_CHANGE =
   /\b(I(?:'ve| have| just)?\s+(?:now\s+)?(?:proposed|suggested|moved|renamed|added|updated|created|changed|edited|removed)|(?:waiting|pending)\s+(?:for\s+)?(?:human\s+)?(?:review|approval))\b/i;
 
+const WRITE_TOOLS = new Set(['replace_in_page', 'append_to_page', 'create_page', 'move_page', 'remove_page']);
+
 const NUDGE =
   '(Automatic check) Your reply says you suggested or made a change, but you did not call any tool, so nothing was suggested and nothing is waiting for review. ' +
   'If a change is needed, call the right tool now (replace_in_page, append_to_page, create_page, move_page or remove_page). ' +
@@ -39,6 +41,10 @@ export async function runAgent(opts: {
   user: string;
   currentPath?: string;
   chatId?: string;
+  // Called as the assistant works, so the chat can show progress live
+  onProgress?: (text: string) => void;
+  // Stops the run between steps when the person cancels
+  signal?: AbortSignal;
   // Files attached to the latest message: a file id, or one with its document identity and version
   // already worked out (the ingest queue does that before deciding whether to run at all)
   attachments?: (number | { id: number; identity: DocIdentity; info?: VersionInfo })[];
@@ -66,6 +72,7 @@ export async function runAgent(opts: {
   const handled: { identity: DocIdentity; file: NonNullable<ReturnType<typeof getFile>>; info: VersionInfo }[] = [];
   if (opts.attachments?.length) {
     const sections: string[] = [];
+    opts.onProgress?.(`Reading ${opts.attachments.length} file${opts.attachments.length > 1 ? 's' : ''}`);
     for (const att of opts.attachments) {
       const f = getFile(typeof att === 'number' ? att : att.id);
       if (!f) continue;
@@ -83,6 +90,7 @@ export async function runAgent(opts: {
           relPath: identity.relPath,
         });
         trace.push(`Read ${identity.displayName}${prepared.note ? ` (${prepared.note})` : ''}`);
+        opts.onProgress?.(trace[trace.length - 1]);
         sections.push(prepared.section);
       } catch (e: any) {
         trace.push(`Could not read ${f.filename}`);
@@ -98,6 +106,8 @@ export async function runAgent(opts: {
 
   let nudged = false;
   for (let i = 0; i < 10; i++) {
+    if (opts.signal?.aborted) throw new Error('Stopped.');
+    opts.onProgress?.(i === 0 ? 'Thinking' : 'Thinking about what it found');
     const res = await provider.chat({ system, messages, tools: toolDefs });
     messages.push({ role: 'assistant', content: res.text, toolCalls: res.toolCalls, raw: res.raw });
     if (!res.toolCalls.length) {
@@ -115,7 +125,13 @@ export async function runAgent(opts: {
       const result = await runTool(call.name, call.args, ctx);
       // One line per tool call in the server log, for checking how a real model behaves
       console.log(`[assistant] ${call.name} ${JSON.stringify(call.args).slice(0, 300)} -> ${result.split('\n')[0].slice(0, 160)}`);
-      trace.push(describe(call.name, call.args));
+      let step = describe(call.name, call.args);
+      // A suggestion that the tool refused should not read as if it happened
+      if (WRITE_TOOLS.has(call.name) && !/^(Proposed|Moved your|Your earlier suggestion)/.test(result)) {
+        step = `${step}: did not work (${result.replace(/^Error:\s*/, '').split('\n')[0].slice(0, 120)})`;
+      }
+      trace.push(step);
+      opts.onProgress?.(trace[trace.length - 1]);
       // reply under the name the model used, so its own transcript stays consistent
       messages.push({ role: 'tool', toolCallId: tc.id, name: tc.name, content: result });
     }

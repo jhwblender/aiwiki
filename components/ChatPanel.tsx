@@ -56,6 +56,16 @@ export default function ChatPanel({
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<Pending[]>([]);
   const [dragging, setDragging] = useState(false);
+  // Live progress of the message being answered
+  const [live, setLive] = useState<{ steps: string[]; status: string; started: number } | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (!live) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [live]);
   // null until /api/config answers, so the "no model" notice does not flash on load
   const [providerList, setProviders] = useState<{ id: string; label: string }[] | null>(null);
   const providers = providerList ?? [];
@@ -201,11 +211,16 @@ export default function ChatPanel({
     setInput('');
     setPending([]);
     setBusy(true);
+    setLive({ steps: [], status: 'Sending', started: Date.now() });
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       const r = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
+          stream: true,
           // Earlier attachments are named in their message; only the latest message's files are read
           messages: next
             .filter((m) => !m.error)
@@ -221,7 +236,9 @@ export default function ChatPanel({
           chatId,
         }),
       });
-      const d: ChatResponse = await r.json();
+      const d = await readReply(r, (text) =>
+        setLive((l) => (l ? (/^Thinking/.test(text) ? { ...l, status: text } : { ...l, steps: [...l.steps, text], status: 'Working' }) : l)),
+      );
       if (!r.ok || d.error) {
         setMsgs([...next, { role: 'assistant', content: d.error || 'Something went wrong.', error: true }]);
       } else {
@@ -229,10 +246,44 @@ export default function ChatPanel({
         if (d.proposed.length) onChanged();
       }
     } catch (e: any) {
-      setMsgs([...next, { role: 'assistant', content: e.message || 'Network error', error: true }]);
+      const stopped = e?.name === 'AbortError';
+      setMsgs([
+        ...next,
+        stopped
+          ? { role: 'assistant', content: 'Stopped. Anything already suggested stays on its page for review.' }
+          : { role: 'assistant', content: e.message || 'Network error', error: true },
+      ]);
+      if (stopped) onChanged();
     } finally {
       setBusy(false);
+      setLive(null);
+      abortRef.current = null;
     }
+  }
+
+  // Read the streamed reply: progress lines while the assistant works, then the result
+  async function readReply(r: Response, onProgress: (text: string) => void): Promise<ChatResponse> {
+    if (!r.body || !(r.headers.get('content-type') ?? '').includes('ndjson')) return r.json();
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let result: ChatResponse | null = null;
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        const ev = JSON.parse(line);
+        if (ev.type === 'progress') onProgress(ev.text);
+        else if (ev.type === 'done') result = ev;
+        else if (ev.type === 'error') result = { reply: '', trace: [], proposed: [], error: ev.error };
+      }
+    }
+    return result ?? { reply: '', trace: [], proposed: [], error: 'The reply was cut off. Try again.' };
   }
 
   const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes('Files');
@@ -333,11 +384,31 @@ export default function ChatPanel({
             )}
           </div>
         ))}
-        {busy && (
-          <div className="msg assistant muted">
-            {msgs[msgs.length - 1]?.attachments?.length ? 'Reading the files, then working. Photos and scans can take a few minutes.' : 'Working'}
+        {busy && live && (
+          <div className="msg assistant live" aria-live="polite">
+            <div className="live-head">
+              <span className="live-dot" aria-hidden="true" />
+              <span>
+                {live.status} for {Math.max(0, Math.round((now - live.started) / 1000))}s
+              </span>
+              <span className="spacer" />
+              <button className="btn quiet small" onClick={() => abortRef.current?.abort()}>
+                Stop
+              </button>
+            </div>
+            {live.steps.length > 0 && (
+              <ul className="live-steps">
+                {live.steps.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ul>
+            )}
+            {now - live.started > 20000 && live.steps.length === 0 && (
+              <p className="small-text muted">A local model can take a minute or more to load and start answering.</p>
+            )}
           </div>
         )}
+        {busy && !live && <div className="msg assistant muted">Working</div>}
         <div ref={endRef} />
       </div>
 
@@ -394,7 +465,8 @@ export default function ChatPanel({
             }
           }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey && window.matchMedia('(min-width: 901px)').matches) {
+            // Enter sends; Shift+Enter adds a line. On touch screens Enter adds a line and the Send button sends.
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !window.matchMedia('(pointer: coarse)').matches) {
               e.preventDefault();
               send();
             }

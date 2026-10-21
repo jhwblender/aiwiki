@@ -106,7 +106,7 @@ export function localProvider(s: LocalModelSettings): Provider {
           msgs.push({ role: 'tool', tool_call_id: m.toolCallId, name: m.name, content: m.content });
         }
       }
-      // A cold local model can take a while to load, so allow a generous timeout
+      // A large local model on a processor can take many minutes on a long document
       const data = await localRequest(
         s,
         '/chat/completions',
@@ -116,7 +116,7 @@ export function localProvider(s: LocalModelSettings): Provider {
           temperature: 0.2,
           tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } })),
         },
-        300,
+        900,
       );
       const msg = data.choices?.[0]?.message ?? {};
       return { text: msg.content ?? '', toolCalls: parseToolCalls(msg) };
@@ -145,7 +145,7 @@ export async function describeLocalImage(s: LocalModelSettings, image: { data: B
         },
       ],
     },
-    300,
+    900,
   );
   const text = String(data.choices?.[0]?.message?.content ?? '').trim();
   if (!text) throw new Error(`${model} returned nothing for the image. It may not be able to read images; set a vision model on the Settings page.`);

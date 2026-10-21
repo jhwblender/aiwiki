@@ -396,7 +396,9 @@ try {
   const ver_s1 = (await getPage('team/onboarding')).pending[0];
   await api('POST', `/api/proposals/${ver_s1.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
   check('the first version is filed', pageFile('team/onboarding').includes('Spare batteries: 4.'));
-  const ver_v2 = await upload([['parts.docx', await docx(['Parts list', 'FACT: Spare propellers: 8.', 'FACT: Spare batteries: 6.']), 'application/octet-stream']]);
+  // the same bytes are re-sent later; a rebuilt .docx would differ by its zip timestamp
+  const v2Bytes = await docx(['Parts list', 'FACT: Spare propellers: 8.', 'FACT: Spare batteries: 6.']);
+  const ver_v2 = await upload([['parts.docx', v2Bytes, 'application/octet-stream']]);
   const ver_r2 = await chat('Please apply the update', 'Alex', 'local', 'e2e-chat-ver_v2', [ver_v2.data[0].id]);
   check('a changed file is reduced to its changes', ver_r2.trace?.some((t) => t === 'Read parts.docx (parts.docx has 1 change since version 1)'), JSON.stringify(ver_r2.trace));
   const ver_s2 = (await getPage('team/onboarding')).pending[0];
@@ -405,7 +407,7 @@ try {
   check('the source records version 2', ver_s2?.source?.version === 2 && ver_s2.source.filename === 'parts.docx');
   await api('POST', `/api/proposals/${ver_s2.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
   check('unchanged parts are not added again', (pageFile('team/onboarding').match(/Spare propellers: 8\./g) ?? []).length === 1 && !pageFile('team/onboarding').includes('Spare batteries: 4.'));
-  const ver_v3 = await upload([['parts.docx', await docx(['Parts list', 'FACT: Spare propellers: 8.', 'FACT: Spare batteries: 6.']), 'application/octet-stream']]);
+  const ver_v3 = await upload([['parts.docx', v2Bytes, 'application/octet-stream']]);
   const ver_r3 = await chat('What is in this file?', 'Alex', 'local', 'e2e-chat-ver_v3', [ver_v3.data[0].id]);
   check('the same file sent again is recognised', ver_r3.trace?.some((t) => /parts\.docx is unchanged since/.test(t)), JSON.stringify(ver_r3.trace));
   const ver_copy = await upload([['parts-ver_copy.docx', await docx(['Parts list', 'FACT: Spare propellers: 8.', 'FACT: Spare batteries: 6.']), 'application/octet-stream']]);
@@ -505,7 +507,18 @@ try {
   check('someone else cannot move it', (await getPage('perks/gym')).pending.length === 1 && (await getPage('misc/gym')).pending.length === 0);
   await api('POST', `/api/proposals/${newGym.pending[0].proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
-  // 25. Search finds approved content
+  // 25. The chat can stream progress while the assistant works
+  const streamed = await fetch(BASE + '/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stream: true, messages: [{ role: 'user', content: 'Is anything pending on onboarding?' }], provider: 'local', user: 'Alex' }),
+  });
+  const events = (await streamed.text()).trim().split('\n').map((l) => JSON.parse(l));
+  check('progress arrives before the result', streamed.headers.get('content-type')?.includes('ndjson') &&
+    events[0]?.type === 'progress' && events.some((e) => e.type === 'progress' && e.text.startsWith('Read ')) && events.at(-1)?.type === 'done',
+    JSON.stringify(events));
+
+  // 26. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {

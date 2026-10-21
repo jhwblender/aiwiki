@@ -250,3 +250,12 @@ a.file-chip { padding-right: 10px; }
 .folder-actions { display: flex; gap: 4px; flex-wrap: wrap; }
 .error-text { color: var(--rem-ink); }
 .card-sub { font-size: 14px; margin: 16px 0 0; }
+
+/* ---------- live progress ---------- */
+.msg.live { background: var(--teal-soft); color: var(--ink); min-width: 70%; }
+.live-head { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--teal); }
+.live-head .btn { flex-shrink: 0; white-space: nowrap; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--teal); animation: live-pulse 1.2s ease-in-out infinite; }
+@keyframes live-pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+.live-steps { margin: 6px 0 0; padding-left: 18px; font-size: 12px; color: var(--ink-soft); }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
