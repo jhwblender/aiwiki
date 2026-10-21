@@ -594,7 +594,19 @@ try {
     JSON.stringify(torque?.source));
   if (torque) await api('POST', `/api/proposals/${torque.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
-  // 29. Search finds approved content
+  // 29. Folders on the server can be browsed to pick one to watch
+  const browseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aiwiki-browse-'));
+  fs.mkdirSync(path.join(browseDir, 'Manuals'));
+  fs.mkdirSync(path.join(browseDir, '.hidden'));
+  fs.writeFileSync(path.join(browseDir, 'notes.txt'), 'x');
+  fs.writeFileSync(path.join(browseDir, '~$lock.docx'), 'x');
+  const listing = (await api('GET', `/api/folders/browse?path=${encodeURIComponent(browseDir)}`)).data;
+  check('a folder lists its subfolders and documents', listing.dirs?.map((d) => d.name).join() === 'Manuals' && listing.docs === 1 && listing.parent, JSON.stringify(listing));
+  check('places to start from are offered', Array.isArray((await api('GET', '/api/folders/browse')).data.shortcuts));
+  check('a missing folder cannot be browsed', (await api('GET', '/api/folders/browse?path=/no/such/dir')).status === 400);
+  fs.rmSync(browseDir, { recursive: true, force: true });
+
+  // 30. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {

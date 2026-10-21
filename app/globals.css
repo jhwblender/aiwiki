@@ -268,3 +268,20 @@ a.file-chip { padding-right: 10px; }
 /* tables in chat replies */
 .msg table { border-collapse: collapse; display: block; overflow-x: auto; font-size: 13px; margin: 6px 0; }
 .msg th, .msg td { border: 1px solid var(--rule); padding: 3px 8px; }
+
+/* ---------- folder picker ---------- */
+.picker { border: 1px solid var(--rule); border-radius: 8px; background: var(--panel); margin-top: 8px; overflow: hidden; font-weight: 400; font-size: 14px; }
+.picker-shortcuts { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px; border-bottom: 1px solid var(--rule); background: var(--paper); }
+.picker-trail { padding: 8px 12px; font-size: 13px; overflow-wrap: anywhere; border-bottom: 1px solid var(--rule); }
+.link-button { border: 0; background: none; padding: 0; color: var(--teal); text-decoration: underline; cursor: pointer; font: inherit; }
+.picker-list { list-style: none; margin: 0; padding: 4px; max-height: 260px; overflow-y: auto; }
+.picker-list[aria-busy='true'] { opacity: 0.6; }
+.picker-row { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 14px; color: var(--ink); overflow-wrap: anywhere; }
+.picker-row:hover, .picker-row:focus-visible { background: var(--teal-soft); }
+.folder-row::before { content: ''; display: inline-block; width: 14px; height: 10px; margin-right: 8px; border: 1.5px solid var(--ink-soft); border-radius: 2px; vertical-align: -1px; }
+.picker-empty { padding: 6px 8px; }
+.picker-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--rule); background: var(--paper); }
+.chosen-folder { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.chosen-folder code { font-family: var(--font-mono); font-size: 13px; overflow-wrap: anywhere; }
+.folder-move { flex-basis: 100%; }
+.type-path { align-self: flex-start; margin-top: 6px; }

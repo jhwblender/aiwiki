@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
+import FolderPicker from './FolderPicker';
 
 type Folder = {
   id: number;
@@ -27,6 +28,11 @@ export default function WatchedFolders() {
   const [folders, setFolders] = useState<Folder[] | null>(null);
   const [label, setLabel] = useState('');
   const [dir, setDir] = useState('');
+  const [dirDisplay, setDirDisplay] = useState('');
+  const [picking, setPicking] = useState(false);
+  const [typing, setTyping] = useState(false);
+  // The watched folder whose location is being changed
+  const [moving, setMoving] = useState<number | null>(null);
   const [fileExisting, setFileExisting] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
@@ -78,6 +84,7 @@ export default function WatchedFolders() {
     if (ok) {
       setLabel('');
       setDir('');
+      setDirDisplay('');
     }
   }
 
@@ -129,16 +136,8 @@ export default function WatchedFolders() {
                 <button
                   className="btn small quiet"
                   disabled={busy}
-                  onClick={() => {
-                    const next = window.prompt(`New location of "${f.label}" on the wiki server:`, f.path);
-                    if (next && next.trim() !== f.path) {
-                      call(
-                        `/api/folders/${f.id}`,
-                        { method: 'PATCH', body: JSON.stringify({ path: next }) },
-                        () => `"${f.label}" now points to its new location.`,
-                      );
-                    }
-                  }}
+                  aria-expanded={moving === f.id}
+                  onClick={() => setMoving(moving === f.id ? null : f.id)}
                 >
                   Change folder
                 </button>
@@ -161,6 +160,25 @@ export default function WatchedFolders() {
                   Stop watching
                 </button>
               </div>
+              {moving === f.id && (
+                <div className="folder-move">
+                  <p className="small-text">
+                    Choose where &quot;{f.label}&quot; is now. Documents already filed from it are not filed again.
+                  </p>
+                  <FolderPicker
+                    start={f.path}
+                    onCancel={() => setMoving(null)}
+                    onPick={async (p) => {
+                      const ok = await call(
+                        `/api/folders/${f.id}`,
+                        { method: 'PATCH', body: JSON.stringify({ path: p }) },
+                        () => `"${f.label}" now points to its new location.`,
+                      );
+                      if (ok) setMoving(null);
+                    }}
+                  />
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -171,16 +189,56 @@ export default function WatchedFolders() {
         <span>Label</span>
         <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="For example Systems SharePoint" maxLength={80} />
       </label>
-      <label className="field">
+      <div className="field">
         <span>Folder on the wiki server</span>
-        <input
-          value={dir}
-          onChange={(e) => setDir(e.target.value)}
-          placeholder="For example C:\Users\you\OneDrive - Company\Systems"
-          spellCheck={false}
-          autoComplete="off"
-        />
-      </label>
+        {typing ? (
+          <input
+            value={dir}
+            onChange={(e) => setDir(e.target.value)}
+            placeholder="For example C:\Users\you\OneDrive - Company\Systems"
+            spellCheck={false}
+            autoComplete="off"
+            aria-label="Folder path"
+          />
+        ) : dir ? (
+          <div className="chosen-folder">
+            <code>{dirDisplay || dir}</code>
+            <button type="button" className="btn small quiet" onClick={() => setPicking(true)}>
+              Choose another
+            </button>
+          </div>
+        ) : (
+          !picking && (
+            <div className="chosen-folder">
+              <button type="button" className="btn" onClick={() => setPicking(true)}>
+                Choose folder
+              </button>
+            </div>
+          )
+        )}
+        {picking && !typing && (
+          <FolderPicker
+            start={dir || undefined}
+            onCancel={() => setPicking(false)}
+            onPick={(p, name, display) => {
+              setDir(p);
+              setDirDisplay(display);
+              if (!label.trim()) setLabel(name);
+              setPicking(false);
+            }}
+          />
+        )}
+        <button
+          type="button"
+          className="link-button small-text type-path"
+          onClick={() => {
+            setTyping(!typing);
+            setPicking(false);
+          }}
+        >
+          {typing ? 'Choose from a list instead' : 'Type a path instead'}
+        </button>
+      </div>
       <p className="muted small-text field-help">
         A Windows path works when the wiki runs in WSL. For a SharePoint library, sync it with OneDrive and turn off Files On-Demand for
         that folder so the files are really on disk.
