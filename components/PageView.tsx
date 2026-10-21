@@ -88,7 +88,7 @@ function Hunk({
     <section className="hunk">
       <header className="hunk-bar">
         <span className="hunk-kind">{set.isNew ? 'New page' : kind} by AI</span>
-        <SourceChip source={set.source} earlier={set.earlierSources} />
+        <SourceChip source={set.source} earlier={set.earlierSources} also={set.alsoSources} />
         {showActions && (
           <span className="hunk-actions">
             <button className="btn approve small" disabled={busy} onClick={() => decide('approve')}>
@@ -119,12 +119,33 @@ export default function PageView({
   user,
   version,
   onChanged,
+  onDropFiles,
 }: {
   path: string;
   user: string;
   version: number;
   onChanged: () => void;
+  onDropFiles?: (files: File[]) => void;
 }) {
+  const [dragging, setDragging] = useState(false);
+  const dropProps = onDropFiles
+    ? {
+        onDragOver: (e: React.DragEvent) => {
+          if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+          e.preventDefault();
+          setDragging(true);
+        },
+        onDragLeave: (e: React.DragEvent) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false);
+        },
+        onDrop: (e: React.DragEvent) => {
+          if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+          e.preventDefault();
+          setDragging(false);
+          onDropFiles(Array.from(e.dataTransfer.files));
+        },
+      }
+    : {};
   const router = useRouter();
   const [data, setData] = useState<PageData | null>(null);
   const [editing, setEditing] = useState(false);
@@ -220,7 +241,8 @@ export default function PageView({
     guarded(() => post(`/api/proposals/${set!.proposalId}/resolve`, { action, user }));
 
   return (
-    <main className="page">
+    <main className={'page' + (dragging ? ' dragging' : '')} {...dropProps}>
+      {dragging && <div className="drop-hint page-drop">Drop files to add them to this page</div>}
       <div className="crumbs">{data.path.split('/').join(' / ')}</div>
       <div className="title-row">
         <h1 className="doc-title">{data.title}</h1>

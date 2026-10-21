@@ -23,6 +23,7 @@ Audience: starts with the systems team, eventually the whole company. Most revie
 - **Pending awareness**: `read_page` shows the approved page plus a separately labelled list of other people's pending suggestions. Each chat sends a `chatId`; a later message in the same chat (same name) edits on top of that chat's pending suggestion and supersedes it (`proposals.superseded_by`), and approval records every message in the chain as a source
 - **Page structure**: paths nest up to 5 levels; every page lists its sub-pages and sidebar folders open their section. `movePage` in `lib/wiki.ts` moves a page with everything under it and rewrites `[[links]]` and `/wiki/` links on every page in one commit; `movePageWithRecords` in `lib/proposals.ts` carries pending suggestions, sources and structural suggestions along
 - **Structural suggestions**: the assistant's `move_page` and `remove_page` tools stage rows in `page_ops`, shown as a card on the page with Approve and Reject (`/api/ops/:id`, decisions in `op_decisions`). Splits and merges combine these with the normal edit tools
+- **Files (`lib/files.ts`)**: uploads go to `/api/files`, are classified by their first bytes (PDF, docx, text, PNG, JPEG, GIF, WebP; 25 MB, 10 per message) and stored once per SHA-256 under `data/assets/`. Extracted text is cached in `file_text` by hash: PDF text layer via unpdf, scanned pages rendered with @napi-rs/canvas and read by the vision model, Word via mammoth, photos described by `provider.describeImage`. The agent reads attachments before its loop and passes them inside `<<<Attached file>>>` markers as information, not instructions. Each file becomes a `file` source (filename, hash, version, stored path); extra files in one message link through `change_set_sources`. Originals open from the source chip (`/api/sources/:id/file`); photos can be shown on pages with `/api/files/:id`
 - **`lib/settings.ts`**: Settings page values (local model address, model, key) stored in SQLite, overriding `.env.local`
 - **`components/`**: `Shell` (mounted once from `app/wiki/layout.tsx` so chat survives navigation), `Sidebar`, `PageView` (inline review), `wordMarks` (changed-word highlights), `ChatPanel`, `SourceChip`, `Md` (markdown plus `[[wiki links]]`)
 
@@ -52,16 +53,16 @@ Audience: starts with the systems team, eventually the whole company. Most revie
 
 1. **The Anthropic adapter has not run against the real API.** Its message format is checked against the mock, but run a full propose and approve cycle with a real key (also confirms the `server-side-fallback-2026-07-01` fallback option is accepted for the account).
 2. Local models: a full cycle works with qwen3.6 35b on Ollama (Windows host, wiki in WSL with mirrored networking). Near-miss tool and argument names are mapped by `normalizeCall` in `lib/ai/tools.ts`; extend its aliases when a model shows a new variant. Keep Ollama's context length at 16k or more so long pages are not cut off.
-3. Names typed in the sidebar are not authenticated; treat them as labels only.
-4. Node 18 works but `better-sqlite3` 12 declares Node 20+; use Node 20 or newer.
+3. **Photos and scans have only been tested with the mock.** Run the Settings connection test against a real vision model (for example qwen2.5vl on Ollama) and drop a real photo and a scanned PDF. Text PDFs and Word files do not need a vision model.
+4. Names set on the Settings page are not authenticated; treat them as labels only.
+5. Node 18 works but `better-sqlite3` 12 declares Node 20+; use Node 20 or newer.
 
 ## Roadmap, in order
 
-1. **File and photo drop** into the chat panel and onto pages. Store originals under `data/assets/`, extract text (PDF, docx; vision fallback for scans), describe photos with vision, create a `file` source, and let the agent propose edits as one change set. Link the original from the source chip
-2. **Ingest queue** shared by all file sources: dedupe by content hash; diff a changed file against its previous version so content is not duplicated
-3. **Local folder watcher** on the server, feeding the same queue
-4. **Companion desktop app** (only needed when the wiki server cannot reach the model; a model on the server itself or on a machine it can reach on the network already works through `LOCAL_LLM_BASE_URL`): watches folders on a user's machine (SharePoint libraries via the OneDrive sync client, with Files On-Demand off for that folder), uploads to the queue with the user's identity, and relays calls to a local model so a remote wiki can use AI on the user's own computer
-5. **Per-folder visibility**: "feeds wiki" or "personal only". Personal-only content is searchable by that user's chat but never proposed as a wiki edit
-6. **Conflict handling**: when sources disagree, the proposal cites both and flags the conflict instead of silently picking one
-7. **Bulk review** for large drops: a per-source summary and one approval for a whole change set across pages
-8. **Real auth and roles** (likely Entra ID SSO), including who can approve
+1. **Ingest queue** shared by all file sources: dedupe by content hash; diff a changed file against its previous version so content is not duplicated
+2. **Local folder watcher** on the server, feeding the same queue
+3. **Companion desktop app** (only needed when the wiki server cannot reach the model; a model on the server itself or on a machine it can reach on the network already works through `LOCAL_LLM_BASE_URL`): watches folders on a user's machine (SharePoint libraries via the OneDrive sync client, with Files On-Demand off for that folder), uploads to the queue with the user's identity, and relays calls to a local model so a remote wiki can use AI on the user's own computer
+4. **Per-folder visibility**: "feeds wiki" or "personal only". Personal-only content is searchable by that user's chat but never proposed as a wiki edit
+5. **Conflict handling**: when sources disagree, the proposal cites both and flags the conflict instead of silently picking one
+6. **Bulk review** for large drops: a per-source summary and one approval for a whole change set across pages
+7. **Real auth and roles** (likely Entra ID SSO), including who can approve

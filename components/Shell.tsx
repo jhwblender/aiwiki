@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation';
 import type { PageListItem } from '@/lib/types';
 import Sidebar from './Sidebar';
 import PageView from './PageView';
-import ChatPanel from './ChatPanel';
+import ChatPanel, { type IncomingFiles } from './ChatPanel';
 import { PagesContext } from './WikiContext';
 
 const NARROW = '(max-width: 900px)';
@@ -22,6 +22,8 @@ export default function Shell() {
   const [chatOpen, setChatOpen] = useState(false);
   const [sideOpen, setSideOpen] = useState(false);
   const [items, setItems] = useState<PageListItem[]>([]);
+  // Files dropped onto the page, handed to the assistant
+  const [incoming, setIncoming] = useState<IncomingFiles | null>(null);
 
   useEffect(() => {
     try {
@@ -84,8 +86,20 @@ export default function Shell() {
           user={user}
           onNavigate={() => setSideOpen(false)}
         />
-        <PageView path={path} user={effectiveUser} version={version} onChanged={bump} />
-        {chatOpen && <ChatPanel user={effectiveUser} currentPath={path} onChanged={bump} />}
+        <PageView
+          path={path}
+          user={effectiveUser}
+          version={version}
+          onChanged={bump}
+          onDropFiles={(files) => {
+            setIncoming({ files, note: 'Add what is useful from the attached files to this page.', key: Date.now() });
+            setChatOpen(true);
+            setSideOpen(false);
+          }}
+        />
+        {chatOpen && (
+          <ChatPanel user={effectiveUser} currentPath={path} onChanged={bump} incoming={incoming} onIncomingTaken={() => setIncoming(null)} />
+        )}
       </div>
     </PagesContext.Provider>
   );

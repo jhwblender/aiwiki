@@ -17,7 +17,15 @@ function when(iso: string) {
   }
 }
 
-export default function SourceChip({ source, earlier = [] }: { source: SourceInfo | null; earlier?: SourceInfo[] }) {
+export default function SourceChip({
+  source,
+  earlier = [],
+  also = [],
+}: {
+  source: SourceInfo | null;
+  earlier?: SourceInfo[];
+  also?: SourceInfo[];
+}) {
   const ref = useRef<HTMLDetailsElement>(null);
 
   // Close the popover on an outside click or Escape
@@ -39,7 +47,11 @@ export default function SourceChip({ source, earlier = [] }: { source: SourceInf
   const where = [source.folderLabel, source.relPath].filter(Boolean).join(' / ');
   return (
     <details className="chip-wrap" ref={ref}>
-      <summary className="chip">{sourceSummary(source)}</summary>
+      <summary className="chip">
+        {also.length && source.kind === 'file'
+          ? `${source.filename} and ${also.length} more from ${source.user}`
+          : sourceSummary(source)}
+      </summary>
       <dl className="chip-pop">
         <dt>Contributed by</dt>
         <dd>{source.user}</dd>
@@ -54,6 +66,14 @@ export default function SourceChip({ source, earlier = [] }: { source: SourceInf
             <dt>File</dt>
             <dd>
               {source.filename} (version {source.version})
+              {source.hasFile && (
+                <>
+                  {' '}
+                  <a href={`/api/sources/${source.id}/file`} target="_blank" rel="noreferrer">
+                    Open original
+                  </a>
+                </>
+              )}
             </dd>
           </>
         )}
@@ -61,6 +81,22 @@ export default function SourceChip({ source, earlier = [] }: { source: SourceInf
           <>
             <dt>Message</dt>
             <dd>{source.note}</dd>
+          </>
+        )}
+        {also.length > 0 && (
+          <>
+            <dt>Also from</dt>
+            {also.map((a) => (
+              <dd key={a.id} className="earlier">
+                {a.hasFile ? (
+                  <a href={`/api/sources/${a.id}/file`} target="_blank" rel="noreferrer">
+                    {a.filename}
+                  </a>
+                ) : (
+                  sourceSummary(a)
+                )}
+              </dd>
+            ))}
           </>
         )}
         <dt>Received</dt>
