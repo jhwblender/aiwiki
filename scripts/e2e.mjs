@@ -486,7 +486,26 @@ try {
   for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
   fs.rmSync(watchDir, { recursive: true, force: true });
 
-  // 24. Search finds approved content
+  // 24. Moving a pending suggestion: your own moves, someone else's stays put
+  await chat('Please add a canteen section', 'Alex', 'local', 'e2e-chat-canteen');
+  check('the addition is pending on the first page', (await getPage('team/onboarding')).pending.length === 1);
+  const mvSec = await chat('Actually move the canteen section to its own page', 'Alex', 'local', 'e2e-chat-canteen');
+  check('the addition leaves the first page', (await getPage('team/onboarding')).pending.length === 0, JSON.stringify((await getPage('team/onboarding')).pending.map((p) => p.summary)));
+  const canteen = await getPage('facilities/canteen');
+  check('and is suggested at the new place', canteen.pending.length === 1 && canteen.pending[0].isNew && JSON.stringify(canteen.pending[0].segments).includes('11:30'));
+  check('the chat only lists the page still waiting', JSON.stringify(mvSec.proposed) === JSON.stringify([{ path: 'facilities/canteen', isNew: true }]), JSON.stringify(mvSec.proposed));
+  await api('POST', `/api/proposals/${canteen.pending[0].proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  await chat('Please suggest a gym page', 'Alex', 'local', 'e2e-chat-gym');
+  await chat('Now move the gym page under perks', 'Alex', 'local', 'e2e-chat-gym');
+  const oldGym = await getPage('facilities/gym');
+  const newGym = await getPage('perks/gym');
+  check('a suggested new page can be moved by its chat', oldGym.pending.length === 0 && newGym.pending.length === 1 && newGym.pending[0].isNew && newGym.title === 'Gym',
+    JSON.stringify({ old: oldGym.pending.length, new: newGym.pending.length }));
+  await chat('Please relocate the perks gym page', 'Sam', 'local', 'e2e-chat-other-gym');
+  check('someone else cannot move it', (await getPage('perks/gym')).pending.length === 1 && (await getPage('misc/gym')).pending.length === 0);
+  await api('POST', `/api/proposals/${newGym.pending[0].proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+
+  // 25. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {

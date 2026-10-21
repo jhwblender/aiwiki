@@ -2,6 +2,7 @@ import { listPages, normalizePath, planMove, readPage, searchPages } from '../wi
 import { linkExtraSource, chatPending, chatPendingOp, pendingOpsForPage, stageOp, supersedeOp, createChangeSet, createSource, pendingCounts, pendingForPage, stageContent, stagedContent, supersede } from '../proposals';
 import type { PendingSet } from '../types';
 import { toBlocks } from '../diff';
+import { db } from '../db';
 import type { ToolDef } from './providers';
 
 export const toolDefs: ToolDef[] = [
@@ -29,7 +30,7 @@ export const toolDefs: ToolDef[] = [
       properties: {
         path: { type: 'string' },
         old_text: { type: 'string', description: 'Exact text currently on the page. Keep it short but unique.' },
-        new_text: { type: 'string' },
+        new_text: { type: 'string', description: 'The replacement. Leave it empty to remove old_text.' },
         summary: { type: 'string', description: 'One short sentence describing the change, for the reviewer.' },
       },
       required: ['path', 'old_text', 'new_text', 'summary'],
@@ -132,13 +133,49 @@ async function working(ctx: ToolContext, p: string): Promise<{ content: string; 
   return { content: live ?? '', exists: live !== null, revising: null };
 }
 
-async function stage(ctx: ToolContext, csId: number, p: string, content: string, revising: number | null) {
-  await stageContent(csId, p, content);
+// Stage text for a page; returns false when it matches the live page, so nothing is suggested there
+async function stage(ctx: ToolContext, csId: number, p: string, content: string, revising: number | null, isNew = false): Promise<boolean> {
+  const staged = await stageContent(csId, p, content);
   if (revising !== null && !ctx.revising.has(p)) {
     supersede(revising, csId, p, ctx.user);
     ctx.revising.set(p, revising);
   }
+  if (staged) ctx.proposed.set(p, isNew);
+  else ctx.proposed.delete(p);
+  return staged;
 }
+
+// A page that so far only exists as a suggestion: this chat's own is re-suggested at the new path;
+// someone else's cannot be changed until a reviewer decides on it
+async function moveSuggestedPage(ctx: ToolContext, p: string, to: string, summary: string): Promise<string> {
+  const own = ctx.chatId ? await chatPending(ctx.chatId, ctx.user, p, ctx.changeSetId) : null;
+  const staged = ctx.changeSetId ? stagedContent(ctx.changeSetId, p) : null;
+  const content = staged ?? (own?.isNew ? own.content : null);
+  if (content === null) {
+    const theirs = (await othersPending(ctx, p, null)).find((o) => o.isNew);
+    if (theirs) {
+      return (
+        `Error: "${p}" is a new page someone else suggested ("${theirs.summary}"), not approved yet, so it cannot be moved. ` +
+        'Tell the person to reject that suggestion on the page if it belongs elsewhere; then you can suggest it at the new place.'
+      );
+    }
+    return `Error: There is no page at "${p}".`;
+  }
+  if ((await readPage(to)) !== null) return `Error: A page already exists at "${to}".`;
+  if ((await othersPending(ctx, to, null)).some((o) => o.isNew)) return `Error: A new page at "${to}" is already suggested by someone else.`;
+  const csId = await ensureChangeSet(ctx, summary);
+  await stage(ctx, csId, to, content, null, true);
+  // Retire the suggestion at the old path
+  if (staged !== null) {
+    db().prepare('DELETE FROM proposals WHERE change_set_id = ? AND page_path = ?').run(csId, p);
+  } else if (own) {
+    supersede(own.proposalId, csId, to, ctx.user);
+  }
+  ctx.proposed.delete(p);
+  return `Moved your suggested new page from "${p}" to "${to}". It is still a suggestion waiting for review.`;
+}
+
+const WITHDRAWN = (p: string) => `Your earlier suggestion for "${p}" is now withdrawn; the page stays as it is. Nothing is waiting for review there.`;
 
 // Paragraphs of new text that already appear word for word on the page (headings excepted)
 function repeatedBlocks(existing: string, added: string): string[] {
@@ -243,7 +280,10 @@ export function normalizeCall(name: string, rawArgs: unknown): { name: string; a
 function missing(name: string, args: Record<string, any>): string | null {
   const def = toolDefs.find((d) => d.name === name);
   const required: string[] = ((def?.parameters as any)?.required ?? []) as string[];
-  const gone = required.filter((k) => args[k] === undefined || args[k] === null || String(args[k]).trim() === '');
+  // new_text may be empty: that removes the old text
+  const gone = required.filter(
+    (k) => args[k] === undefined || args[k] === null || (k !== 'new_text' && String(args[k]).trim() === ''),
+  );
   if (!gone.length) return null;
   return `Error: ${name} needs ${gone.join(', ')}. Expected arguments: ${required.join(', ')}. Call it again with all of them.`;
 }
@@ -313,8 +353,7 @@ export async function runTool(name: string, args: Record<string, any>, ctx: Tool
         const cited = citesSource(ctx, newText, w.content);
         if (cited) return citationError(cited);
         const csId = await ensureChangeSet(ctx, String(args.summary ?? 'Update page'));
-        await stage(ctx, csId, p, w.content.replace(oldText, () => newText), w.revising);
-        ctx.proposed.set(p, false);
+        if (!(await stage(ctx, csId, p, w.content.replace(oldText, () => newText), w.revising))) return WITHDRAWN(p);
         return `Proposed change to "${p}". It is pending human review and not live yet.`;
       }
       case 'append_to_page': {
@@ -332,8 +371,7 @@ export async function runTool(name: string, args: Record<string, any>, ctx: Tool
         if (cited) return citationError(cited);
         const csId = await ensureChangeSet(ctx, String(args.summary ?? 'Add to page'));
         const sep = w.content.endsWith('\n') ? '\n' : '\n\n';
-        await stage(ctx, csId, p, w.content + sep + String(args.text ?? '') + '\n', w.revising);
-        ctx.proposed.set(p, false);
+        if (!(await stage(ctx, csId, p, w.content + sep + String(args.text ?? '') + '\n', w.revising))) return WITHDRAWN(p);
         return `Proposed addition to "${p}". It is pending human review and not live yet.`;
       }
       case 'create_page': {
@@ -346,13 +384,13 @@ export async function runTool(name: string, args: Record<string, any>, ctx: Tool
         const cited = citesSource(ctx, String(args.content ?? ''), '');
         if (cited) return citationError(cited);
         const csId = await ensureChangeSet(ctx, String(args.summary ?? 'New page'));
-        await stage(ctx, csId, p, String(args.content ?? ''), null);
-        ctx.proposed.set(p, true);
+        await stage(ctx, csId, p, String(args.content ?? ''), null, true);
         return `Proposed new page "${p}". It is pending human review and not live yet.`;
       }
       case 'move_page': {
         const p = normalizePath(String(args.path ?? ''));
         const to = normalizePath(String(args.new_path ?? ''));
+        if ((await readPage(p)) === null) return moveSuggestedPage(ctx, p, to, String(args.summary ?? 'Move page'));
         try {
           await planMove(p, to);
         } catch (e: any) {

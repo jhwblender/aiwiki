@@ -225,6 +225,36 @@ const SCENARIOS = [
     reply: 'I proposed updating the page for the new version of the parts list.',
   },
   {
+    keyword: 'add a canteen section',
+    steps: [{ name: 'append_to_page', args: { path: 'team/onboarding', text: '## Canteen\n\nThe canteen opens at 11:30.', summary: 'Add the canteen hours' } }],
+    reply: 'I proposed a canteen section on [[team/onboarding]].',
+  },
+  {
+    // moves a pending addition from this chat to a new page
+    keyword: 'move the canteen section',
+    steps: [
+      { name: 'read_page', args: { path: 'team/onboarding' } },
+      { name: 'replace_in_page', args: { path: 'team/onboarding', old_text: '## Canteen\n\nThe canteen opens at 11:30.', new_text: '', summary: 'Move the canteen hours' } },
+      { name: 'create_page', args: { path: 'facilities/canteen', content: '# Canteen\n\nThe canteen opens at 11:30.', summary: 'Move the canteen hours' } },
+    ],
+    reply: 'I moved the canteen section to its own page, [[facilities/canteen]].',
+  },
+  {
+    keyword: 'suggest a gym page',
+    steps: [{ name: 'create_page', args: { path: 'facilities/gym', content: '# Gym\n\nThe gym is in the basement.', summary: 'New gym page' } }],
+    reply: 'I proposed a gym page.',
+  },
+  {
+    keyword: 'move the gym page',
+    steps: [{ name: 'move_page', args: { path: 'facilities/gym', new_path: 'perks/gym', summary: 'The gym is a perk' } }],
+    reply: 'I moved the suggested gym page under perks.',
+  },
+  {
+    keyword: 'relocate the perks gym page',
+    steps: [{ name: 'move_page', args: { path: 'perks/gym', new_path: 'misc/gym', summary: 'Somewhere else' } }],
+    reply: 'Done.',
+  },
+  {
     keyword: 'backup',
     steps: [
       { name: 'search_pages', args: { query: 'backup' } },

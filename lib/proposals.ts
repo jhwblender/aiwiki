@@ -136,19 +136,21 @@ export function stagedContent(changeSetId: number, pagePath: string): string | n
   return row ? row.new_content : null;
 }
 
-export async function stageContent(changeSetId: number, pagePath: string, newContent: string): Promise<void> {
+// Returns false when the text equals the live page, so there is nothing left to suggest
+export async function stageContent(changeSetId: number, pagePath: string, newContent: string): Promise<boolean> {
   const live = await readPage(pagePath);
   const content = normalize(newContent);
   const d = db();
   if (live !== null && normalize(live) === content) {
     d.prepare('DELETE FROM proposals WHERE change_set_id = ? AND page_path = ?').run(changeSetId, pagePath);
-    return;
+    return false;
   }
   d.prepare(
     `INSERT INTO proposals (change_set_id, page_path, new_content, base_content, is_new, status, created_at)
      VALUES (?, ?, ?, ?, ?, 'pending', ?)
      ON CONFLICT (change_set_id, page_path) DO UPDATE SET new_content = excluded.new_content, status = 'pending'`,
   ).run(changeSetId, pagePath, content, normalize(live ?? ''), live === null ? 1 : 0, now());
+  return true;
 }
 
 // Bring a suggestion up to date with the live page. Saves the rebased text so later
