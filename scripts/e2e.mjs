@@ -326,7 +326,15 @@ try {
   check('an out-of-date move cannot be approved', (await api('POST', `/api/ops/${staleOp.opId}`, { action: 'approve', user: 'Kim' })).status === 400);
   check('an out-of-date move can be rejected', (await api('POST', `/api/ops/${staleOp.opId}`, { action: 'reject', user: 'Kim' })).status === 200 && (await getPage('team/handbook')).ops.length === 0);
 
-  // 18. Search finds approved content
+  // 18. A reply that claims a change without calling a tool is caught
+  const pretend = await chat('Please pretend to move the handbook', 'Alex', 'local', 'e2e-chat-pretend');
+  check('the model is asked to actually make the change', (await getPage('policies/handbook')).ops.some((o) => o.newPath === 'manuals/handbook'), JSON.stringify(pretend));
+  const fake = await chat('Please only pretend', 'Alex', 'local', 'e2e-chat-pretend2');
+  check('a claim with no suggestion behind it is flagged in the reply', /No change was actually suggested/.test(fake.reply ?? ''), JSON.stringify(fake));
+  const qa = await chat('Who runs payroll?');
+  check('ordinary answers are not flagged', !/No change was actually suggested/.test(qa.reply ?? ''));
+
+  // 19. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {

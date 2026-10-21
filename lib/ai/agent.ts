@@ -18,6 +18,16 @@ How you work:
 - Wiki links use [[page/path]] syntax.
 - Be concise.`;
 
+// A reply that says a change was made or is waiting for review. Smaller models sometimes write
+// this without calling any tool, which leaves the person looking for a suggestion that does not exist.
+const CLAIMS_CHANGE =
+  /\b(I(?:'ve| have| just)?\s+(?:now\s+)?(?:proposed|suggested|moved|renamed|added|updated|created|changed|edited|removed)|(?:waiting|pending)\s+(?:for\s+)?(?:human\s+)?(?:review|approval))\b/i;
+
+const NUDGE =
+  '(Automatic check) Your reply says you suggested or made a change, but you did not call any tool, so nothing was suggested and nothing is waiting for review. ' +
+  'If a change is needed, call the right tool now (replace_in_page, append_to_page, create_page, move_page or remove_page). ' +
+  'If not, answer again without saying that you changed anything.';
+
 export async function runAgent(opts: {
   history: ChatMsg[];
   providerId?: string;
@@ -42,10 +52,17 @@ export async function runAgent(opts: {
   const trace: string[] = [];
   let reply = '';
 
+  let nudged = false;
   for (let i = 0; i < 10; i++) {
     const res = await provider.chat({ system, messages, tools: toolDefs });
     messages.push({ role: 'assistant', content: res.text, toolCalls: res.toolCalls, raw: res.raw });
     if (!res.toolCalls.length) {
+      if (!nudged && ctx.proposed.size === 0 && CLAIMS_CHANGE.test(res.text)) {
+        nudged = true;
+        console.log('[assistant] reply claims a change but no tool was called; asking it to call the tool');
+        messages.push({ role: 'user', content: NUDGE });
+        continue;
+      }
       reply = res.text;
       break;
     }
@@ -59,6 +76,10 @@ export async function runAgent(opts: {
       messages.push({ role: 'tool', toolCallId: tc.id, name: tc.name, content: result });
     }
     if (i === 9) reply = res.text || 'I ran out of steps before finishing. Try a narrower request.';
+  }
+
+  if (ctx.proposed.size === 0 && CLAIMS_CHANGE.test(reply)) {
+    reply += '\n\n_No change was actually suggested, so nothing is waiting for review. Try asking again, more specifically._';
   }
 
   return {

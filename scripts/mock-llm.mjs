@@ -163,6 +163,21 @@ const SCENARIOS = [
     reply: 'I changed my suggestion: move the handbook to policies instead.',
   },
   {
+    // claims a move without calling the tool, then calls it after the automatic check
+    keyword: 'pretend to move',
+    steps: [
+      { text: 'I have proposed moving the handbook to guides/handbook.' },
+      { name: 'move_page', args: { path: 'policies/handbook', new_path: 'manuals/handbook', summary: 'Handbooks belong under manuals' } },
+    ],
+    reply: 'Done: the move is waiting for review.',
+  },
+  {
+    // keeps claiming without ever calling a tool
+    keyword: 'only pretend',
+    steps: [{ text: 'I have proposed moving the handbook.' }, { text: 'I have proposed moving the handbook.' }],
+    reply: 'I have proposed moving the handbook.',
+  },
+  {
     keyword: 'backup',
     steps: [
       { name: 'search_pages', args: { query: 'backup' } },
@@ -197,19 +212,24 @@ function toolTexts(messages) {
   return out.join('\n');
 }
 
+// The agent's automatic follow-up when a reply claims a change without calling a tool
+function isNudge(m) {
+  return typeof m.content === 'string' && m.content.startsWith('(Automatic check)');
+}
+
 function replyFor(scenario, toolText) {
   return typeof scenario.reply === 'function' ? scenario.reply(toolText) : scenario.reply;
 }
 
 function pick(messages) {
-  const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+  const lastUser = [...messages].reverse().find((m) => m.role === 'user' && !isNudge(m));
   const text = String(lastUser?.content ?? '').toLowerCase();
   return SCENARIOS.find((s) => text.includes(s.keyword));
 }
 
 function respond(body) {
   const messages = body.messages ?? [];
-  const lastUserIdx = messages.map((m) => m.role).lastIndexOf('user');
+  const lastUserIdx = messages.findLastIndex((m) => m.role === 'user' && !isNudge(m));
   const toolTurns = messages.slice(lastUserIdx + 1).filter((m) => m.role === 'assistant').length;
   const scenario = pick(messages);
   const message = { role: 'assistant', content: '' };
@@ -219,6 +239,8 @@ function respond(body) {
     message.tool_calls = [{ id: 'call_ping', type: 'function', function: { name: 'ping', arguments: '{}' } }];
   } else if (!scenario) {
     message.content = /reply with the single word/i.test(String(messages.at(-1)?.content)) ? 'ready' : NOT_A_MODEL;
+  } else if (toolTurns < scenario.steps.length && scenario.steps[toolTurns].text) {
+    message.content = scenario.steps[toolTurns].text; // a reply with no tool call
   } else if (toolTurns < scenario.steps.length) {
     const step = scenario.steps[toolTurns];
     message.tool_calls = [
@@ -267,14 +289,15 @@ function respondAnthropic(body) {
   const error = validateAnthropic(body);
   if (error) return { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: error } } };
   const msgs = body.messages;
-  const lastUserText = [...msgs].reverse().find((m) => m.role === 'user' && textOf(m.content))?.content;
-  const lastUserIdx = msgs.findLastIndex((m) => m.role === 'user' && textOf(m.content));
+  const lastUserText = [...msgs].reverse().find((m) => m.role === 'user' && textOf(m.content) && !isNudge(m))?.content;
+  const lastUserIdx = msgs.findLastIndex((m) => m.role === 'user' && textOf(m.content) && !isNudge(m));
   const turns = msgs.slice(lastUserIdx + 1).filter((m) => m.role === 'assistant').length;
   const scenario = SCENARIOS.find((sc) => textOf(lastUserText ?? '').toLowerCase().includes(sc.keyword));
   const thinking = { type: 'thinking', thinking: '', signature: `sig-${turns}` };
   let content;
   let stop = 'end_turn';
   if (!scenario) content = [thinking, { type: 'text', text: NOT_A_MODEL }];
+  else if (turns < scenario.steps.length && scenario.steps[turns].text) content = [thinking, { type: 'text', text: scenario.steps[turns].text }];
   else if (turns < scenario.steps.length) {
     const step = scenario.steps[turns];
     content = [thinking, { type: 'tool_use', id: `toolu_${turns}`, name: step.name, input: step.args }];
