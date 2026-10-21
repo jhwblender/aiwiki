@@ -515,10 +515,38 @@ try {
   });
   const events = (await streamed.text()).trim().split('\n').map((l) => JSON.parse(l));
   check('progress arrives before the result', streamed.headers.get('content-type')?.includes('ndjson') &&
-    events[0]?.type === 'progress' && events.some((e) => e.type === 'progress' && e.text.startsWith('Read ')) && events.at(-1)?.type === 'done',
+    events[0]?.type === 'run' && events[1]?.type === 'progress' && events.some((e) => e.type === 'progress' && e.text.startsWith('Read ')) && events.at(-1)?.type === 'done',
     JSON.stringify(events));
 
-  // 26. Search finds approved content
+  // 26. A chat request keeps running when the browser leaves, can be picked up again, and can be stopped
+  const startStream = async (text, chatId) => {
+    const r = await fetch(BASE + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stream: true, messages: [{ role: 'user', content: text }], provider: 'local', user: 'Alex', chatId }),
+    });
+    const reader = r.body.getReader();
+    let buf = '';
+    while (!buf.includes('\n')) buf += new TextDecoder().decode((await reader.read()).value);
+    await reader.cancel(); // the browser goes away, e.g. to Settings
+    return JSON.parse(buf.split('\n')[0]).id;
+  };
+  const readRun = async (id) => (await (await fetch(`${BASE}/api/chat/runs/${id}`)).text()).trim().split('\n').map((l) => JSON.parse(l));
+  const pulseBefore = (await api('GET', '/api/pulse')).data.stamp;
+  const runId = await startStream('Please slowly add a canteen section', 'e2e-chat-run');
+  const replay = await readRun(runId);
+  check('a request carries on after the browser leaves and can be picked up again',
+    replay[0].type === 'run' && replay.some((e) => e.type === 'progress') && replay.at(-1).type === 'done' && replay.at(-1).proposed.length === 1, JSON.stringify(replay));
+  check('the change counter moves when a suggestion lands', (await api('GET', '/api/pulse')).data.stamp !== pulseBefore);
+  for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  const stopId = await startStream('Please slowly add the dashboard link and badge pickup', 'e2e-chat-stop');
+  check('a running request can be stopped', (await api('POST', `/api/chat/runs/${stopId}/stop`)).data.stopped === true);
+  const stoppedEvents = await readRun(stopId);
+  check('a stopped request ends as stopped', stoppedEvents.at(-1).type === 'error' && stoppedEvents.at(-1).error === 'Stopped.', JSON.stringify(stoppedEvents.at(-1)));
+  check('an unknown request says so', (await fetch(`${BASE}/api/chat/runs/nope`)).status === 404);
+  for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+
+  // 27. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {

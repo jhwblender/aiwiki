@@ -21,6 +21,14 @@ const PRESETS = [
 
 export default function SettingsView() {
   const [saved, setSaved] = useState<Settings | null>(null);
+  const [backTo, setBackTo] = useState('/wiki/index');
+
+  useEffect(() => {
+    try {
+      const last = sessionStorage.getItem('wiki-last-path');
+      if (last) setBackTo(`/wiki/${last}`);
+    } catch {}
+  }, []);
   const [baseUrl, setBaseUrl] = useState('');
   const [model, setModel] = useState('');
   const [visionModel, setVisionModel] = useState('');
@@ -120,7 +128,7 @@ export default function SettingsView() {
   return (
     <div className="settings-shell">
       <div className="topbar">
-        <Link href="/wiki/index" className="btn small">
+        <Link href={backTo} className="btn small">
           Back to wiki
         </Link>
       </div>

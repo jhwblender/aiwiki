@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runAgent } from '@/lib/ai/agent';
 import { userFrom } from '@/lib/api';
+import { runStream, startRun } from '@/lib/runs';
 import type { ChatMsg } from '@/lib/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 3600;
 
-// With { stream: true } the reply is newline-delimited JSON: progress events while the
-// assistant works, then one "done" (or "error") event with the full result.
+// With { stream: true } the reply is newline-delimited JSON: a "run" event with an id the chat can
+// reconnect to (/api/chat/runs/:id), progress events while the assistant works, then one "done"
+// (or "error") event with the full result. Leaving the page does not stop the run.
 export async function POST(req: NextRequest) {
   let body: any;
   try {
@@ -22,7 +24,7 @@ export async function POST(req: NextRequest) {
   if (!history.length || history[history.length - 1].role !== 'user') {
     return NextResponse.json({ reply: '', trace: [], proposed: [], error: 'Send a message first.' }, { status: 400 });
   }
-  const run = (onProgress?: (text: string) => void) =>
+  const run = (onProgress?: (text: string) => void, signal?: AbortSignal) =>
     runAgent({
       history,
       providerId: body.provider,
@@ -33,7 +35,7 @@ export async function POST(req: NextRequest) {
         : undefined,
       chatId: typeof body.chatId === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(body.chatId) ? body.chatId : undefined,
       onProgress,
-      signal: req.signal,
+      signal,
     });
 
   if (!body.stream) {
@@ -44,34 +46,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    async start(controller) {
-      const send = (event: object) => {
-        try {
-          controller.enqueue(encoder.encode(JSON.stringify(event) + '\n'));
-        } catch {
-          // the browser went away
-        }
-      };
-      try {
-        const result = await run((text) => send({ type: 'progress', text }));
-        send({ type: 'done', ...result });
-      } catch (e: any) {
-        send({ type: 'error', error: e?.message ?? String(e) });
-      } finally {
-        try {
-          controller.close();
-        } catch {}
-      }
-    },
-  });
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'application/x-ndjson; charset=utf-8',
-      // no-transform keeps the server from compressing (and so holding back) the progress lines
-      'Cache-Control': 'no-cache, no-transform',
-      'X-Accel-Buffering': 'no',
-    },
-  });
+  // Streamed: the work runs on the server whether or not this browser stays connected
+  const id = startRun((onProgress, signal) => run(onProgress, signal));
+  return runStream(id)!;
 }

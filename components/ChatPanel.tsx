@@ -18,6 +18,7 @@ type Pending = { key: number; name: string; status: 'uploading' | 'ready' | 'err
 // Files handed over from elsewhere, such as a drop onto the page
 export type IncomingFiles = { files: File[]; note: string; key: number };
 
+const RUN_KEY = 'wiki-chat-run';
 const ACCEPT = '.pdf,.docx,.txt,.md,.csv,.json,.png,.jpg,.jpeg,.gif,.webp';
 const MAX_FILES = 10;
 let nextKey = 1;
@@ -59,7 +60,18 @@ export default function ChatPanel({
   // Live progress of the message being answered
   const [live, setLive] = useState<{ steps: string[]; status: string; started: number } | null>(null);
   const [now, setNow] = useState(Date.now());
-  const abortRef = useRef<AbortController | null>(null);
+  const runIdRef = useRef<string | null>(null);
+  const readerRef = useRef<AbortController | null>(null);
+  const mounted = useRef(true);
+
+  // Closing the panel only stops listening; the request keeps running on the server
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      readerRef.current?.abort();
+    };
+  }, []);
 
   useEffect(() => {
     if (!live) return;
@@ -203,6 +215,80 @@ export default function ChatPanel({
     setMsgs((m) => [...m, { role: 'assistant', content: `Background filing finished:\n\n${lines.join('\n')}` }]);
   }
 
+  // The server runs a request even if this panel closes; remember it so the panel can reconnect
+  function rememberRun(id: string, started: number) {
+    runIdRef.current = id;
+    try {
+      localStorage.setItem(RUN_KEY, JSON.stringify({ id, started }));
+    } catch {}
+  }
+
+  const onProgress = (text: string) =>
+    setLive((l) => (l ? (/^Thinking/.test(text) ? { ...l, status: text } : { ...l, steps: [...l.steps, text], status: 'Working' }) : l));
+
+  // Show the result of a run, once
+  function finish(d: ChatResponse) {
+    try {
+      localStorage.removeItem(RUN_KEY);
+    } catch {}
+    if (d.error === 'Stopped.') {
+      setMsgs((m) => [...m, { role: 'assistant', content: 'Stopped. Anything already suggested stays on its page for review.' }]);
+      onChanged();
+    } else if (d.error) {
+      setMsgs((m) => [...m, { role: 'assistant', content: d.error!, error: true }]);
+    } else {
+      setMsgs((m) => [...m, { role: 'assistant', content: d.reply, trace: d.trace, proposed: d.proposed }]);
+      if (d.proposed.length) onChanged();
+    }
+  }
+
+  // Follow a run until it ends. Returns quietly if the panel closed meanwhile; the run carries on
+  // on the server and the panel reconnects when it opens again.
+  async function follow(open: () => Promise<Response>, started: number) {
+    setBusy(true);
+    setLive({ steps: [], status: 'Sending', started });
+    const controller = new AbortController();
+    readerRef.current = controller;
+    try {
+      const r = await open();
+      if (r.status === 404) {
+        finish({ reply: '', trace: [], proposed: [], error: 'The wiki restarted while working on your last message. Send it again.' });
+        return;
+      }
+      const d = await readReply(r, controller.signal, (id) => rememberRun(id, started), onProgress);
+      if (!mounted.current) return;
+      finish(d);
+    } catch (e: any) {
+      if (!mounted.current || e?.name === 'AbortError') return;
+      finish({ reply: '', trace: [], proposed: [], error: e.message || 'Network error' });
+    } finally {
+      if (mounted.current) {
+        setBusy(false);
+        setLive(null);
+        runIdRef.current = null;
+      }
+    }
+  }
+
+  // Pick up a run that was still going when the panel last closed
+  useEffect(() => {
+    if (!loaded) return;
+    let saved: { id: string; started: number } | null = null;
+    try {
+      saved = JSON.parse(localStorage.getItem(RUN_KEY) || 'null');
+    } catch {}
+    if (!saved?.id) return;
+    runIdRef.current = saved.id;
+    void follow(() => fetch(`/api/chat/runs/${saved!.id}`, { cache: 'no-store', signal: readerRef.current?.signal }), saved.started);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
+
+  function stop() {
+    const id = runIdRef.current;
+    if (id) void fetch(`/api/chat/runs/${id}/stop`, { method: 'POST' });
+    setLive((l) => (l ? { ...l, status: 'Stopping after this step' } : l));
+  }
+
   async function send() {
     const text = input.trim() || (ready.length ? 'Add what is useful from the attached files to the wiki.' : '');
     if (!text || busy || uploading) return;
@@ -210,61 +296,32 @@ export default function ChatPanel({
     setMsgs(next);
     setInput('');
     setPending([]);
-    setBusy(true);
-    setLive({ steps: [], status: 'Sending', started: Date.now() });
-    const controller = new AbortController();
-    abortRef.current = controller;
-    try {
-      const r = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          stream: true,
-          // Earlier attachments are named in their message; only the latest message's files are read
-          messages: next
-            .filter((m) => !m.error)
-            .map((m, i, all) => ({
-              role: m.role,
-              content:
-                m.attachments?.length && i < all.length - 1 ? `${m.content}\n\n[Attached: ${m.attachments.map((a) => a.name).join(', ')}]` : m.content,
-            })),
-          attachments: ready.map((f) => f.id),
-          provider: provider || providers[0]?.id,
-          user,
-          currentPath,
-          chatId,
-        }),
-      });
-      const d = await readReply(r, (text) =>
-        setLive((l) => (l ? (/^Thinking/.test(text) ? { ...l, status: text } : { ...l, steps: [...l.steps, text], status: 'Working' }) : l)),
-      );
-      if (!r.ok || d.error) {
-        setMsgs([...next, { role: 'assistant', content: d.error || 'Something went wrong.', error: true }]);
-      } else {
-        setMsgs([...next, { role: 'assistant', content: d.reply, trace: d.trace, proposed: d.proposed }]);
-        if (d.proposed.length) onChanged();
-      }
-    } catch (e: any) {
-      const stopped = e?.name === 'AbortError';
-      setMsgs([
-        ...next,
-        stopped
-          ? { role: 'assistant', content: 'Stopped. Anything already suggested stays on its page for review.' }
-          : { role: 'assistant', content: e.message || 'Network error', error: true },
-      ]);
-      if (stopped) onChanged();
-    } finally {
-      setBusy(false);
-      setLive(null);
-      abortRef.current = null;
-    }
+    const body = JSON.stringify({
+      stream: true,
+      // Earlier attachments are named in their message; only the latest message's files are read
+      messages: next
+        .filter((m) => !m.error)
+        .map((m, i, all) => ({
+          role: m.role,
+          content: m.attachments?.length && i < all.length - 1 ? `${m.content}\n\n[Attached: ${m.attachments.map((a) => a.name).join(', ')}]` : m.content,
+        })),
+      attachments: ready.map((f) => f.id),
+      provider: provider || providers[0]?.id,
+      user,
+      currentPath,
+      chatId,
+    });
+    await follow(
+      () => fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: readerRef.current?.signal }),
+      Date.now(),
+    );
   }
 
   // Read the streamed reply: progress lines while the assistant works, then the result
-  async function readReply(r: Response, onProgress: (text: string) => void): Promise<ChatResponse> {
+  async function readReply(r: Response, signal: AbortSignal, onRun: (id: string) => void, onProgress: (text: string) => void): Promise<ChatResponse> {
     if (!r.body || !(r.headers.get('content-type') ?? '').includes('ndjson')) return r.json();
     const reader = r.body.getReader();
+    signal.addEventListener('abort', () => void reader.cancel().catch(() => {}));
     const decoder = new TextDecoder();
     let buf = '';
     let result: ChatResponse | null = null;
@@ -278,7 +335,8 @@ export default function ChatPanel({
         buf = buf.slice(nl + 1);
         if (!line) continue;
         const ev = JSON.parse(line);
-        if (ev.type === 'progress') onProgress(ev.text);
+        if (ev.type === 'run') onRun(ev.id);
+        else if (ev.type === 'progress') onProgress(ev.text);
         else if (ev.type === 'done') result = ev;
         else if (ev.type === 'error') result = { reply: '', trace: [], proposed: [], error: ev.error };
       }
@@ -392,7 +450,7 @@ export default function ChatPanel({
                 {live.status} for {Math.max(0, Math.round((now - live.started) / 1000))}s
               </span>
               <span className="spacer" />
-              <button className="btn quiet small" onClick={() => abortRef.current?.abort()}>
+              <button className="btn quiet small" onClick={stop}>
                 Stop
               </button>
             </div>
