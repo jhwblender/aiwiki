@@ -77,6 +77,7 @@ const server = spawn(path.join(ROOT, 'node_modules/.bin/next'), ['dev', '-p', St
     ANTHROPIC_MODEL: 'claude-sonnet-5-5',
     // the checks trigger folder scans themselves
     WATCH_INTERVAL_SECONDS: '3600',
+    INGEST_RETRY_SECONDS: '1',
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -416,7 +417,7 @@ try {
   // 22. Background filing: one job per file, skipped when nothing is new, retried after a failure
   const waitJob = async (id) => {
     for (let i = 0; i < 120; i++) {
-      const job = (await api('GET', '/api/ingest')).data.find((j) => j.id === id);
+      const job = (await api('GET', '/api/ingest')).data.jobs.find((j) => j.id === id);
       if (job && !['queued', 'working'].includes(job.status)) return job;
       await new Promise((r) => setTimeout(r, 250));
     }
@@ -434,12 +435,19 @@ try {
   check('an unchanged file is skipped without asking the model', job2?.status === 'skipped' && /Unchanged/.test(job2.detail ?? ''), JSON.stringify(job2));
   await api('PUT', '/api/settings', { baseUrl: 'http://127.0.0.1:4599/v1', model: 'mock' });
   const qDown = await upload([['phones.txt', Buffer.from('FACT: The desk phone extension is 4021.\n'), 'text/plain']]);
-  const job3 = await waitJob((await api('POST', '/api/ingest', { fileIds: [qDown.data[0].id], user: 'Alex', provider: 'local' })).data.jobs[0]);
-  check('a job fails clearly when the model is unreachable', job3?.status === 'failed' && UNREACHABLE.test(job3.detail ?? ''), JSON.stringify(job3));
+  const job3id = (await api('POST', '/api/ingest', { fileIds: [qDown.data[0].id], user: 'Alex', provider: 'local' })).data.jobs[0];
+  let waitState = null;
+  for (let i = 0; i < 160 && !waitState; i++) {
+    const st = (await api('GET', '/api/ingest')).data;
+    if (st.waitingForModel) waitState = st;
+    else await new Promise((r) => setTimeout(r, 250));
+  }
+  check('an unreachable model makes the queue wait instead of failing', !!waitState && UNREACHABLE.test(waitState.waitingForModel.reason) &&
+    waitState.jobs.find((j) => j.id === job3id)?.status === 'queued', JSON.stringify(waitState?.waitingForModel));
   await api('PUT', '/api/settings', { baseUrl: mockUrl, model: 'mock' });
-  check('a failed job can be retried', (await api('POST', `/api/ingest/${job3.id}/retry`)).status === 200);
-  const job3b = await waitJob(job3.id);
-  check('the retried job succeeds', job3b?.status === 'done', JSON.stringify(job3b));
+  check('the model can be tried again at once', (await api('POST', '/api/ingest/control', { action: 'retry-now' })).status === 200);
+  const job3b = await waitJob(job3id);
+  check('the waiting job succeeds once the model is back', job3b?.status === 'done', JSON.stringify(job3b));
   for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
   // 23. Watched folders: existing and changed documents are filed with the folder label and relative path
@@ -456,7 +464,7 @@ try {
   writeOld('notes.exe', 'not a document');
   const added = await api('POST', '/api/folders', { label: 'Ops share', path: watchDir, user: 'Alex', fileExisting: true });
   check('a folder can be watched', added.status === 200 && added.data.fileCount === 1, JSON.stringify(added.data));
-  const folderJob = await waitJob((await api('GET', '/api/ingest')).data.find((j) => j.displayName === 'procedures.txt')?.id);
+  const folderJob = await waitJob((await api('GET', '/api/ingest')).data.jobs.find((j) => j.displayName === 'procedures.txt')?.id);
   check('a document in the folder is filed', folderJob?.status === 'done' && folderJob.folderLabel === 'Ops share' && folderJob.relPath === 'Safety/procedures.txt', JSON.stringify(folderJob));
   let fSet = (await getPage('team/onboarding')).pending.find((p) => p.source?.filename === 'procedures.txt');
   check('its source names the folder and the path inside it', fSet?.source?.folderLabel === 'Ops share' && fSet.source.relPath === 'Safety/procedures.txt' && fSet.source.version === 1);
@@ -470,20 +478,20 @@ try {
   check('a file that was only touched sends nothing', (await api('POST', `/api/folders/${folderId}/scan`)).data.queued === 0);
   writeOld('Safety/procedures.txt', 'FACT: The fire drill is in April.\n');
   check('a changed file is sent again', (await api('POST', `/api/folders/${folderId}/scan`)).data.queued === 1);
-  const changedJob = await waitJob((await api('GET', '/api/ingest')).data.find((j) => j.displayName === 'procedures.txt' && j.status !== 'done' && j.status !== 'skipped')?.id
-    ?? (await api('GET', '/api/ingest')).data[0].id);
+  const changedJob = await waitJob((await api('GET', '/api/ingest')).data.jobs.find((j) => j.displayName === 'procedures.txt' && j.status !== 'done' && j.status !== 'skipped')?.id
+    ?? (await api('GET', '/api/ingest')).data.jobs[0].id);
   fSet = (await getPage('team/onboarding')).pending.find((p) => p.source?.filename === 'procedures.txt');
   check('the changed file is filed as version 2', changedJob?.status === 'done' && fSet?.source?.version === 2, JSON.stringify({ changedJob, src: fSet?.source }));
   if (fSet) await api('POST', `/api/proposals/${fSet.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
   writeOld('Quiet/fresh.txt', 'FACT: First aid kits are by each exit.\n');
   writeOld('Quiet/old.txt', 'FACT: The old rule.\n');
   const quiet = await api('POST', '/api/folders', { label: 'Quiet share', path: path.join(watchDir, 'Quiet'), user: 'Alex', fileExisting: false });
-  check('a folder can start without filing what is already there', quiet.status === 200 && quiet.data.fileCount === 2 && !(await api('GET', '/api/ingest')).data.some((j) => j.folderLabel === 'Quiet share'));
+  check('a folder can start without filing what is already there', quiet.status === 200 && quiet.data.fileCount === 2 && !(await api('GET', '/api/ingest')).data.jobs.some((j) => j.folderLabel === 'Quiet share'));
   writeOld('Quiet/new-rule.txt', 'FACT: Visitors sign in at reception.\n');
   check('later documents in that folder are filed', (await api('POST', `/api/folders/${quiet.data.id}/scan`)).data.queued === 1);
   check('a missing folder is refused clearly', /cannot find the folder/.test((await api('POST', '/api/folders', { label: 'Nope', path: '/no/such/dir', user: 'Alex' })).data.error ?? ''));
   check('the same label cannot be used twice', (await api('POST', '/api/folders', { label: 'Ops share', path: watchDir, user: 'Alex' })).status === 400);
-  await waitJob((await api('GET', '/api/ingest')).data[0].id);
+  await waitJob((await api('GET', '/api/ingest')).data.jobs[0].id);
   for (const f of (await api('GET', '/api/folders')).data) await api('DELETE', `/api/folders/${f.id}`);
   check('folders can stop being watched', (await api('GET', '/api/folders')).data.length === 0);
   for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
@@ -575,9 +583,9 @@ try {
   check('a folder can be pointed at its new location', nest_repoint.status === 200 && !(await api('GET', '/api/folders')).data.find((f) => f.label === 'Outer').lastError);
   // the inner folder moved along with it, so the outer one now sees its file; it is already filed and skipped
   const afterMove = (await api('POST', `/api/folders/${nest_outer.data.id}/scan`)).data.queued;
-  const afterJobs = afterMove ? [await waitJob((await api('GET', '/api/ingest')).data[0].id)] : [];
+  const afterJobs = afterMove ? [await waitJob((await api('GET', '/api/ingest')).data.jobs[0].id)] : [];
   check('nothing is filed again after pointing it at the new location', afterJobs.every((j) => j?.status === 'skipped'), JSON.stringify({ afterMove, afterJobs }));
-  await waitJob((await api('GET', '/api/ingest')).data[0].id);
+  await waitJob((await api('GET', '/api/ingest')).data.jobs[0].id);
   for (const f of (await api('GET', '/api/folders')).data) await api('DELETE', `/api/folders/${f.id}`);
   for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
   fs.rmSync(nest_base, { recursive: true, force: true });
@@ -606,7 +614,53 @@ try {
   check('a missing folder cannot be browsed', (await api('GET', '/api/folders/browse?path=/no/such/dir')).status === 400);
   fs.rmSync(browseDir, { recursive: true, force: true });
 
-  // 30. Search finds approved content
+  // 30. Background filing controls: pause, cancel, stop the running file, see its progress, retry failures
+  const ctl = (action, extra = {}) => api('POST', '/api/ingest/control', { action, ...extra });
+  const queueOne = async (name, text, note) => {
+    const f = await upload([[name, Buffer.from(text), 'text/plain']]);
+    return (await api('POST', '/api/ingest', { fileIds: [f.data[0].id], user: 'Alex', provider: 'local', note })).data.jobs[0];
+  };
+  const jobStatus = async (id) => (await api('GET', '/api/ingest?status=' + 'queued')).data.jobs.find((j) => j.id === id)?.status
+    ?? (await api('GET', '/api/ingest')).data.jobs.find((j) => j.id === id)?.status;
+  await ctl('pause');
+  const pausedJob = await queueOne('paused.txt', 'FACT: Paused fact.\n', 'Just keep this on file.');
+  await new Promise((r) => setTimeout(r, 1500));
+  const pausedState = (await api('GET', '/api/ingest')).data;
+  check('a paused queue does not start new files', pausedState.paused === true && (await jobStatus(pausedJob)) === 'queued');
+  check('a waiting file can be cancelled', (await api('POST', `/api/ingest/${pausedJob}/cancel`)).status === 200 && (await jobStatus(pausedJob)) === 'cancelled');
+  const otherJob = await queueOne('other.txt', 'FACT: Other fact.\n', 'Just keep this on file.');
+  const bulk = await ctl('cancel-waiting', { folder: null });
+  check('all waiting dropped files can be cancelled at once', bulk.data.count >= 1 && (await jobStatus(otherJob)) === 'cancelled', JSON.stringify(bulk.data));
+  check('a cancelled file can be tried again', (await api('POST', `/api/ingest/${pausedJob}/retry`)).status === 200);
+  await ctl('resume');
+  check('resuming files what was waiting', (await waitJob(pausedJob))?.status === 'done');
+
+  const slowJob = await queueOne('slow.txt', 'FACT: Slow fact.\n', 'Please slowly add a canteen section');
+  let live = null;
+  for (let i = 0; i < 80 && !live; i++) {
+    const st = (await api('GET', '/api/ingest')).data;
+    if (st.current?.job?.id === slowJob) live = st.current;
+    else await new Promise((r) => setTimeout(r, 100));
+  }
+  check('the running file shows what it is doing', !!live && typeof live.status === 'string' && Array.isArray(live.steps), JSON.stringify(live));
+  check('the running file can be stopped', (await api('POST', `/api/ingest/${slowJob}/cancel`)).status === 200);
+  check('a stopped file ends as cancelled', (await waitJob(slowJob))?.status === 'cancelled');
+
+  const gone = await upload([['gone.txt', Buffer.from('FACT: Gone fact.\n'), 'text/plain']]);
+  const findStored = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? findStored(path.join(dir, e.name)) : e.name === 'gone.txt' ? [path.join(dir, e.name)] : []);
+  const goneFile = findStored(path.join(dataDir, 'assets'))[0];
+  const goneBytes = fs.readFileSync(goneFile);
+  fs.rmSync(goneFile);
+  const goneJob = (await api('POST', '/api/ingest', { fileIds: [gone.data[0].id], user: 'Alex', provider: 'local', note: 'Just keep this on file.' })).data.jobs[0];
+  check('a file that cannot be read fails', (await waitJob(goneJob))?.status === 'failed');
+  fs.writeFileSync(goneFile, goneBytes);
+  check('all failed files can be tried again', (await ctl('retry-failed')).data.count >= 1 && (await waitJob(goneJob))?.status === 'done');
+  const counts = (await api('GET', '/api/ingest')).data.counts;
+  check('counts cover every status', ['queued', 'working', 'done', 'skipped', 'failed', 'cancelled'].every((k) => typeof counts[k] === 'number'), JSON.stringify(counts));
+  for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+
+  // 31. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {

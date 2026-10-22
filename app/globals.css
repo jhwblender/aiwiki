@@ -285,3 +285,10 @@ a.file-chip { padding-right: 10px; }
 .chosen-folder code { font-family: var(--font-mono); font-size: 13px; overflow-wrap: anywhere; }
 .folder-move { flex-basis: 100%; }
 .type-path { align-self: flex-start; margin-top: 6px; }
+.queue-bar { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.queue-wait { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; margin-top: 10px; }
+.job-live { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: var(--teal-soft); }
+.job-live .live-head { color: var(--ink); }
+.queue-filters { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 14px; }
+.queue-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.job.cancelled .job-status { background: var(--paper); color: var(--ink-soft); }

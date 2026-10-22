@@ -188,7 +188,7 @@ export default function ChatPanel({
       await new Promise((r) => setTimeout(r, 3000));
       let jobs: any[] = [];
       try {
-        jobs = await (await fetch('/api/ingest', { cache: 'no-store' })).json();
+        jobs = (await (await fetch('/api/ingest', { cache: 'no-store' })).json()).jobs ?? [];
       } catch {
         continue;
       }
@@ -210,6 +210,7 @@ export default function ChatPanel({
           : `- ${j.displayName}: nothing to add`;
       }
       if (j.status === 'skipped') return `- ${j.displayName}: skipped. ${j.detail ?? ''}`;
+      if (j.status === 'cancelled') return `- ${j.displayName}: cancelled.`;
       return `- ${j.displayName}: failed. ${j.detail ?? ''} You can try again from the [Settings page](/settings#background).`;
     });
     setMsgs((m) => [...m, { role: 'assistant', content: `Background filing finished:\n\n${lines.join('\n')}` }]);
