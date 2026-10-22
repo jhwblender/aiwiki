@@ -429,6 +429,7 @@ try {
   check('a background job files the document', job1?.status === 'done' && job1.proposed.includes('team/onboarding'), JSON.stringify(job1));
   const qSet = (await getPage('team/onboarding')).pending.find((p) => p.source?.filename === 'printers.txt');
   check('the background suggestion has the file as its source', !!qSet && JSON.stringify(qSet.segments).includes('printer is on floor 2'));
+  check('a dropped file has no folder location', qSet?.summary === 'Add facts from a document', qSet?.summary);
   if (qSet) await api('POST', `/api/proposals/${qSet.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
   const qAgain = await upload([['printers.txt', Buffer.from('FACT: The printer is on floor 2.\n'), 'text/plain']]);
   const job2 = await waitJob((await api('POST', '/api/ingest', { fileIds: [qAgain.data[0].id], user: 'Alex' })).data.jobs[0]);
@@ -467,6 +468,7 @@ try {
   const folderJob = await waitJob((await api('GET', '/api/ingest')).data.jobs.find((j) => j.displayName === 'procedures.txt')?.id);
   check('a document in the folder is filed', folderJob?.status === 'done' && folderJob.folderLabel === 'Ops share' && folderJob.relPath === 'Safety/procedures.txt', JSON.stringify(folderJob));
   let fSet = (await getPage('team/onboarding')).pending.find((p) => p.source?.filename === 'procedures.txt');
+  check('the assistant is told where the file sits in the folder', fSet?.summary === 'Add facts from a document (location seen)', fSet?.summary);
   check('its source names the folder and the path inside it', fSet?.source?.folderLabel === 'Ops share' && fSet.source.relPath === 'Safety/procedures.txt' && fSet.source.version === 1);
   check('the full server path never appears in sources', !JSON.stringify(await getPage('team/onboarding')).includes(watchDir));
   await api('POST', `/api/proposals/${fSet.proposalId}/resolve`, { action: 'approve', user: 'Kim' });

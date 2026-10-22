@@ -203,7 +203,11 @@ const SCENARIOS = [
     steps: [
       {
         name: 'append_to_page',
-        args: (text) => ({ path: 'team/onboarding', text: factsIn(text).join(' ') || 'FILE-NOT-SEEN', summary: 'Add facts from a document' }),
+        args: (text) => ({
+          path: 'team/onboarding',
+          text: factsIn(text).join(' ') || 'FILE-NOT-SEEN',
+          summary: /Path in folder: .*\n[\s\S]*Folder outline/.test(text) ? 'Add facts from a document (location seen)' : 'Add facts from a document',
+        }),
       },
     ],
     reply: 'I proposed adding what the document says to [[team/onboarding]].',

@@ -2,6 +2,7 @@ import { getProvider, Msg } from './providers';
 import { normalizeCall, runTool, toolDefs, ToolContext } from './tools';
 import type { ChatMsg, ChatResponse } from '../types';
 import { getFile } from '../files';
+import { folderContext } from '../folderContext';
 import { checkVersion, dropIdentity, prepareFile, recordVersion, type DocIdentity, type VersionInfo } from '../ingest';
 
 const SYSTEM = `You are the assistant built into a company wiki. You help people find information and keep the wiki accurate.
@@ -80,7 +81,8 @@ export async function runAgent(opts: {
       try {
         const identity = typeof att === 'number' ? dropIdentity(f.filename) : att.identity;
         const info = (typeof att !== 'number' && att.info) || checkVersion(identity, f);
-        const prepared = await prepareFile(f, (image, prompt) => provider.describeImage(image, prompt), info, identity.displayName);
+        const location = identity.folderLabel ? folderContext(identity.folderLabel, identity.relPath) : undefined;
+        const prepared = await prepareFile(f, (image, prompt) => provider.describeImage(image, prompt), info, identity.displayName, location);
         handled.push({ identity, file: f, info });
         ctx.files.push({
           filename: identity.displayName,

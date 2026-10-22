@@ -98,11 +98,18 @@ export async function prepareFile(
   describe: DescribeImage | null,
   info: VersionInfo,
   displayName: string,
+  // Where the file sits in a watched folder (see lib/folderContext.ts); absent for chat drops
+  location?: string,
 ): Promise<{ section: string; note: string }> {
   const out = await extractText(f, describe);
   const how =
     out.method === 'vision' ? 'photo, described by the vision model' : out.method === 'pdf-scan' ? 'scanned PDF, read page by page' : f.kind;
-  const head = `<<<Attached file "${displayName}" (${how}, version ${info.version})>>>`;
+  const head =
+    `<<<Attached file "${displayName}" (${how}, version ${info.version})>>>` +
+    (location
+      ? `\n${location}\nUse the folder path and outline as hints about where this belongs in the wiki: sections and sub-pages can follow ` +
+        'the folders where that makes sense, and related files belong together. Do not copy the folder tree one to one.'
+      : '');
   const photoHint = f.kind === 'image' ? `To show this photo on a page, use ![short description](/api/files/${f.id})\n` : '';
   const full = `${out.text}\n${out.truncated ? '(The file is longer; only the beginning is shown.)\n' : ''}`;
   const end = '<<<End of file>>>';
