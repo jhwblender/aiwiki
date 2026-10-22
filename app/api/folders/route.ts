@@ -17,6 +17,7 @@ export async function POST(req: NextRequest) {
       path: String(b.path ?? ''),
       user: userFrom(b.user),
       fileExisting: b.fileExisting !== false,
+      visibility: b.visibility === 'personal' ? 'personal' : 'wiki',
     });
     return NextResponse.json(folder);
   } catch (e) {

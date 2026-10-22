@@ -292,3 +292,6 @@ a.file-chip { padding-right: 10px; }
 .queue-filters { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 14px; }
 .queue-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .job.cancelled .job-status { background: var(--paper); color: var(--ink-soft); }
+.personal-badge { display: inline-block; margin-left: 8px; padding: 0 8px; border-radius: 10px; font-size: 12px; background: #efe7f6; color: #5b3d7a; }
+fieldset.visibility { border: 0; padding: 0; margin: 14px 0 0; }
+fieldset.visibility legend { font-size: 13px; font-weight: 500; padding: 0; margin-bottom: 2px; }

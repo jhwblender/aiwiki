@@ -662,7 +662,33 @@ try {
   check('counts cover every status', ['queued', 'working', 'done', 'skipped', 'failed', 'cancelled'].every((k) => typeof counts[k] === 'number'), JSON.stringify(counts));
   for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
-  // 31. Search finds approved content
+  // 31. Personal folders: searchable by their owner only, never filed into the wiki
+  const privDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aiwiki-personal-'));
+  fs.writeFileSync(path.join(privDir, 'notes.txt'), 'Private note: the code word is PINEAPPLE.\n');
+  const privPast = new Date(Date.now() - 60_000);
+  fs.utimesSync(path.join(privDir, 'notes.txt'), privPast, privPast);
+  check('a personal folder needs an owner', (await api('POST', '/api/folders', { label: 'Nameless', path: privDir, user: '', visibility: 'personal' })).status === 400);
+  const pendingBefore = (await getPage('team/onboarding')).pending.length;
+  const priv = await api('POST', '/api/folders', { label: 'Alex notes', path: privDir, user: 'Alex', visibility: 'personal', fileExisting: true });
+  check('a personal folder can be watched', priv.status === 200 && priv.data.visibility === 'personal', JSON.stringify(priv.data));
+  const privJob = await waitJob((await api('GET', '/api/ingest')).data.jobs.find((j) => j.displayName === 'notes.txt')?.id);
+  check('its files are kept for searching, not filed', privJob?.status === 'done' && /own searches/.test(privJob.detail ?? '') && privJob.proposed.length === 0, JSON.stringify(privJob));
+  check('nothing from it is suggested', (await getPage('team/onboarding')).pending.length === pendingBefore);
+  check('its owner can search it', (await chat('Please search my notes', 'Alex')).reply === 'PERSONAL-SEEN');
+  check('nobody else can', (await chat('Please search my notes', 'Sam')).reply === 'PERSONAL-NOT-SEEN');
+  const leak = await chat('Please put my notes in the wiki', 'Alex');
+  check('after reading a personal document nothing can be suggested', leak.proposed.length === 0 && leak.trace.some((t) => /did not work/.test(t)) &&
+    !JSON.stringify((await getPage('team/onboarding')).pending).includes('PINEAPPLE'), JSON.stringify(leak.trace));
+  const toWiki = await api('PATCH', `/api/folders/${priv.data.id}`, { visibility: 'wiki', fileExisting: true });
+  check('a personal folder can start feeding the wiki', toWiki.status === 200 && toWiki.data.queued === 1, JSON.stringify(toWiki.data));
+  const wikiJob = await waitJob((await api('GET', '/api/ingest')).data.jobs[0].id);
+  check('its documents are then filed', wikiJob?.status === 'done' && wikiJob.proposed.length === 1, JSON.stringify(wikiJob));
+  check('and everyone can search them', (await chat('Please search my notes', 'Sam')).reply === 'PERSONAL-SEEN');
+  for (const f of (await api('GET', '/api/folders')).data) await api('DELETE', `/api/folders/${f.id}`);
+  for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  fs.rmSync(privDir, { recursive: true, force: true });
+
+  // 32. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {

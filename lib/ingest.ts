@@ -14,6 +14,9 @@ export type DocIdentity = {
   displayName: string;
   folderLabel?: string | null;
   relPath?: string | null;
+  // From a personal-only folder: searchable by the owner's chat, never filed into the wiki
+  personal?: boolean;
+  owner?: string | null;
 };
 
 export function dropIdentity(filename: string): DocIdentity {
@@ -46,7 +49,7 @@ export function checkVersion(id: DocIdentity, f: StoredFile): VersionInfo {
   const dup = d
     .prepare(
       `SELECT doc.display_name, v.added_at FROM document_versions v JOIN documents doc ON doc.id = v.document_id
-       WHERE v.hash = ? AND doc.doc_key != ? ORDER BY v.added_at LIMIT 1`,
+       WHERE v.hash = ? AND doc.doc_key != ? AND doc.personal = 0 ORDER BY v.added_at LIMIT 1`,
     )
     .get(f.hash, id.key) as { display_name: string; added_at: string } | undefined;
   return {
@@ -64,9 +67,11 @@ export function recordVersion(id: DocIdentity, f: StoredFile, user: string, info
     let doc = d.prepare('SELECT id FROM documents WHERE doc_key = ?').get(id.key) as { id: number } | undefined;
     if (!doc) {
       const r = d
-        .prepare('INSERT INTO documents (doc_key, display_name, folder_label, rel_path, created_at) VALUES (?, ?, ?, ?, ?)')
-        .run(id.key, id.displayName, id.folderLabel ?? null, id.relPath ?? null, now());
+        .prepare('INSERT INTO documents (doc_key, display_name, folder_label, rel_path, created_at, personal, owner) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(id.key, id.displayName, id.folderLabel ?? null, id.relPath ?? null, now(), id.personal ? 1 : 0, id.owner ?? null);
       doc = { id: Number(r.lastInsertRowid) };
+    } else {
+      d.prepare('UPDATE documents SET personal = ?, owner = ? WHERE id = ?').run(id.personal ? 1 : 0, id.owner ?? null, doc.id);
     }
     d.prepare(
       'INSERT OR IGNORE INTO document_versions (document_id, version, hash, stored_path, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?)',

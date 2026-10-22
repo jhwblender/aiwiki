@@ -7,6 +7,7 @@ type Folder = {
   label: string;
   path: string;
   user: string;
+  visibility: 'wiki' | 'personal';
   enabled: boolean;
   lastScanAt: string | null;
   lastError: string | null;
@@ -34,6 +35,14 @@ export default function WatchedFolders() {
   // The watched folder whose location is being changed
   const [moving, setMoving] = useState<number | null>(null);
   const [fileExisting, setFileExisting] = useState(true);
+  const [visibility, setVisibility] = useState<'wiki' | 'personal'>('wiki');
+  const [me, setMe] = useState('');
+
+  useEffect(() => {
+    try {
+      setMe(localStorage.getItem('wiki-user') || '');
+    } catch {}
+  }, []);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
@@ -76,7 +85,7 @@ export default function WatchedFolders() {
     } catch {}
     const ok = await call(
       '/api/folders',
-      { method: 'POST', body: JSON.stringify({ label, path: dir, user, fileExisting }) },
+      { method: 'POST', body: JSON.stringify({ label, path: dir, user, fileExisting, visibility }) },
       (d) =>
         `Watching "${d.label}" (${d.fileCount} document${d.fileCount === 1 ? '' : 's'} found). ` +
         (fileExisting ? 'They are being filed in the background.' : 'Only new and changed documents will be filed.'),
@@ -102,11 +111,12 @@ export default function WatchedFolders() {
             <li key={f.id} className={'folder' + (f.enabled ? '' : ' paused')}>
               <div className="folder-body">
                 <strong>{f.label}</strong>
+                {f.visibility === 'personal' && <span className="personal-badge">Personal to {f.user}</span>}
                 {!f.enabled && <span className="muted small-text"> (paused)</span>}
                 <div className="muted small-text folder-path">{f.path}</div>
                 <div className="small-text">
                   {f.fileCount} document{f.fileCount === 1 ? '' : 's'}, {ago(f.lastScanAt)}
-                  {f.user && f.user !== 'anonymous' ? `, filed as ${f.user}` : ''}
+                  {f.visibility === 'personal' ? `, kept for ${f.user}'s searches only` : f.user && f.user !== 'anonymous' ? `, filed as ${f.user}` : ''}
                 </div>
                 {f.insideOf && (
                   <div className="muted small-text">Inside &quot;{f.insideOf}&quot;. Its documents are filed under this folder only.</div>
@@ -147,6 +157,39 @@ export default function WatchedFolders() {
                   onClick={() => call(`/api/folders/${f.id}`, { method: 'PATCH', body: JSON.stringify({ enabled: !f.enabled }) })}
                 >
                   {f.enabled ? 'Pause' : 'Resume'}
+                </button>
+                <button
+                  className="btn small quiet"
+                  disabled={busy}
+                  onClick={() => {
+                    if (f.visibility === 'wiki') {
+                      if (
+                        window.confirm(
+                          `Make "${f.label}" personal to ${f.user}? Its documents will only show up in ${f.user}'s searches, and nothing new from it goes into the wiki. What is already in the wiki stays.`,
+                        )
+                      ) {
+                        call(
+                          `/api/folders/${f.id}`,
+                          { method: 'PATCH', body: JSON.stringify({ visibility: 'personal' }) },
+                          () => `"${f.label}" is now personal.`,
+                        );
+                      }
+                    } else if (window.confirm(`Let "${f.label}" feed the wiki? Everyone's searches will include its documents.`)) {
+                      const fileNow = window.confirm(
+                        `Also file the ${f.fileCount} documents already in "${f.label}" into the wiki now? Choose Cancel to file only new and changed ones.`,
+                      );
+                      call(
+                        `/api/folders/${f.id}`,
+                        { method: 'PATCH', body: JSON.stringify({ visibility: 'wiki', fileExisting: fileNow }) },
+                        (d) =>
+                          d.queued
+                            ? `"${f.label}" now feeds the wiki; ${d.queued} documents are being filed.`
+                            : `"${f.label}" now feeds the wiki.`,
+                      );
+                    }
+                  }}
+                >
+                  {f.visibility === 'personal' ? 'Feed the wiki' : 'Make personal'}
                 </button>
                 <button
                   className="btn small quiet"
@@ -243,9 +286,23 @@ export default function WatchedFolders() {
         A Windows path works when the wiki runs in WSL. For a SharePoint library, sync it with OneDrive and turn off Files On-Demand for
         that folder so the files are really on disk.
       </p>
+      <fieldset className="field visibility">
+        <legend>What it is for</legend>
+        <label className="check small-text">
+          <input type="radio" name="visibility" checked={visibility === 'wiki'} onChange={() => setVisibility('wiki')} /> Feeds the wiki:
+          its documents become suggestions anyone can review
+        </label>
+        <label className="check small-text">
+          <input type="radio" name="visibility" checked={visibility === 'personal'} onChange={() => setVisibility('personal')} /> Personal:
+          only {me || 'you'} can search it from the chat, and nothing from it goes into the wiki
+        </label>
+        {visibility === 'personal' && !me && (
+          <p className="small-text error-text">Set your name at the top of this page first; a personal folder belongs to someone.</p>
+        )}
+      </fieldset>
       <label className="check small-text">
-        <input type="checkbox" checked={fileExisting} onChange={(e) => setFileExisting(e.target.checked)} /> Also file the documents already
-        in the folder
+        <input type="checkbox" checked={fileExisting} onChange={(e) => setFileExisting(e.target.checked)} />{' '}
+        {visibility === 'personal' ? 'Also include the documents already in the folder' : 'Also file the documents already in the folder'}
       </label>
       <div className="editor-bar">
         <button className="btn primary" disabled={busy || !label.trim() || !dir.trim()} onClick={add}>

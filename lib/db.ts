@@ -193,4 +193,12 @@ function migrate(d: Database.Database) {
   if (!csCols.some((c) => c.name === 'chat_id')) d.exec('ALTER TABLE change_sets ADD COLUMN chat_id TEXT');
   const jobCols = d.prepare('PRAGMA table_info(ingest_jobs)').all() as { name: string }[];
   if (!jobCols.some((c) => c.name === 'provider')) d.exec('ALTER TABLE ingest_jobs ADD COLUMN provider TEXT');
+  // file: run the assistant and suggest edits; index: only make it searchable (personal folders)
+  if (!jobCols.some((c) => c.name === 'mode')) d.exec("ALTER TABLE ingest_jobs ADD COLUMN mode TEXT NOT NULL DEFAULT 'file'");
+  // Personal documents are searchable only by their owner and never become wiki edits
+  const docCols = d.prepare('PRAGMA table_info(documents)').all() as { name: string }[];
+  if (!docCols.some((c) => c.name === 'personal')) d.exec('ALTER TABLE documents ADD COLUMN personal INTEGER NOT NULL DEFAULT 0');
+  if (!docCols.some((c) => c.name === 'owner')) d.exec('ALTER TABLE documents ADD COLUMN owner TEXT');
+  const folderCols = d.prepare('PRAGMA table_info(watched_folders)').all() as { name: string }[];
+  if (!folderCols.some((c) => c.name === 'visibility')) d.exec("ALTER TABLE watched_folders ADD COLUMN visibility TEXT NOT NULL DEFAULT 'wiki'");
 }

@@ -57,12 +57,14 @@ export type DocInfo = {
   version: number;
   hash: string;
   storedPath: string;
+  personal: boolean;
+  owner: string | null;
 };
 
 export function documentInfo(id: number): DocInfo | null {
   const r = db()
     .prepare(
-      `SELECT d.id, d.display_name, d.folder_label, d.rel_path, v.version, v.hash, v.stored_path
+      `SELECT d.id, d.display_name, d.folder_label, d.rel_path, d.personal, d.owner, v.version, v.hash, v.stored_path
        FROM documents d JOIN document_versions v ON v.document_id = d.id
        WHERE d.id = ? ORDER BY v.version DESC LIMIT 1`,
     )
@@ -76,17 +78,22 @@ export function documentInfo(id: number): DocInfo | null {
     version: r.version,
     hash: r.hash,
     storedPath: r.stored_path,
+    personal: !!r.personal,
+    owner: r.owner,
   };
 }
 
-export function findDocumentByName(name: string): number | null {
+// Documents a person may see: everything shared, plus their own personal ones
+const VISIBLE = '(d.personal = 0 OR d.owner = ?)';
+
+export function findDocumentByName(name: string, user: string): number | null {
   const r = db()
-    .prepare('SELECT id FROM documents WHERE lower(display_name) = lower(?) OR lower(rel_path) = lower(?) ORDER BY id DESC LIMIT 1')
-    .get(name.trim(), name.trim()) as { id: number } | undefined;
+    .prepare(`SELECT id FROM documents d WHERE (lower(display_name) = lower(?) OR lower(rel_path) = lower(?)) AND ${VISIBLE} ORDER BY id DESC LIMIT 1`)
+    .get(name.trim(), name.trim(), user) as { id: number } | undefined;
   return r?.id ?? null;
 }
 
-export function searchDocuments(q: string, limit = 6) {
+export function searchDocuments(q: string, user: string, limit = 6) {
   const terms = q
     .split(/\s+/)
     .map((t) => t.replace(/[^\p{L}\p{N}_-]/gu, ''))
@@ -98,11 +105,20 @@ export function searchDocuments(q: string, limit = 6) {
     return db()
       .prepare(
         `SELECT f.document_id AS id, f.part, f.parts, d.display_name AS name, d.folder_label AS folder, d.rel_path AS relPath,
-                snippet(documents_fts, 3, '[', ']', '...', 24) AS snippet
+                d.personal AS personal, snippet(documents_fts, 3, '[', ']', '...', 24) AS snippet
          FROM documents_fts f JOIN documents d ON d.id = f.document_id
-         WHERE documents_fts MATCH ? ORDER BY rank LIMIT ?`,
+         WHERE documents_fts MATCH ? AND ${VISIBLE} ORDER BY rank LIMIT ?`,
       )
-      .all(query, limit) as { id: number; part: number; parts: number; name: string; folder: string | null; relPath: string | null; snippet: string }[];
+      .all(query, user, limit) as {
+      id: number;
+      part: number;
+      parts: number;
+      name: string;
+      folder: string | null;
+      relPath: string | null;
+      personal: number;
+      snippet: string;
+    }[];
   } catch {
     return [];
   }

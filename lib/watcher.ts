@@ -14,6 +14,8 @@ export type WatchedFolder = {
   label: string;
   path: string;
   user: string;
+  // wiki: files are filed into the wiki; personal: only searchable by the user's chat
+  visibility: 'wiki' | 'personal';
   enabled: boolean;
   lastScanAt: string | null;
   lastError: string | null;
@@ -37,6 +39,7 @@ function rowToFolder(r: any): WatchedFolder {
     label: r.label,
     path: r.path,
     user: r.user,
+    visibility: r.visibility === 'personal' ? 'personal' : 'wiki',
     enabled: !!r.enabled,
     lastScanAt: r.last_scan_at,
     lastError: r.last_error,
@@ -91,7 +94,16 @@ function fromWindowsPath(p: string): string {
   return `/mnt/${m[1].toLowerCase()}/${m[2].replace(/\\/g, '/')}`;
 }
 
-export async function addFolder(input: { label: string; path: string; user: string; fileExisting: boolean }): Promise<WatchedFolder> {
+export async function addFolder(input: {
+  label: string;
+  path: string;
+  user: string;
+  fileExisting: boolean;
+  visibility?: 'wiki' | 'personal';
+}): Promise<WatchedFolder> {
+  if (input.visibility === 'personal' && (!input.user || input.user === 'anonymous')) {
+    throw new Error('A personal folder belongs to someone. Set your name on this page first.');
+  }
   const label = input.label.trim().slice(0, 80);
   if (!label) throw new Error('Give the folder a label, for example "Systems SharePoint".');
   const dir = path.resolve(fromWindowsPath(input.path.trim()));
@@ -106,8 +118,8 @@ export async function addFolder(input: { label: string; path: string; user: stri
   const same = db().prepare('SELECT label FROM watched_folders WHERE path = ?').get(dir) as { label: string } | undefined;
   if (same) throw new Error(`That folder is already watched as "${same.label}".`);
   const r = db()
-    .prepare('INSERT INTO watched_folders (label, path, user, enabled, created_at) VALUES (?, ?, ?, 1, ?)')
-    .run(label, dir, input.user, now());
+    .prepare('INSERT INTO watched_folders (label, path, user, enabled, created_at, visibility) VALUES (?, ?, ?, 1, ?, ?)')
+    .run(label, dir, input.user, now(), input.visibility === 'personal' ? 'personal' : 'wiki');
   const id = Number(r.lastInsertRowid);
   // Without filing what is already there, the first scan only records the files as seen
   await scanFolder(id, { baselineOnly: !input.fileExisting });
@@ -116,6 +128,54 @@ export async function addFolder(input: { label: string; path: string; user: stri
 
 function countFiles(id: number) {
   return (db().prepare('SELECT COUNT(*) AS n FROM watched_files WHERE folder_id = ?').get(id) as { n: number }).n;
+}
+
+// Personal and wiki copies of a file are separate documents, so making a folder feed the wiki
+// files its documents fresh instead of treating them as already handled
+function identityFor(folder: { label: string; user: string; visibility: string }, rel: string) {
+  const personal = folder.visibility === 'personal';
+  return {
+    key: `${personal ? 'personal' : 'folder'}:${folder.label}:${rel}`,
+    displayName: path.basename(rel),
+    folderLabel: folder.label,
+    relPath: rel,
+    personal,
+    owner: personal ? folder.user : null,
+  };
+}
+
+// Switch a folder between feeding the wiki and personal only.
+// To personal: its documents become searchable by the owner only (what is already in the wiki stays).
+// To wiki: its documents become searchable by everyone, and with fileExisting they are filed now.
+export async function setVisibility(id: number, visibility: 'wiki' | 'personal', fileExisting = false): Promise<number> {
+  const d = db();
+  const folder = d.prepare('SELECT * FROM watched_folders WHERE id = ?').get(id) as any;
+  if (!folder) throw new Error('Folder not found.');
+  if (visibility === 'personal' && (!folder.user || folder.user === 'anonymous')) {
+    throw new Error('A personal folder belongs to someone, but this folder was added without a name. Add it again after setting your name.');
+  }
+  d.prepare('UPDATE watched_folders SET visibility = ? WHERE id = ?').run(visibility, id);
+  const like = (prefix: string) => `${prefix}:${folder.label}:%`;
+  if (visibility === 'personal') {
+    d.prepare('UPDATE documents SET personal = 1, owner = ? WHERE doc_key LIKE ? OR doc_key LIKE ?').run(folder.user, like('folder'), like('personal'));
+    return 0;
+  }
+  d.prepare('UPDATE documents SET personal = 0, owner = NULL WHERE doc_key LIKE ?').run(like('folder'));
+  // The private copies are no longer needed for searching
+  d.prepare('DELETE FROM documents_fts WHERE document_id IN (SELECT id FROM documents WHERE doc_key LIKE ?)').run(like('personal'));
+  if (!fileExisting) return 0;
+  let queued = 0;
+  for (const { rel_path } of d.prepare('SELECT rel_path FROM watched_files WHERE folder_id = ?').all(id) as { rel_path: string }[]) {
+    try {
+      const data = await fs.readFile(path.join(folder.path, rel_path));
+      const stored = await saveUpload(path.basename(rel_path), data, folder.user);
+      enqueue({ fileId: stored.id, identity: identityFor({ ...folder, visibility: 'wiki' }, rel_path), user: folder.user });
+      queued++;
+    } catch {
+      // gone or unreadable; the next scan sees it if it comes back
+    }
+  }
+  return queued;
 }
 
 export function setEnabled(id: number, enabled: boolean) {
@@ -195,11 +255,7 @@ export async function scanFolder(id: number, opts: { baselineOnly?: boolean } = 
       if (opts.baselineOnly) continue;
       try {
         const stored = await saveUpload(path.basename(full), data, folder.user);
-        enqueue({
-          fileId: stored.id,
-          identity: { key: `folder:${folder.label}:${rel}`, displayName: path.basename(full), folderLabel: folder.label, relPath: rel },
-          user: folder.user,
-        });
+        enqueue({ fileId: stored.id, identity: identityFor(folder, rel), user: folder.user, mode: folder.visibility === 'personal' ? 'index' : 'file' });
         queued++;
       } catch {
         // Unsupported or unreadable content; it stays recorded as seen until it changes

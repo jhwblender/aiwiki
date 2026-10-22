@@ -277,6 +277,24 @@ const SCENARIOS = [
     reply: 'I proposed adding the torque spec to [[team/onboarding]].',
   },
   {
+    keyword: 'search my notes',
+    steps: [
+      { name: 'search_documents', args: { query: 'pineapple' } },
+      { name: 'read_document', args: (_text, tools) => ({ document: tools.match(/document (\d+)/)?.[1] ?? 'none' }) },
+    ],
+    reply: (tools) => (tools.includes('PINEAPPLE') ? 'PERSONAL-SEEN' : 'PERSONAL-NOT-SEEN'),
+  },
+  {
+    // reads a personal document, then tries to put it into the wiki
+    keyword: 'put my notes in the wiki',
+    steps: [
+      { name: 'search_documents', args: { query: 'pineapple' } },
+      { name: 'read_document', args: (_text, tools) => ({ document: tools.match(/document (\d+)/)?.[1] ?? 'none' }) },
+      { name: 'append_to_page', args: { path: 'team/onboarding', text: 'The code word is PINEAPPLE.', summary: 'Add the code word' } },
+    ],
+    reply: 'Done.',
+  },
+  {
     keyword: 'backup',
     steps: [
       { name: 'search_pages', args: { query: 'backup' } },

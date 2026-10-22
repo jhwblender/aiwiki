@@ -38,11 +38,13 @@ export function enqueue(input: {
   note?: string;
   currentPath?: string;
   provider?: string;
+  // index: only make the file searchable for its owner (personal folders); never suggests edits
+  mode?: 'file' | 'index';
 }): number {
   const r = db()
     .prepare(
-      `INSERT INTO ingest_jobs (file_id, doc_key, display_name, folder_label, rel_path, user, note, current_path, provider, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)`,
+      `INSERT INTO ingest_jobs (file_id, doc_key, display_name, folder_label, rel_path, user, note, current_path, provider, mode, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)`,
     )
     .run(
       input.fileId,
@@ -54,6 +56,7 @@ export function enqueue(input: {
       input.note?.trim() || null,
       input.currentPath ?? null,
       input.provider ?? null,
+      input.mode ?? 'file',
       now(),
     );
   kick();
@@ -185,10 +188,31 @@ class ModelDown extends Error {}
 async function runJob(row: any, signal: AbortSignal, onProgress: (text: string) => void) {
   const f = getFile(row.file_id);
   if (!f) return finish(row.id, 'failed', 'The stored file is missing.');
-  const identity: DocIdentity = { key: row.doc_key, displayName: row.display_name, folderLabel: row.folder_label, relPath: row.rel_path };
+  const personal = row.mode === 'index';
+  const identity: DocIdentity = {
+    key: row.doc_key,
+    displayName: row.display_name,
+    folderLabel: row.folder_label,
+    relPath: row.rel_path,
+    personal,
+    owner: personal ? row.user : null,
+  };
   const info = checkVersion(identity, f);
   // Nothing new: do not spend a model call on it
   if (info.status === 'unchanged') return finish(row.id, 'skipped', `Unchanged since ${day(info.previous!.at)}.`);
+  if (personal) {
+    // Personal folder: make it searchable for its owner, and nothing else
+    try {
+      const provider = getProvider(row.provider ?? undefined);
+      await extractText(f, (image, prompt) => provider.describeImage(image, prompt));
+    } catch (e: any) {
+      const msg = e?.message ?? String(e);
+      if (MODEL_DOWN.test(msg)) throw new ModelDown(msg);
+      return finish(row.id, 'failed', `Could not read the file: ${msg}`);
+    }
+    recordVersion(identity, f, row.user, info);
+    return finish(row.id, 'done', `Kept for ${row.user}'s own searches. Nothing from it goes into the wiki.`);
+  }
   // The same content already filed under another name or folder (a copy, a renamed subfolder, or
   // a folder watched inside another): it is in the wiki already
   if (info.duplicateOf) {
