@@ -1,46 +1,111 @@
-# AI Wiki prototype
+# AI Wiki
 
-A team wiki with a built-in assistant. People edit pages like any wiki. The assistant can search and read the wiki to answer questions, and when someone tells it new information it proposes edits that appear highlighted on the page for anyone to approve or reject in place.
+**A team wiki that keeps itself up to date, without ever changing a word on its own.**
 
-## Run it
+Tell the assistant something new, drop in a manual, or point it at a shared folder. It reads, works out which pages are affected, and suggests the edits. The suggestions appear right on the page, highlighted like tracked changes, and anyone on the team approves or rejects them with one click. Nothing is published until a person says yes.
 
-```
+Everything is plain Markdown in a git repository, every change records where it came from, and it runs fully on your own hardware with a local model if you want it to.
+
+---
+
+## Why
+
+Team wikis rot. The knowledge exists, in chat threads, PDFs, SharePoint folders and people's heads, but nobody has time to copy it into the right page. AI can do the copying, but nobody wants an AI quietly rewriting the documentation they rely on.
+
+AI Wiki splits the job: **the AI does the reading and writing, people make every decision.** Reviewers do not need to know Markdown, git or diffs. They see the page with the suggested change highlighted, a note on where it came from, and two buttons.
+
+## What it does
+
+**Suggests, never publishes**
+- The assistant's tools can only stage suggestions. Only a human approval writes to the wiki
+- Suggestions appear inline on the page: additions in green, removals struck through in red, and the exact words that changed highlighted inside an edited paragraph or table
+- Approve or reject each change, or the whole suggestion at once
+- Suggestions stay correct when the page changes underneath them; if two edits overlap, the older one is flagged instead of silently undoing the newer one
+
+**Feeds itself**
+- **Chat:** "the VPN form moved to the IT portal" becomes a suggested edit on the right page
+- **Files:** drop PDFs, Word documents, text files, photos and scanned PDFs into the chat or onto a page. Text is extracted, photos and scans are read by a vision model
+- **Watched folders:** point it at a folder (a OneDrive-synced SharePoint library works) and new or changed documents are filed in the background
+- **Updated documents** are reduced to what changed, so the wiki gets an edit instead of a duplicate; files it has already seen are skipped
+
+**Knows where everything came from**
+- Every suggestion links to its source: who sent it, the file, its folder and path, its version and a fingerprint of its content
+- Each page lists its sources; the original file opens with one click
+- Approvals are recorded in git under the approver's name, with the sources in the commit message
+
+**Helps, not just files**
+- Answers questions from the wiki, and from the original documents when the wiki does not cover something yet (and says so)
+- Sees pending suggestions, so it does not suggest the same thing twice; a follow-up message revises its own earlier suggestion
+- Suggests moving, renaming, splitting and merging pages; links are rewritten when a page moves
+- Shows its progress live while it works, and keeps working if you close the chat
+
+**Runs where you want**
+- Any OpenAI-compatible local server (Ollama, LM Studio, vLLM), or Anthropic's Claude
+- A connection test in Settings checks the server, the model, tool use and image reading, and explains any failure in plain words
+
+## Quick start
+
+Needs Node 22 or newer and git.
+
+```bash
+git clone https://github.com/jhwblender/aiwiki.git
+cd aiwiki
 ./start.sh
 ```
 
-That one command installs what is needed the first time, creates `.env.local`, builds the wiki when the code has changed, and starts it on http://localhost:3000. Open the Settings page to connect a model.
+Open http://localhost:3000, go to **Settings**, and connect a model:
 
-- `./start.sh --open` also opens your browser when the wiki is ready
-- `./start.sh --shortcut` (WSL on Windows) puts a "Start wiki" file on your Windows desktop to double-click
-- `./start.sh --dev` runs the development server, which reloads as code changes
-- `PORT=3001 ./start.sh` uses another port
-- `./stop.sh` stops it (background filing pauses and carries on at the next start)
+- **Ollama:** click *Ollama* to fill in `http://localhost:11434/v1`, pick a model with tool calling (Qwen 2.5 or newer, Llama 3.1 or newer), then *Test connection*
+- **Claude:** add `ANTHROPIC_API_KEY` to `.env.local` and run `./start.sh` again
 
-Needs Node 22 or newer and git on the PATH. `npm run e2e` checks the whole propose and approve flow against a scripted mock model; `npm run mock-llm` runs that mock on port 4555 if you want to try the UI without a real model. Data lives in `./data` (set `WIKI_DATA_DIR` to move it):
+`./start.sh` installs what it needs, builds only when the code changed, and starts the wiki. `./stop.sh` stops it. Other options:
 
-- `data/wiki/` is a git repo of plain markdown files. Every approved or human edit is a commit under the person's name.
-- `data/wiki.db` is SQLite: full-text search, proposals, approval log, and source records.
+```bash
+./start.sh --open       # open the browser when ready
+./start.sh --shortcut   # WSL: put a "Start wiki" launcher on the Windows desktop
+./start.sh --dev        # development server with live reload
+```
 
-## Local models
+No model handy? `npm run mock-llm` starts a scripted test model on port 4555 so you can click through the whole flow.
 
-Set `LOCAL_LLM_BASE_URL` to any OpenAI-compatible endpoint (Ollama: `http://localhost:11434/v1`) and `LOCAL_LLM_MODEL` to a model with good tool calling. When both providers are configured, a model picker appears in the chat panel. In this prototype the agent loop runs on the server, so the local model must be reachable from the server. Running the loop in the browser or in a companion app, so a remote wiki can use a model on your own machine, is the next step.
+## How it fits together
 
-## How approval works
+```
+ chat message ─┐
+ dropped file ─┼─► source record ─► assistant (search, read, suggest) ─► suggestion ─► review on the page ─► git commit
+watched folder ┘        ▲                       │                                         (Approve / Reject)
+                        └── original file, version, folder path ◄──┘
+```
 
-1. The assistant never writes to the wiki. Its tools stage proposals in SQLite.
-2. The page shows each proposal inline: removed paragraphs struck through in red, added paragraphs in green, with Approve and Reject on every change plus Approve all and Reject all.
-3. Approving writes the markdown and makes the git commit, with the source recorded in the commit message. The sidebar badges pages with pending changes.
-4. Every proposal links to a `sources` row (who, kind, folder label, relative path, filename, content hash, version, message). The chip on each change and the Sources list at the bottom of each page read from it.
+| Part | What it is |
+| --- | --- |
+| Pages | Markdown files in `data/wiki/`, a git repository; every edit is a commit under the person's name |
+| Search, suggestions, sources | SQLite in `data/wiki.db` (full-text search over pages and documents) |
+| Originals | Stored once per content under `data/assets/` |
+| App | One Next.js app serving the UI and a REST API |
+| Assistant | A provider-neutral tool loop; the same tools work with local models and Claude |
 
-## Layout
+Design rules the code keeps:
 
-- `lib/wiki.ts` markdown files, git, search
-- `lib/diff.ts` paragraph-level diff and per-change apply
-- `lib/proposals.ts` sources, change sets, approvals
-- `lib/ai/` provider adapters (Anthropic, OpenAI-compatible), wiki tools, agent loop
-- `app/api/` REST endpoints
-- `components/` sidebar, page view with inline review, chat panel
+1. Markdown in git is the source of truth
+2. The AI never writes to the wiki; only human approval does
+3. Review happens on the page itself; there is no separate review queue
+4. No git words in the UI; reviewers see highlights and Approve or Reject
+5. Every suggestion links to a source record
+6. Works the same with local models and hosted ones
 
-## Not built yet
+More detail for contributors is in [CLAUDE.md](CLAUDE.md).
 
-Drag and drop of documents and photos, folder and SharePoint watching, the companion app, per-folder "feeds wiki" or "personal only" visibility, and real auth. The names typed in the sidebar are not authenticated.
+## Testing
+
+```bash
+npm run e2e
+```
+
+Starts a scripted mock model and a throwaway wiki, then drives the whole flow through the API: chat, file drops (including a generated scanned PDF and photo), background filing, watched folders, page moves, conflicts and approvals. 160 checks, no model or network needed.
+
+## Status
+
+A working prototype in daily use by one team. It runs on a single machine; there are no real logins yet, so run it only where everyone who can reach it is trusted.
+
+Next up: background filing controls (pause, progress log), using folder structure when filing, personal-only folders, a librarian that tidies the wiki on request, conflict handling between sources, bulk review, and sign-in with roles. The full plan is in [CLAUDE.md](CLAUDE.md).
