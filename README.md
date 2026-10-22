@@ -109,3 +109,7 @@ Starts a scripted mock model and a throwaway wiki, then drives the whole flow th
 A working prototype in daily use by one team. It runs on a single machine; there are no real logins yet, so run it only where everyone who can reach it is trusted.
 
 Next up: background filing controls (pause, progress log), using folder structure when filing, personal-only folders, a librarian that tidies the wiki on request, conflict handling between sources, bulk review, and sign-in with roles. The full plan is in [CLAUDE.md](CLAUDE.md).
+
+## License
+
+MIT. See [LICENSE](LICENSE).
