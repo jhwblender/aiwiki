@@ -6,6 +6,7 @@ import Md from './Md';
 type Status = 'queued' | 'working' | 'done' | 'skipped' | 'failed' | 'cancelled';
 type Job = {
   id: number;
+  kind: 'file' | 'index' | 'tidy';
   displayName: string;
   folderLabel: string | null;
   relPath: string | null;
@@ -102,8 +103,8 @@ export default function BackgroundJobs() {
     <section className="card" id="background">
       <h2>Background filing</h2>
       <p className="muted small-text">
-        Files from watched folders and &quot;File in the background&quot; are read one at a time. What they add shows up as suggestions on
-        the pages, to approve there.
+        Files from watched folders, &quot;File in the background&quot; and librarian tidy runs are handled one at a time. What they suggest
+        shows up on the pages, to approve there.
       </p>
       {error && <div className="error">{error}</div>}
 
@@ -174,7 +175,9 @@ export default function BackgroundJobs() {
                 </ol>
               ) : (
                 <p className="small-text muted">
-                  Reading the file and waiting for the model. Large files on a local model can take several minutes.
+                  {cur.job.kind === 'tidy'
+                    ? 'Looking over the section and waiting for the model.'
+                    : 'Reading the file and waiting for the model. Large files on a local model can take several minutes.'}
                 </p>
               )}
             </div>
@@ -245,7 +248,7 @@ export default function BackgroundJobs() {
             <ul className="jobs">
               {state.jobs.map((j) => (
                 <li key={j.id} className={'job ' + j.status}>
-                  <span className="job-status">{LABEL[j.status]}</span>
+                  <span className="job-status">{j.kind === 'tidy' && j.status === 'working' ? 'Tidying' : LABEL[j.status]}</span>
                   <div className="job-body">
                     <strong>{j.displayName}</strong>
                     <span className="muted small-text">

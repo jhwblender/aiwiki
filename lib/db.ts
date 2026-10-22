@@ -29,7 +29,7 @@ function migrate(d: Database.Database) {
     -- Every piece of information that enters the wiki traces back to a source row.
     CREATE TABLE IF NOT EXISTS sources (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      kind TEXT NOT NULL,              -- chat | file | manual
+      kind TEXT NOT NULL,              -- chat | file | manual | librarian
       user TEXT NOT NULL,              -- who contributed it
       folder_label TEXT,               -- e.g. "Jesse / SharePoint Systems"
       rel_path TEXT,                   -- path relative to the watched folder
@@ -133,10 +133,10 @@ function migrate(d: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_document_versions_hash ON document_versions(hash);
     -- Searchable text of the latest version of each document, in parts (see lib/docsearch.ts)
     CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(document_id UNINDEXED, part UNINDEXED, parts UNINDEXED, text);
-    -- Files waiting to be filed in the background (see lib/queue.ts)
+    -- Files waiting to be filed in the background, and librarian tidy runs (see lib/queue.ts)
     CREATE TABLE IF NOT EXISTS ingest_jobs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      file_id INTEGER NOT NULL REFERENCES files(id),
+      file_id INTEGER REFERENCES files(id),   -- null for a tidy run
       doc_key TEXT NOT NULL,
       display_name TEXT NOT NULL,
       folder_label TEXT,
@@ -195,6 +195,25 @@ function migrate(d: Database.Database) {
   if (!jobCols.some((c) => c.name === 'provider')) d.exec('ALTER TABLE ingest_jobs ADD COLUMN provider TEXT');
   // file: run the assistant and suggest edits; index: only make it searchable (personal folders)
   if (!jobCols.some((c) => c.name === 'mode')) d.exec("ALTER TABLE ingest_jobs ADD COLUMN mode TEXT NOT NULL DEFAULT 'file'");
+  // tidy: a librarian run over the section in doc_key ("tidy:<section>"), with at most this many suggestions
+  if (!jobCols.some((c) => c.name === 'tidy_limit')) d.exec('ALTER TABLE ingest_jobs ADD COLUMN tidy_limit INTEGER');
+  // Tidy runs have no file; older databases declared file_id NOT NULL, which SQLite can only drop by rebuilding the table
+  if ((jobCols as { name: string; notnull?: number }[]).find((c) => c.name === 'file_id')?.notnull) {
+    d.transaction(() => {
+      const cols = (d.prepare('PRAGMA table_info(ingest_jobs)').all() as { name: string }[]).map((c) => c.name).join(', ');
+      d.exec(`
+        CREATE TABLE ingest_jobs_rebuilt (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, file_id INTEGER REFERENCES files(id), doc_key TEXT NOT NULL, display_name TEXT NOT NULL,
+          folder_label TEXT, rel_path TEXT, user TEXT NOT NULL, note TEXT, current_path TEXT, status TEXT NOT NULL, detail TEXT, proposed TEXT,
+          created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT, provider TEXT, mode TEXT NOT NULL DEFAULT 'file', tidy_limit INTEGER
+        );
+        INSERT INTO ingest_jobs_rebuilt (${cols}) SELECT ${cols} FROM ingest_jobs;
+        DROP TABLE ingest_jobs;
+        ALTER TABLE ingest_jobs_rebuilt RENAME TO ingest_jobs;
+        CREATE INDEX IF NOT EXISTS idx_ingest_jobs_status ON ingest_jobs(status, id);
+      `);
+    })();
+  }
   // Personal documents are searchable only by their owner and never become wiki edits
   const docCols = d.prepare('PRAGMA table_info(documents)').all() as { name: string }[];
   if (!docCols.some((c) => c.name === 'personal')) d.exec('ALTER TABLE documents ADD COLUMN personal INTEGER NOT NULL DEFAULT 0');

@@ -234,6 +234,9 @@ a.file-chip { padding-right: 10px; }
 .pending-files + .chat-input { border-top: 0; }
 
 /* ---------- background filing ---------- */
+.sections { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.sections li { display: flex; align-items: center; gap: 10px; }
+.section-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .jobs { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .job { display: flex; gap: 10px; align-items: flex-start; overflow-wrap: anywhere; }
 .job-body { flex: 1; min-width: 0; }

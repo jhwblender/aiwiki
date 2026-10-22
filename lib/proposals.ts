@@ -9,7 +9,7 @@ const now = () => new Date().toISOString();
 // ---------- sources ----------
 
 export function createSource(input: {
-  kind: 'chat' | 'file' | 'manual';
+  kind: 'chat' | 'file' | 'manual' | 'librarian';
   user: string;
   folderLabel?: string;
   relPath?: string;
@@ -252,6 +252,7 @@ export function sourcesForPage(pagePath: string): PageSourceRef[] {
 export function sourceLabel(s: SourceInfo | null): string {
   if (!s) return 'unknown source';
   if (s.kind === 'chat') return `chat with ${s.user}`;
+  if (s.kind === 'librarian') return `librarian${s.note ? ` (${s.note.toLowerCase()})` : ''}, started by ${s.user}`;
   if (s.kind === 'file') {
     const where = s.folderLabel ? `${s.folderLabel}: ${s.relPath ?? s.filename}, ` : '';
     return `${s.filename ?? 'file'} (${where}version ${s.version}, from ${s.user}${s.contentHash ? `, content ${s.contentHash.slice(0, 12)}` : ''})`;

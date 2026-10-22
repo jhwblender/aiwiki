@@ -4,15 +4,18 @@ import { extractText, getFile } from './files';
 import { getProvider } from './ai/providers';
 import { checkVersion, recordVersion, type DocIdentity } from './ingest';
 import { runAgent } from './ai/agent';
+import { DEFAULT_LIMIT, MAX_LIMIT, surveySection, tidyInstruction } from './librarian';
 
-// Files waiting to be filed into the wiki without anyone watching a chat: drops sent "in the
-// background" and, next, files from watched folders. One job runs at a time, oldest first, through
+// Work done without anyone watching a chat: drops sent "in the background", files from watched
+// folders, and librarian tidy runs over a section. One job runs at a time, oldest first, through
 // the same assistant and suggestion path as the chat, so the result is suggestions on pages.
 
 export type JobStatus = 'queued' | 'working' | 'done' | 'skipped' | 'failed' | 'cancelled';
 
 export type Job = {
   id: number;
+  // file: filed by the assistant; index: personal, only made searchable; tidy: a librarian run
+  kind: 'file' | 'index' | 'tidy';
   displayName: string;
   folderLabel: string | null;
   relPath: string | null;
@@ -63,9 +66,27 @@ export function enqueue(input: {
   return Number(r.lastInsertRowid);
 }
 
+// A librarian run over one section. Only one per section waits at a time.
+export function enqueueTidy(input: { section: string; user: string; provider?: string; limit?: number }): number {
+  const key = `tidy:${input.section}`;
+  const waiting = db().prepare("SELECT id FROM ingest_jobs WHERE doc_key = ? AND status IN ('queued', 'working')").get(key);
+  if (waiting) throw new Error(`A tidy of "${input.section}" is already waiting or running.`);
+  const limit = Math.min(MAX_LIMIT, Math.max(1, Math.floor(Number(input.limit) || DEFAULT_LIMIT)));
+  const r = db()
+    .prepare(
+      `INSERT INTO ingest_jobs (file_id, doc_key, display_name, user, provider, mode, tidy_limit, status, created_at)
+       VALUES (NULL, ?, ?, ?, ?, 'tidy', ?, 'queued', ?)`,
+    )
+    .run(key, `Tidy of ${input.section}`, input.user, input.provider ?? null, limit, now());
+  changed();
+  kick();
+  return Number(r.lastInsertRowid);
+}
+
 function rowToJob(r: any): Job {
   return {
     id: r.id,
+    kind: r.mode,
     displayName: r.display_name,
     folderLabel: r.folder_label,
     relPath: r.rel_path,
@@ -83,11 +104,13 @@ export function getJob(id: number): Job | null {
   return r ? rowToJob(r) : null;
 }
 
+const RUN_ORDER = "(mode = 'tidy') DESC, id ASC";
+
 // Waiting jobs in the order they will run; everything else newest first, with the running job on top
 export function listJobs(status?: JobStatus, limit = 50): Job[] {
   const rows = status
     ? db()
-        .prepare(`SELECT * FROM ingest_jobs WHERE status = ? ORDER BY id ${status === 'queued' ? 'ASC' : 'DESC'} LIMIT ?`)
+        .prepare(`SELECT * FROM ingest_jobs WHERE status = ? ORDER BY ${status === 'queued' ? RUN_ORDER : 'id DESC'} LIMIT ?`)
         .all(status, limit)
     : db().prepare("SELECT * FROM ingest_jobs ORDER BY (status = 'working') DESC, id DESC LIMIT ?").all(limit);
   return (rows as any[]).map(rowToJob);
@@ -104,7 +127,9 @@ export function jobCounts(): Record<JobStatus, number> {
 // Waiting jobs per watched folder, so a whole folder's backlog can be cancelled
 function waitingByFolder(): { folder: string | null; count: number }[] {
   return (
-    db().prepare("SELECT folder_label AS folder, COUNT(*) AS count FROM ingest_jobs WHERE status = 'queued' GROUP BY folder_label").all() as {
+    db()
+      .prepare("SELECT folder_label AS folder, COUNT(*) AS count FROM ingest_jobs WHERE status = 'queued' AND mode != 'tidy' GROUP BY folder_label")
+      .all() as {
       folder: string | null;
       count: number;
     }[]
@@ -166,7 +191,7 @@ export function cancelWaiting(folder?: string | null): number {
     folder === undefined
       ? db().prepare(sql).run(now())
       : folder === null
-        ? db().prepare(`${sql} AND folder_label IS NULL`).run(now())
+        ? db().prepare(`${sql} AND folder_label IS NULL AND mode != 'tidy'`).run(now())
         : db().prepare(`${sql} AND folder_label = ?`).run(now(), folder);
   changed();
   return r.changes;
@@ -185,7 +210,47 @@ const day = (iso: string) => iso.slice(0, 10);
 const MODEL_DOWN = /Could not reach|Could not connect|Nothing is answering|fetch failed|ECONNREFUSED|ECONNRESET|was dropped|cannot be found\. Check the address/i;
 class ModelDown extends Error {}
 
+// Runs the assistant for a job; a stopped run is recorded as cancelled, an unreachable model waits
+async function agentFor(row: any, signal: AbortSignal, run: () => ReturnType<typeof runAgent>) {
+  try {
+    return await run();
+  } catch (e: any) {
+    const msg = e?.message ?? String(e);
+    if (signal.aborted) {
+      finish(row.id, 'cancelled', 'Stopped while it was running. Anything already suggested stays for review.');
+      return null;
+    }
+    if (MODEL_DOWN.test(msg)) throw new ModelDown(msg);
+    throw e;
+  }
+}
+
+async function runTidy(row: any, signal: AbortSignal, onProgress: (text: string) => void) {
+  const section = String(row.doc_key).slice('tidy:'.length);
+  const limit = row.tidy_limit || DEFAULT_LIMIT;
+  onProgress(`Surveying the ${section} section`);
+  const survey = await surveySection(section);
+  if (!survey.pages) return finish(row.id, 'skipped', `There are no pages in "${section}".`);
+  if (survey.pages === 1 && !survey.findings) return finish(row.id, 'skipped', `"${section}" has only one page and nothing to tidy.`);
+  onProgress(`Found ${survey.findings} thing${survey.findings === 1 ? '' : 's'} to look at in ${survey.pages} pages`);
+  const res = await agentFor(row, signal, () =>
+    runAgent({
+      history: [{ role: 'user', content: tidyInstruction(section, limit, survey.report) }],
+      user: row.user,
+      providerId: row.provider ?? undefined,
+      librarian: { section, limit },
+      onProgress,
+      signal,
+    }),
+  );
+  if (!res) return;
+  if (res.error) return finish(row.id, 'failed', res.error);
+  const proposed = res.proposed.map((p) => p.path);
+  finish(row.id, 'done', res.reply || (proposed.length ? 'Suggested changes.' : 'Nothing to tidy.'), proposed);
+}
+
 async function runJob(row: any, signal: AbortSignal, onProgress: (text: string) => void) {
+  if (row.mode === 'tidy') return runTidy(row, signal, onProgress);
   const f = getFile(row.file_id);
   if (!f) return finish(row.id, 'failed', 'The stored file is missing.');
   const personal = row.mode === 'index';
@@ -230,9 +295,8 @@ async function runJob(row: any, signal: AbortSignal, onProgress: (text: string) 
     if (MODEL_DOWN.test(msg)) throw new ModelDown(msg);
     return finish(row.id, 'failed', `Could not read the file: ${msg}`);
   }
-  let res;
-  try {
-    res = await runAgent({
+  const res = await agentFor(row, signal, () =>
+    runAgent({
       history: [{ role: 'user', content: row.note || DEFAULT_NOTE }],
       user: row.user,
       providerId: row.provider ?? undefined,
@@ -240,13 +304,9 @@ async function runJob(row: any, signal: AbortSignal, onProgress: (text: string) 
       attachments: [{ id: f.id, identity, info }],
       onProgress,
       signal,
-    });
-  } catch (e: any) {
-    const msg = e?.message ?? String(e);
-    if (signal.aborted) return finish(row.id, 'cancelled', 'Stopped while it was being read. Anything already suggested stays for review.');
-    if (MODEL_DOWN.test(msg)) throw new ModelDown(msg);
-    throw e;
-  }
+    }),
+  );
+  if (!res) return;
   if (res.error) return finish(row.id, 'failed', res.error);
   const proposed = res.proposed.map((p) => p.path);
   finish(row.id, 'done', res.reply || (proposed.length ? 'Suggested changes.' : 'Nothing to add.'), proposed);
@@ -316,7 +376,8 @@ export function kick() {
       }
       for (;;) {
         if (isPaused()) break;
-        const row = db().prepare("SELECT * FROM ingest_jobs WHERE status = 'queued' ORDER BY id LIMIT 1").get() as any;
+        // A tidy run was asked for by someone waiting on it, so it goes before a backlog of files
+        const row = db().prepare(`SELECT * FROM ingest_jobs WHERE status = 'queued' ORDER BY ${RUN_ORDER} LIMIT 1`).get() as any;
         if (!row) break;
         db().prepare("UPDATE ingest_jobs SET status = 'working', started_at = ? WHERE id = ?").run(now(), row.id);
         changed();

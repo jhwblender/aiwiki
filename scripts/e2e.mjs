@@ -688,7 +688,42 @@ try {
   for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
   fs.rmSync(privDir, { recursive: true, force: true });
 
-  // 32. Search finds approved content
+  // 32. The librarian surveys a section and suggests a limited number of tidy-ups
+  const putPage = (p, content) => api('PUT', '/api/page', { path: p, content, user: 'Kim' });
+  const printerText = 'The office printer is on floor 2 next to the kitchen. Toner cartridges are kept in the supply cupboard. ' +
+    'To add a printer on Windows open Settings, choose Printers and scanners, and pick the floor 2 printer from the list.';
+  await putPage('kb/printers', `# Printers\n\n${printerText}\n`);
+  await putPage('kb/printing', `# Printing\n\n${printerText}\n\nColour printing needs a code from reception.\n`);
+  await putPage('kb/network/wifi', '# Wifi\n\nThe guest network password is on the board in reception. Printing over wifi is described in [[help/printers]].\n');
+  await putPage('kb/network/vpn', '# VPN\n\nThe VPN client is installed on every laptop.\n');
+  const sections = (await api('GET', '/api/librarian')).data;
+  check('sections are listed for tidying', sections.sections?.some((s) => s.section === 'kb' && s.pages === 4 && !s.run), JSON.stringify(sections));
+  const surveyed = await chat('Please tidy the kb section', 'Alex');
+  check('the chat can survey a section', surveyed.reply === 'SURVEY-SEEN' && surveyed.trace?.includes('Surveyed the kb section'), JSON.stringify(surveyed));
+  check('a missing section cannot be tidied', (await api('POST', '/api/librarian', { section: 'nowhere', user: 'Alex' })).status === 400);
+  await ctl('pause');
+  const tidyJob = (await api('POST', '/api/librarian', { section: 'kb', user: 'Alex', provider: 'local', limit: 3 })).data.job;
+  check('a section is tidied only once at a time', (await api('POST', '/api/librarian', { section: 'kb', user: 'Alex' })).status === 400);
+  check('a waiting tidy shows on its section', (await api('GET', '/api/librarian')).data.sections.find((s) => s.section === 'kb')?.run === 'queued');
+  await ctl('resume');
+  const tidied = await waitJob(tidyJob);
+  check('a tidy run suggests changes up to its limit', tidied?.status === 'done' && tidied.kind === 'tidy' &&
+    JSON.stringify([...tidied.proposed].sort()) === JSON.stringify(['kb/network', 'kb/printers', 'kb/printing']) && /over the limit/.test(tidied.detail ?? ''), JSON.stringify(tidied));
+  check('nothing over the limit is suggested', (await getPage('kb/network/wifi')).pending.length === 0);
+  check('the AI did not write any page', pageFile('kb/printing').includes('Colour printing') && !fs.existsSync(path.join(wikiDir, 'kb/network.md')));
+  const merged = (await getPage('kb/printers')).pending[0];
+  check('a tidy suggestion names the librarian and who started it', merged?.source?.kind === 'librarian' && merged.source.user === 'Alex' && /"kb"/.test(merged.source.note ?? ''),
+    JSON.stringify(merged?.source));
+  const removal = (await getPage('kb/printing')).ops[0];
+  check('a merge suggests removing the duplicate on its page', removal?.kind === 'remove' && removal.source?.kind === 'librarian');
+  const overviewSet = (await getPage('kb/network')).pending[0];
+  check('a missing overview page is suggested', overviewSet?.isNew === true);
+  await api('POST', `/api/proposals/${overviewSet.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
+  check('approving it records the librarian as the source', git('log', '-1', '--format=%B').includes('Source: librarian (tidy of the "kb" section), started by Alex'), git('log', '-1', '--format=%B'));
+  await api('POST', `/api/proposals/${merged.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  await api('POST', `/api/ops/${removal.opId}`, { action: 'reject', user: 'Kim' });
+
+  // 33. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {

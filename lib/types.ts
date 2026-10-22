@@ -4,7 +4,7 @@ export type Segment =
 
 export type SourceInfo = {
   id: number;
-  kind: 'chat' | 'file' | 'manual';
+  kind: 'chat' | 'file' | 'manual' | 'librarian';
   user: string;
   folderLabel: string | null;
   relPath: string | null;

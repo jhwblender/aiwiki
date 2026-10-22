@@ -8,7 +8,43 @@
 import http from 'node:http';
 import { pathToFileURL } from 'node:url';
 
+// A librarian survey line, read back by the tidy scenario
+const surveyLine = (text, re) => text.match(re) ?? [];
+
 const SCENARIOS = [
+  {
+    // a librarian tidy run: merges the first duplicate pair, adds the first missing overview and fixes a broken link.
+    // First in the list because the survey can mention words other scenarios listen for.
+    keyword: 'librarian pass over',
+    steps: [
+      { name: 'read_page', args: (text) => ({ path: surveyLine(text, /^- (\S+) and (\S+): /m)[2] ?? 'none' }) },
+      {
+        name: 'append_to_page',
+        args: (text) => ({ path: surveyLine(text, /^- (\S+) and (\S+): /m)[1] ?? 'none', text: 'Colour printing needs a code from reception.', summary: 'Merge the duplicate printing page' }),
+      },
+      { name: 'remove_page', args: (text) => ({ path: surveyLine(text, /^- (\S+) and (\S+): /m)[2] ?? 'none', summary: 'Merged into the printers page' }) },
+      {
+        name: 'create_page',
+        args: (text) => {
+          const p = surveyLine(text, /^- (\S+) has \d+ pages? under it but no page of its own/m)[1] ?? 'none';
+          return { path: p, content: `# Overview\n\nWhat the pages under ${p} cover.`, summary: 'Add an overview page' };
+        },
+      },
+      {
+        name: 'replace_in_page',
+        args: (text) => {
+          const [, page, raw, meant] = surveyLine(text, /^- (\S+) links to "([^"]+)", which does not exist; probably meant (\S+)/m);
+          return { path: page ?? 'none', old_text: `[[${raw}]]`, new_text: `[[${meant}]]`, summary: 'Fix a broken link' };
+        },
+      },
+    ],
+    reply: (tools) => (tools.includes('reached its limit') ? 'Tidied what I could; the broken link fix went over the limit.' : 'Tidied the section.'),
+  },
+  {
+    keyword: 'tidy the kb section',
+    steps: [{ name: 'survey_section', args: { area: 'kb' } }],
+    reply: (tools) => (/kb\/printers and kb\/printing/.test(tools) && tools.includes('probably meant kb/printers') ? 'SURVEY-SEEN' : 'SURVEY-NOT-SEEN'),
+  },
   {
     keyword: 'vpn',
     steps: [

@@ -5,6 +5,7 @@ import type { SourceInfo } from '@/lib/types';
 export function sourceSummary(s: SourceInfo | null): string {
   if (!s) return 'Unknown source';
   if (s.kind === 'chat') return `Chat with ${s.user}`;
+  if (s.kind === 'librarian') return `Librarian, started by ${s.user}`;
   if (s.kind === 'file') return `${s.filename ?? 'File'} from ${s.user}`;
   return s.user;
 }
@@ -53,7 +54,7 @@ export default function SourceChip({
           : sourceSummary(source)}
       </summary>
       <dl className="chip-pop">
-        <dt>Contributed by</dt>
+        <dt>{source.kind === 'librarian' ? 'Started by' : 'Contributed by'}</dt>
         <dd>{source.user}</dd>
         {where && (
           <>
@@ -79,7 +80,7 @@ export default function SourceChip({
         )}
         {source.note && (
           <>
-            <dt>Message</dt>
+            <dt>{source.kind === 'librarian' ? 'Run' : 'Message'}</dt>
             <dd>{source.note}</dd>
           </>
         )}

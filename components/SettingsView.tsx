@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import BackgroundJobs from './BackgroundJobs';
+import Librarian from './Librarian';
 import WatchedFolders from './WatchedFolders';
 
 type Settings = {
@@ -321,6 +322,8 @@ export default function SettingsView() {
               </section>
 
               <WatchedFolders />
+
+              <Librarian />
 
               <BackgroundJobs />
             </>
