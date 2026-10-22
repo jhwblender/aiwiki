@@ -14,6 +14,7 @@ That one command installs what is needed the first time, creates `.env.local`, b
 - `./start.sh --shortcut` (WSL on Windows) puts a "Start wiki" file on your Windows desktop to double-click
 - `./start.sh --dev` runs the development server, which reloads as code changes
 - `PORT=3001 ./start.sh` uses another port
+- `./stop.sh` stops it (background filing pauses and carries on at the next start)
 
 Needs Node 22 or newer and git on the PATH. `npm run e2e` checks the whole propose and approve flow against a scripted mock model; `npm run mock-llm` runs that mock on port 4555 if you want to try the UI without a real model. Data lives in `./data` (set `WIKI_DATA_DIR` to move it):
 
