@@ -4,18 +4,21 @@ import { extractText, getFile } from './files';
 import { getProvider } from './ai/providers';
 import { checkVersion, recordVersion, type DocIdentity } from './ingest';
 import { runAgent } from './ai/agent';
+import { applyPatternRules, decide, looksLikeData, parsePlan, PLAN_SYSTEM, planOutline, storePlan } from './filingPlan';
 import { AUTO_USER, librarianSettings, MAX_LIMIT, runName, scopeName, surveySection, tidyInstruction, WHOLE } from './librarian';
 
 // Work done without anyone watching a chat: drops sent "in the background", files from watched
 // folders, and librarian tidy runs over a section. One job runs at a time, oldest first, through
 // the same assistant and suggestion path as the chat, so the result is suggestions on pages.
 
-export type JobStatus = 'queued' | 'working' | 'done' | 'skipped' | 'failed' | 'cancelled';
+// kept: made searchable for lookups without running the assistant, by its folder's rule
+export type JobStatus = 'queued' | 'working' | 'done' | 'kept' | 'skipped' | 'failed' | 'cancelled';
 
 export type Job = {
   id: number;
-  // file: filed by the assistant; index: personal, only made searchable; tidy: a librarian run
-  kind: 'file' | 'index' | 'tidy';
+  // file: filed by the assistant; index: personal, only made searchable; tidy: a librarian run;
+  // plan: working out how a watched folder is filed
+  kind: 'file' | 'index' | 'tidy' | 'plan';
   displayName: string;
   folderLabel: string | null;
   relPath: string | null;
@@ -66,6 +69,48 @@ export function enqueue(input: {
   return Number(r.lastInsertRowid);
 }
 
+// Work out how a watched folder is filed: patterns at once, then the assistant's plan in the queue
+export function enqueuePlan(folder: { id: number; label: string; user: string }, provider?: string): number | null {
+  applyPatternRules(folder.id);
+  const key = `plan:${folder.label}`;
+  if (db().prepare("SELECT 1 FROM ingest_jobs WHERE doc_key = ? AND status IN ('queued', 'working')").get(key)) return null;
+  const r = db()
+    .prepare(
+      `INSERT INTO ingest_jobs (file_id, doc_key, display_name, folder_label, user, provider, mode, status, created_at)
+       VALUES (NULL, ?, ?, ?, ?, ?, 'plan', 'queued', ?)`,
+    )
+    .run(key, `Plan for ${folder.label}`, folder.label, folder.user, provider ?? null, now());
+  changed();
+  kick();
+  return Number(r.lastInsertRowid);
+}
+
+async function runPlan(row: any, onProgress: (text: string) => void) {
+  const folder = db().prepare('SELECT id, label FROM watched_folders WHERE label = ?').get(row.folder_label) as { id: number; label: string } | undefined;
+  if (!folder) return finish(row.id, 'skipped', 'The folder is no longer watched.');
+  applyPatternRules(folder.id);
+  onProgress('Looking at the folder tree');
+  const provider = getProvider(row.provider ?? undefined);
+  let text: string;
+  try {
+    const res = await provider.chat({
+      system: PLAN_SYSTEM,
+      messages: [{ role: 'user', content: `Watched folder "${folder.label}":\n${planOutline(folder.id)}` }],
+      tools: [],
+    });
+    text = res.text;
+  } catch (e: any) {
+    const msg = e?.message ?? String(e);
+    if (MODEL_DOWN.test(msg)) throw new ModelDown(msg);
+    throw e;
+  }
+  const plan = parsePlan(text, folder.id);
+  if (!plan.size) return finish(row.id, 'done', 'The assistant gave no usable plan, so the folder follows the patterns found in it. You can set rules by hand.');
+  storePlan(folder.id, plan);
+  const lines = [...plan.entries()].map(([d, r]) => `- ${d === '.' ? '(top level)' : d}: ${r.rule}${r.reason ? `, ${r.reason}` : ''}`);
+  finish(row.id, 'done', `Planned ${plan.size} folder${plan.size === 1 ? '' : 's'}:\n${lines.slice(0, 30).join('\n')}`);
+}
+
 // A librarian run over one section, or the whole wiki (WHOLE). Only one per scope waits at a time.
 export function enqueueTidy(input: { section: string; user: string; provider?: string; limit?: number }): number {
   const key = `tidy:${input.section}`;
@@ -104,7 +149,8 @@ export function getJob(id: number): Job | null {
   return r ? rowToJob(r) : null;
 }
 
-const RUN_ORDER = "(mode = 'tidy') DESC, id ASC";
+// Plans first (they decide how the waiting files are handled), then librarian runs, then files
+const RUN_ORDER = "(mode = 'plan') DESC, (mode = 'tidy') DESC, id ASC";
 
 // Waiting jobs in the order they will run; everything else newest first, with the running job on top
 export function listJobs(status?: JobStatus, limit = 50): Job[] {
@@ -117,7 +163,7 @@ export function listJobs(status?: JobStatus, limit = 50): Job[] {
 }
 
 export function jobCounts(): Record<JobStatus, number> {
-  const out: Record<JobStatus, number> = { queued: 0, working: 0, done: 0, skipped: 0, failed: 0, cancelled: 0 };
+  const out: Record<JobStatus, number> = { queued: 0, working: 0, done: 0, kept: 0, skipped: 0, failed: 0, cancelled: 0 };
   for (const r of db().prepare('SELECT status, COUNT(*) AS n FROM ingest_jobs GROUP BY status').all() as { status: JobStatus; n: number }[]) {
     out[r.status] = r.n;
   }
@@ -253,6 +299,11 @@ async function runTidy(row: any, signal: AbortSignal, onProgress: (text: string)
 
 async function runJob(row: any, signal: AbortSignal, onProgress: (text: string) => void) {
   if (row.mode === 'tidy') return runTidy(row, signal, onProgress);
+  if (row.mode === 'plan') return runPlan(row, onProgress);
+  // A file from a watched folder follows its folder's rule, decided when it comes up so waiting
+  // files follow rules set after they were queued
+  const rule = row.mode === 'file' && row.folder_label && row.rel_path ? decide(row.folder_label, row.rel_path) : null;
+  if (rule?.action === 'skip') return finish(row.id, 'skipped', rule.why);
   const f = getFile(row.file_id);
   if (!f) return finish(row.id, 'failed', 'The stored file is missing.');
   const personal = row.mode === 'index';
@@ -287,15 +338,32 @@ async function runJob(row: any, signal: AbortSignal, onProgress: (text: string) 
     recordVersion(identity, f, row.user, info);
     return finish(row.id, 'skipped', `Same content as "${info.duplicateOf.displayName}", added ${day(info.duplicateOf.at)}.`);
   }
+  if (rule?.action === 'index') {
+    // Searchable for the assistant's lookups without running it. Photos and scans would need the
+    // vision model just to be searchable, which is the cost a keep-searchable rule is there to avoid.
+    if (f.kind === 'image') return finish(row.id, 'skipped', `${rule.why} Photos are only read when they are filed.`);
+    try {
+      await extractText(f, null);
+    } catch (e: any) {
+      return finish(row.id, 'skipped', `${rule.why} It could not be read without the model (${e?.message ?? e}).`);
+    }
+    recordVersion(identity, f, row.user, info);
+    return finish(row.id, 'kept', rule.why);
+  }
   // Read the file first, so a file that cannot be read fails (and can be tried again) instead of
   // being reported as filed, and an unreachable model makes the queue wait
+  let text: string;
   try {
     const provider = getProvider(row.provider ?? undefined);
-    await extractText(f, (image, prompt) => provider.describeImage(image, prompt));
+    text = (await extractText(f, (image, prompt) => provider.describeImage(image, prompt))).full;
   } catch (e: any) {
     const msg = e?.message ?? String(e);
     if (MODEL_DOWN.test(msg)) throw new ModelDown(msg);
     return finish(row.id, 'failed', `Could not read the file: ${msg}`);
+  }
+  // Raw readings and exports are not worth the assistant's time, wherever they sit
+  if (f.kind === 'text' && looksLikeData(text)) {
+    return finish(row.id, 'skipped', 'Looks like raw data (mostly numbers and symbols), so it was not read. Set its folder to file each document to read it anyway.');
   }
   const res = await agentFor(row, signal, () =>
     runAgent({
@@ -379,7 +447,7 @@ export function kick() {
       for (;;) {
         // A tidy run was asked for by someone waiting on it, so it goes before a backlog of files,
         // and pausing (which holds back files) does not hold it
-        const onlyTidy = isPaused() ? "AND mode = 'tidy'" : '';
+        const onlyTidy = isPaused() ? "AND mode IN ('tidy', 'plan')" : '';
         const row = db().prepare(`SELECT * FROM ingest_jobs WHERE status = 'queued' ${onlyTidy} ORDER BY ${RUN_ORDER} LIMIT 1`).get() as any;
         if (!row) break;
         db().prepare("UPDATE ingest_jobs SET status = 'working', started_at = ? WHERE id = ?").run(now(), row.id);

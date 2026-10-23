@@ -172,6 +172,16 @@ function migrate(d: Database.Database) {
       seen_at TEXT NOT NULL,
       PRIMARY KEY (folder_id, rel_path)
     );
+    -- How each folder inside a watched folder is filed (see lib/filingPlan.ts); a file follows its nearest folder's rule
+    CREATE TABLE IF NOT EXISTS folder_rules (
+      folder_id INTEGER NOT NULL REFERENCES watched_folders(id),
+      dir TEXT NOT NULL,               -- relative folder path, "." for the top
+      rule TEXT NOT NULL,              -- file | sample | index | skip
+      reason TEXT,
+      set_by TEXT NOT NULL,            -- pattern | librarian | a person's name
+      set_at TEXT NOT NULL,
+      PRIMARY KEY (folder_id, dir)
+    );
     -- Extra sources of a change set, when one message brought several files
     CREATE TABLE IF NOT EXISTS change_set_sources (
       change_set_id INTEGER NOT NULL REFERENCES change_sets(id),
@@ -218,6 +228,7 @@ function migrate(d: Database.Database) {
   const docCols = d.prepare('PRAGMA table_info(documents)').all() as { name: string }[];
   if (!docCols.some((c) => c.name === 'personal')) d.exec('ALTER TABLE documents ADD COLUMN personal INTEGER NOT NULL DEFAULT 0');
   if (!docCols.some((c) => c.name === 'owner')) d.exec('ALTER TABLE documents ADD COLUMN owner TEXT');
+  d.exec('CREATE INDEX IF NOT EXISTS idx_ingest_jobs_doc ON ingest_jobs(doc_key, id)');
   const folderCols = d.prepare('PRAGMA table_info(watched_folders)').all() as { name: string }[];
   if (!folderCols.some((c) => c.name === 'visibility')) d.exec("ALTER TABLE watched_folders ADD COLUMN visibility TEXT NOT NULL DEFAULT 'wiki'");
 }

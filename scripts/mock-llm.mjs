@@ -13,6 +13,18 @@ const surveyLine = (text, re) => text.match(re) ?? [];
 
 const SCENARIOS = [
   {
+    // a filing plan for the test folder: one line per folder
+    keyword: 'watched folder "plan share"',
+    steps: [],
+    reply: '(top level) | file | documents\nRaw/ | skip | raw sensor data\nCaptures | sample | one folder per capture run\nNowhere/ | skip | not a real folder',
+  },
+  {
+    // a long file: part 1 must not include the end, and read_file_part fetches the last part
+    keyword: 'skim this file',
+    steps: [{ name: 'read_file_part', args: (text) => ({ file: 'long-manual.txt', part: Number(text.match(/only part 1 of (\d+)/)?.[1] ?? 0) }) }],
+    reply: (tools) => (/part \d+ of \d+/.test(tools) && tools.includes('PART-TWO-MARKER') ? 'PARTS-OK' : 'PARTS-NOT-OK'),
+  },
+  {
     // an organise run: gives the first section without a summary one, tries to edit page text (which
     // organising may not do), and reports whether it saw the structure and the watched folder map
     keyword: 'organise the whole wiki',

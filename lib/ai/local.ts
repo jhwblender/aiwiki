@@ -114,7 +114,8 @@ export function localProvider(s: LocalModelSettings): Provider {
           model: s.model,
           messages: msgs,
           temperature: 0.2,
-          tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } })),
+          // a plain question (no tools) leaves the field out; some servers reject an empty list
+          ...(tools.length ? { tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } })) } : {}),
         },
         900,
       );

@@ -64,7 +64,9 @@ function anthropicProvider(): Provider {
           max_tokens: 16000,
           system,
           messages: msgs,
-          tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters as Anthropic.Beta.BetaTool.InputSchema })),
+          ...(tools.length
+            ? { tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters as Anthropic.Beta.BetaTool.InputSchema })) }
+            : {}),
           output_config: { effort: 'medium' },
           betas: [FALLBACK_BETA],
           fallbacks: 'default',

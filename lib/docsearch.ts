@@ -6,7 +6,7 @@ import { toBlocks } from './diff';
 
 const PART_CHARS = 1500;
 
-function parts(text: string): string[] {
+export function splitParts(text: string): string[] {
   const out: string[] = [];
   let cur = '';
   for (const block of toBlocks(text)) {
@@ -35,7 +35,7 @@ export function indexDocument(documentId: number) {
     .get(documentId) as { text: string } | undefined;
   d.prepare('DELETE FROM documents_fts WHERE document_id = ?').run(documentId);
   if (!latest) return;
-  const ps = parts(latest.text);
+  const ps = splitParts(latest.text);
   const insert = d.prepare('INSERT INTO documents_fts (document_id, part, parts, text) VALUES (?, ?, ?, ?)');
   ps.forEach((text, i) => insert.run(documentId, i + 1, ps.length, text));
 }

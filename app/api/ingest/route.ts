@@ -7,7 +7,7 @@ import { fail, userFrom } from '@/lib/api';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const STATUSES = ['queued', 'working', 'done', 'skipped', 'failed', 'cancelled'] as const;
+const STATUSES = ['queued', 'working', 'done', 'kept', 'skipped', 'failed', 'cancelled'] as const;
 
 // The queue's state (paused, waiting for the model, the running job and its steps, counts) and a
 // list of jobs: the running one first, then newest first, or only one status with ?status=

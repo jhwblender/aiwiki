@@ -3,7 +3,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { db } from './db';
 import { MAX_FILE_BYTES, saveUpload } from './files';
-import { enqueue } from './queue';
+import { enqueue, enqueuePlan } from './queue';
+import { applyPatternRules, decide, hasPlan } from './filingPlan';
 
 // Folders on the server's disk that feed the wiki. Every scan walks each enabled folder, and a
 // file that is new or whose content changed goes to the ingest queue as a version of a document
@@ -121,8 +122,11 @@ export async function addFolder(input: {
     .prepare('INSERT INTO watched_folders (label, path, user, enabled, created_at, visibility) VALUES (?, ?, ?, 1, ?, ?)')
     .run(label, dir, input.user, now(), input.visibility === 'personal' ? 'personal' : 'wiki');
   const id = Number(r.lastInsertRowid);
-  // Without filing what is already there, the first scan only records the files as seen
-  await scanFolder(id, { baselineOnly: !input.fileExisting });
+  // Without filing what is already there, the first scan only records the files as seen. With it,
+  // the tree is recorded first so a plan decides how the files are handled before any is read.
+  await scanFolder(id, { baselineOnly: true });
+  if (input.visibility !== 'personal') enqueuePlan({ id, label, user: input.user });
+  if (input.fileExisting) await queueExisting(id);
   return rowToFolder({ ...(db().prepare('SELECT * FROM watched_folders WHERE id = ?').get(id) as any), file_count: countFiles(id) });
 }
 
@@ -163,13 +167,35 @@ export async function setVisibility(id: number, visibility: 'wiki' | 'personal',
   d.prepare('UPDATE documents SET personal = 0, owner = NULL WHERE doc_key LIKE ?').run(like('folder'));
   // The private copies are no longer needed for searching
   d.prepare('DELETE FROM documents_fts WHERE document_id IN (SELECT id FROM documents WHERE doc_key LIKE ?)').run(like('personal'));
-  if (!fileExisting) return 0;
+  if (!hasPlan(id)) enqueuePlan(folder);
+  return fileExisting ? queueExisting(id) : 0;
+}
+
+// File again what sits under one folder after its rule changed: files that were skipped or kept
+// searchable, or never queued, go back in the queue (filed ones and waiting ones are left alone)
+export async function refile(id: number, dir: string): Promise<number> {
+  const folder = db().prepare('SELECT label FROM watched_folders WHERE id = ?').get(id) as { label: string } | undefined;
+  if (!folder) throw new Error('Folder not found.');
+  return queueExisting(id, (rel) => {
+    if (dir !== '.' && !rel.startsWith(dir + '/')) return false;
+    const last = db().prepare('SELECT status FROM ingest_jobs WHERE doc_key = ? ORDER BY id DESC LIMIT 1').get(`folder:${folder.label}:${rel}`) as
+      | { status: string }
+      | undefined;
+    return !last || ['skipped', 'kept', 'cancelled'].includes(last.status);
+  });
+}
+
+// Queue every recorded file of a folder for filing, except those its rules skip
+async function queueExisting(id: number, include: (rel: string) => boolean = () => true): Promise<number> {
+  const folder = db().prepare('SELECT * FROM watched_folders WHERE id = ?').get(id) as any;
   let queued = 0;
-  for (const { rel_path } of d.prepare('SELECT rel_path FROM watched_files WHERE folder_id = ?').all(id) as { rel_path: string }[]) {
+  for (const { rel_path } of db().prepare('SELECT rel_path FROM watched_files WHERE folder_id = ?').all(id) as { rel_path: string }[]) {
+    if (!include(rel_path)) continue;
+    if (folder.visibility !== 'personal' && decide(folder.label, rel_path).action === 'skip') continue;
     try {
       const data = await fs.readFile(path.join(folder.path, rel_path));
       const stored = await saveUpload(path.basename(rel_path), data, folder.user);
-      enqueue({ fileId: stored.id, identity: identityFor({ ...folder, visibility: 'wiki' }, rel_path), user: folder.user });
+      enqueue({ fileId: stored.id, identity: identityFor(folder, rel_path), user: folder.user, mode: folder.visibility === 'personal' ? 'index' : 'file' });
       queued++;
     } catch {
       // gone or unreadable; the next scan sees it if it comes back
@@ -185,6 +211,7 @@ export function setEnabled(id: number, enabled: boolean) {
 export function removeFolder(id: number) {
   const d = db();
   d.prepare('DELETE FROM watched_files WHERE folder_id = ?').run(id);
+  d.prepare('DELETE FROM folder_rules WHERE folder_id = ?').run(id);
   d.prepare('DELETE FROM watched_folders WHERE id = ?').run(id);
 }
 
@@ -253,6 +280,8 @@ export async function scanFolder(id: number, opts: { baselineOnly?: boolean } = 
       // Only touched, not changed
       if (seen && seen.hash === hash) continue;
       if (opts.baselineOnly) continue;
+      // A file its folder's rule skips is recorded as seen but not copied or queued
+      if (folder.visibility !== 'personal' && decide(folder.label, rel).action === 'skip') continue;
       try {
         const stored = await saveUpload(path.basename(full), data, folder.user);
         enqueue({ fileId: stored.id, identity: identityFor(folder, rel), user: folder.user, mode: folder.visibility === 'personal' ? 'index' : 'file' });
@@ -261,6 +290,8 @@ export async function scanFolder(id: number, opts: { baselineOnly?: boolean } = 
         // Unsupported or unreadable content; it stays recorded as seen until it changes
       }
     }
+    // New sub-folders may form new look-alike groups
+    if (queued && folder.visibility !== 'personal') applyPatternRules(id);
     d.prepare('UPDATE watched_folders SET last_scan_at = ?, last_error = NULL WHERE id = ?').run(now(), id);
   } catch (e: any) {
     d.prepare('UPDATE watched_folders SET last_scan_at = ?, last_error = ? WHERE id = ?').run(now(), String(e?.message ?? e).slice(0, 300), id);
@@ -286,6 +317,10 @@ export async function scanAll() {
 
 export function startWatching() {
   if (state.timer) return;
+  // Folders watched before filing plans existed get one now
+  for (const f of db().prepare("SELECT id, label, user FROM watched_folders WHERE visibility = 'wiki'").all() as { id: number; label: string; user: string }[]) {
+    if (!hasPlan(f.id) && !db().prepare("SELECT 1 FROM ingest_jobs WHERE doc_key = ?").get(`plan:${f.label}`)) enqueuePlan(f);
+  }
   const seconds = Math.max(10, Number(process.env.WATCH_INTERVAL_SECONDS) || 60);
   state.timer = setInterval(() => void scanAll(), seconds * 1000);
   void scanAll();

@@ -129,6 +129,7 @@ export async function runAgent(opts: {
         const location = identity.folderLabel ? folderContext(identity.folderLabel, identity.relPath) : undefined;
         const prepared = await prepareFile(f, (image, prompt) => provider.describeImage(image, prompt), info, identity.displayName, location);
         handled.push({ identity, file: f, info });
+        if (prepared.parts) (ctx.fileParts ??= new Map()).set(identity.displayName, prepared.parts);
         ctx.files.push({
           filename: identity.displayName,
           hash: f.hash,
@@ -229,6 +230,7 @@ function describe(name: string, a: Record<string, any>): string {
     case 'move_page': return `Proposed moving ${a.path} to ${a.new_path}`;
     case 'remove_page': return `Proposed removing ${a.path}`;
     case 'set_summary': return `Proposed the summary of ${a.path}`;
+    case 'read_file_part': return `Read part ${a.part} of ${a.file}`;
     case 'survey_section': return isWhole(String(a.section ?? '')) ? 'Surveyed the whole wiki' : `Surveyed the ${a.section} section`;
     default: return name;
   }

@@ -493,7 +493,7 @@ try {
   writeOld('Quiet/fresh.txt', 'FACT: First aid kits are by each exit.\n');
   writeOld('Quiet/old.txt', 'FACT: The old rule.\n');
   const quiet = await api('POST', '/api/folders', { label: 'Quiet share', path: path.join(watchDir, 'Quiet'), user: 'Alex', fileExisting: false });
-  check('a folder can start without filing what is already there', quiet.status === 200 && quiet.data.fileCount === 2 && !(await api('GET', '/api/ingest')).data.jobs.some((j) => j.folderLabel === 'Quiet share'));
+  check('a folder can start without filing what is already there', quiet.status === 200 && quiet.data.fileCount === 2 && !(await api('GET', '/api/ingest')).data.jobs.some((j) => j.folderLabel === 'Quiet share' && j.kind === 'file'));
   writeOld('Quiet/new-rule.txt', 'FACT: Visitors sign in at reception.\n');
   check('later documents in that folder are filed', (await api('POST', `/api/folders/${quiet.data.id}/scan`)).data.queued === 1);
   check('a missing folder is refused clearly', /cannot find the folder/.test((await api('POST', '/api/folders', { label: 'Nope', path: '/no/such/dir', user: 'Alex' })).data.error ?? ''));
@@ -781,7 +781,55 @@ try {
   check('a move with a new title renames the page too', renamed.status === 200 && pageFile('help/printer-guide').startsWith('# Printer guide\n') &&
     pageFile('help/network/wifi').includes('[[help/printer-guide]]'), JSON.stringify({ d: renamed.data, wifi: pageFile('help/network/wifi') }));
 
-  // 34. Search finds approved content
+  // 34. Filing plans: each folder gets a rule, look-alike groups are sampled, raw data is skipped
+  const planDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aiwiki-plan-'));
+  const putFile = (rel, text) => {
+    fs.mkdirSync(path.dirname(path.join(planDir, rel)), { recursive: true });
+    fs.writeFileSync(path.join(planDir, rel), text);
+    fs.utimesSync(path.join(planDir, rel), new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
+  };
+  putFile('Docs/guide.txt', 'FACT: The plan share guide says hello.\n');
+  putFile('Docs/readings.txt', Array.from({ length: 600 }, (_, i) => `${i},${(i * 0.37).toFixed(3)},${(i * 1.9).toFixed(2)}`).join('\n'));
+  putFile('Raw/notes.txt', 'FACT: Raw folder notes.\n');
+  for (let i = 1; i <= 6; i++) putFile(`Captures/run-0${i}/meta.json`, `{"run": ${i}, "note": "FACT: Capture run ${i} was recorded."}\n`);
+  const planFolder = await api('POST', '/api/folders', { label: 'Plan share', path: planDir, user: 'Alex', fileExisting: true });
+  const jobsOf = async () => (await api('GET', '/api/ingest')).data.jobs;
+  const planJob = await waitJob((await jobsOf()).find((j) => j.kind === 'plan' && j.folderLabel === 'Plan share')?.id);
+  check('a new folder is planned before its files are read', planJob?.status === 'done' && /Planned 3 folders/.test(planJob.detail ?? ''), JSON.stringify(planJob));
+  const byRel = async (rel) => {
+    const j = (await jobsOf()).find((x) => x.folderLabel === 'Plan share' && x.relPath === rel && x.kind === 'file');
+    return j ? waitJob(j.id) : null;
+  };
+  const rawJob = await byRel('Raw/notes.txt');
+  check('a folder set to skip is not read', !rawJob || /set to skip/.test(rawJob.detail ?? ''), JSON.stringify(rawJob));
+  check('the first of a look-alike group is filed', (await byRel('Captures/run-01/meta.json'))?.status === 'done');
+  const kept = await byRel('Captures/run-05/meta.json');
+  check('the rest of the group is kept searchable without the assistant', kept?.status === 'kept' && /by sample/.test(kept.detail ?? ''), JSON.stringify(kept));
+  check('raw data is not read', /raw data/.test((await byRel('Docs/readings.txt'))?.detail ?? ''));
+  check('a normal document is filed', (await byRel('Docs/guide.txt'))?.status === 'done');
+  let planned = (await api('GET', `/api/folders/${planFolder.data.id}/plan`)).data.tree;
+  const rawNode = planned.children.find((c) => c.dir === 'Raw');
+  check('the folder tree shows each rule and what happened', rawNode?.rule?.rule === 'skip' && rawNode.rule.setBy === 'librarian' && rawNode.counts.skipped === 1 &&
+    planned.children.find((c) => c.dir === 'Captures')?.counts?.kept === 4, JSON.stringify(planned.children.map((c) => [c.dir, c.rule, c.counts])));
+  await api('POST', `/api/folders/${planFolder.data.id}/plan`, { dir: 'Raw', rule: 'file', user: 'Kim' });
+  const refiled = (await api('POST', `/api/folders/${planFolder.data.id}/plan`, { action: 'refile', dir: 'Raw' })).data;
+  check('after a rule changes, what it skipped can be filed', refiled.queued === 1 && (await byRel('Raw/notes.txt'))?.status === 'done', JSON.stringify(refiled));
+  await api('POST', `/api/folders/${planFolder.data.id}/plan`, { action: 'plan' });
+  await waitJob((await jobsOf()).find((j) => j.kind === 'plan' && j.folderLabel === 'Plan share')?.id);
+  planned = (await api('GET', `/api/folders/${planFolder.data.id}/plan`)).data.tree;
+  check("planning again keeps a person's rule", planned.children.find((c) => c.dir === 'Raw')?.rule?.setBy === 'Kim');
+  for (const f of (await api('GET', '/api/folders')).data) await api('DELETE', `/api/folders/${f.id}`);
+  fs.rmSync(planDir, { recursive: true, force: true });
+  for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+
+  // 35. A long file comes in parts; the assistant reads on only where it chooses to
+  const longText = Array.from({ length: 160 }, (_, i) => `Paragraph ${i} of the long manual describes routine care of the equipment in plain words.`).join('\n\n') + '\n\nPART-TWO-MARKER is near the end.\n';
+  const longFile = await upload([['long-manual.txt', Buffer.from(longText), 'text/plain']]);
+  const skim = await chat('Please skim this file', 'Alex', 'local', 'e2e-chat-skim', [longFile.data[0].id]);
+  check('a long file is shown a part at a time', skim.reply === 'PARTS-OK' && skim.trace?.some((t) => /long-manual\.txt, part 1 of \d/.test(t)) && skim.trace?.some((t) => t.startsWith('Read part')),
+    JSON.stringify(skim));
+
+  // 36. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {

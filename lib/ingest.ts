@@ -1,7 +1,7 @@
 import { diffArrays } from 'diff';
 import { db } from './db';
 import { toBlocks } from './diff';
-import { indexDocument } from './docsearch';
+import { indexDocument, splitParts } from './docsearch';
 import { extractText, type DescribeImage, type StoredFile } from './files';
 
 // Every file that reaches the wiki (chat drops now, watched folders next) goes through here.
@@ -95,6 +95,27 @@ export function textChanges(before: string, after: string): { removed: string[];
 }
 
 const day = (iso: string) => iso.slice(0, 10);
+
+// Files longer than this are handed over in parts of about this size
+const LONG_FILE_CHARS = 12_000;
+const PART_CHARS = 8_000;
+
+// Search parts are small; join them into parts the assistant reads one at a time
+function groupParts(small: string[]): string[] {
+  const out: string[] = [];
+  for (const p of small) {
+    if (out.length && out[out.length - 1].length + p.length < PART_CHARS) out[out.length - 1] += `\n\n${p}`;
+    else out.push(p);
+  }
+  return out;
+}
+
+// A part's first heading, or its first words
+function partLine(part: string): string {
+  const heading = part.match(/^#{1,6}\s+(.+)$/m)?.[1];
+  const text = (heading ?? part).replace(/\s+/g, ' ').trim();
+  return text.length > 90 ? text.slice(0, 87) + '...' : text;
+}
 const MAX_CHANGE_CHARS = 20_000;
 
 // The text the assistant gets for one file, shaped by whether it is new, unchanged or changed.
@@ -105,7 +126,7 @@ export async function prepareFile(
   displayName: string,
   // Where the file sits in a watched folder (see lib/folderContext.ts); absent for chat drops
   location?: string,
-): Promise<{ section: string; note: string }> {
+): Promise<{ section: string; note: string; parts?: string[] }> {
   const out = await extractText(f, describe);
   const how =
     out.method === 'vision' ? 'photo, described by the vision model' : out.method === 'pdf-scan' ? 'scanned PDF, read page by page' : f.kind;
@@ -162,5 +183,20 @@ export async function prepareFile(
   const dupNote = info.duplicateOf
     ? `The same content was already added as "${info.duplicateOf.displayName}" on ${day(info.duplicateOf.at)}; check the wiki before suggesting anything from it again.\n`
     : '';
+  // A long document comes in parts: the first, and a line on each of the others, so the assistant
+  // can stop when the beginning shows it is not worth filing, or read on only where it matters
+  if (f.kind !== 'image' && out.full.length > LONG_FILE_CHARS) {
+    const parts = groupParts(splitParts(out.full));
+    const outline = parts.slice(1).map((p, i) => `  Part ${i + 2}: ${partLine(p)}`).join('\n');
+    return {
+      note: `${displayName}, part 1 of ${parts.length}`,
+      parts,
+      section:
+        `${head}\n${dupNote}This file is long, so only part 1 of ${parts.length} is shown. The other parts begin:\n${outline}\n` +
+        'If part 1 shows the file is not worth filing (raw data, logs, a copy of something already in the wiki), say so and stop. ' +
+        'Otherwise read the parts that hold something worth filing with read_file_part, and skip the rest.\n' +
+        `--- Part 1 ---\n${parts[0]}\n${photoHint}${end}`,
+    };
+  }
   return { note: '', section: `${head}\n${dupNote}${full}${photoHint}${end}` };
 }
