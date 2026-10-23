@@ -70,7 +70,8 @@ Audience: starts with the systems team, eventually the whole company. Most revie
 4. Names set on the Settings page are not authenticated; treat them as labels only. Personal folders rely on that name, so until real auth anyone who types the owner's name can search them, and their file names show in Background filing; originals are also reachable by file number at `/api/files/:id`. Settings (model address, watched folders) is open to anyone who can reach the wiki; until real auth lands, run the wiki only where everyone who can reach it is trusted.
 5. A file deleted from a watched folder is ignored; nothing suggests removing what it added. Decide whether a deletion should suggest edits before watching shared libraries at scale.
 6. **Organise and the automatic runs have only run against the mock** (a section tidy worked with a real model). Run Organise with a real model and check it designs a layout (sections, summaries, homes for what is coming) rather than only fixing faults, and watch the first automatic runs after real approvals; tune the survey thresholds in `lib/librarian.ts` (shared wording 30%, vocabulary 40%, misplaced 12% and 1.5 times its own section, short page 160 characters) if it flags too much or too little.
-7. Node 18 works in every test so far, but `better-sqlite3` 12 declares Node 20+ and `unpdf` declares Node 22+; use Node 22 or newer.
+7. **Filing plans have only been planned by the mock.** Check what a real model answers for the CRPA folder (one line per folder in the `folder | rule | reason` form; `parsePlan` ignores anything else) and whether its skip and sample choices are sensible; widen `parsePlan` if a model words it differently. Patterns already sample the capture runs without a model.
+8. Node 18 works in every test so far, but `better-sqlite3` 12 declares Node 20+ and `unpdf` declares Node 22+; use Node 22 or newer.
 
 ## Roadmap, in order
 
