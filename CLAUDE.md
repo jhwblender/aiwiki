@@ -73,7 +73,8 @@ Audience: starts with the systems team, eventually the whole company. Most revie
 
 ## Roadmap, in order
 
-1. **Conflict handling**: when sources disagree, the proposal cites both and flags the conflict instead of silently picking one
-2. **Bulk review** for large drops: a per-source summary and one approval for a whole change set across pages
-3. **Companion desktop app** (only needed when the wiki server cannot reach the model; a model on the server itself or on a machine it can reach on the network already works through `LOCAL_LLM_BASE_URL`): watches folders on a user's machine (SharePoint libraries via the OneDrive sync client, with Files On-Demand off for that folder), uploads to the queue with the user's identity, and relays calls to a local model so a remote wiki can use AI on the user's own computer
-4. **Real auth and roles** (likely Entra ID SSO), including who can approve and who can change Settings and watched folders
+1. **Link picker in the editor**: links are still typed as `[[page/path]]`; add an "Insert link" button that picks a page from the same tree as the place picker and inserts the link, so nobody types a path (links already follow moves)
+2. **Conflict handling**: when sources disagree, the proposal cites both and flags the conflict instead of silently picking one
+3. **Bulk review** for large drops: a per-source summary and one approval for a whole change set across pages
+4. **Companion desktop app** (only needed when the wiki server cannot reach the model; a model on the server itself or on a machine it can reach on the network already works through `LOCAL_LLM_BASE_URL`): watches folders on a user's machine (SharePoint libraries via the OneDrive sync client, with Files On-Demand off for that folder), uploads to the queue with the user's identity, and relays calls to a local model so a remote wiki can use AI on the user's own computer
+5. **Real auth and roles** (likely Entra ID SSO), including who can approve and who can change Settings and watched folders
