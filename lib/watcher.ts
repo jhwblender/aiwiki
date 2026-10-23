@@ -26,9 +26,15 @@ export type WatchedFolder = {
 };
 
 const SUPPORTED = new Set(['.pdf', '.docx', '.txt', '.md', '.markdown', '.csv', '.tsv', '.json', '.yaml', '.yml', '.png', '.jpg', '.jpeg', '.gif', '.webp']);
-const SKIP_DIRS = new Set(['node_modules', '.git', '$recycle.bin', 'system volume information']);
-const MAX_DEPTH = 8;
+// Folders that never hold anyone's documents: package and build caches, program internals
+const SKIP_DIRS = new Set(['node_modules', '.git', '$recycle.bin', 'system volume information', '__pycache__', 'site-packages', '.venv', 'venv']);
+const SKIP_DIR_SUFFIX = /\.(app|framework|bundle|egg-info|dist-info)$/i;
+// System files Windows and macOS leave in every folder
+const SKIP_FILES = new Set(['desktop.ini', 'thumbs.db', '.ds_store']);
+const MAX_DEPTH = 20;
 const MAX_FILES = 5000;
+// files the wiki cannot read are listed (not read) up to this many, so the tree shows them
+const MAX_OTHER_FILES = 100_000;
 // A file changed this recently may still be copying or syncing; wait for the next scan
 const SETTLE_MS = 10_000;
 
@@ -212,11 +218,37 @@ export function removeFolder(id: number) {
   const d = db();
   d.prepare('DELETE FROM watched_files WHERE folder_id = ?').run(id);
   d.prepare('DELETE FROM folder_rules WHERE folder_id = ?').run(id);
+  d.prepare('DELETE FROM folder_other_files WHERE folder_id = ?').run(id);
   d.prepare('DELETE FROM watched_folders WHERE id = ?').run(id);
 }
 
-// skip: other watched folders inside this one; their files belong to them
-async function walk(root: string, skip: Set<string>): Promise<string[]> {
+// Keep the list of unreadable files in step with the folder: new ones get their size once, gone ones go
+async function recordOthers(id: number, root: string, fullPaths: string[]) {
+  const d = db();
+  const known = new Set((d.prepare('SELECT rel_path FROM folder_other_files WHERE folder_id = ?').all(id) as { rel_path: string }[]).map((r) => r.rel_path));
+  const now = new Set<string>();
+  const added: [string, number][] = [];
+  for (const full of fullPaths) {
+    const rel = path.relative(root, full).split(path.sep).join('/');
+    now.add(rel);
+    if (known.has(rel)) continue;
+    let size = 0;
+    try {
+      size = (await fs.stat(full)).size;
+    } catch {}
+    added.push([rel, size]);
+  }
+  d.transaction(() => {
+    const put = d.prepare('INSERT OR REPLACE INTO folder_other_files (folder_id, rel_path, size) VALUES (?, ?, ?)');
+    for (const [rel, size] of added) put.run(id, rel, size);
+    const drop = d.prepare('DELETE FROM folder_other_files WHERE folder_id = ? AND rel_path = ?');
+    for (const rel of known) if (!now.has(rel)) drop.run(id, rel);
+  })();
+}
+
+// skip: other watched folders inside this one; their files belong to them. others collects the files
+// the wiki cannot read, so the tree can show them.
+async function walk(root: string, skip: Set<string>, others: string[] = []): Promise<string[]> {
   const out: string[] = [];
   async function visit(dir: string, depth: number) {
     if (depth > MAX_DEPTH || out.length >= MAX_FILES) return;
@@ -232,10 +264,14 @@ async function walk(root: string, skip: Set<string>): Promise<string[]> {
       if (e.name.startsWith('.') || e.name.startsWith('~$')) continue;
       const full = path.join(dir, e.name);
       if (e.isDirectory()) {
-        if (!SKIP_DIRS.has(e.name.toLowerCase())) await visit(full, depth + 1);
+        if (!SKIP_DIRS.has(e.name.toLowerCase()) && !SKIP_DIR_SUFFIX.test(e.name)) await visit(full, depth + 1);
+      } else if (e.isFile() && SKIP_FILES.has(e.name.toLowerCase())) {
+        continue;
       } else if (e.isFile() && SUPPORTED.has(path.extname(e.name).toLowerCase())) {
         out.push(full);
         if (out.length >= MAX_FILES) return;
+      } else if (e.isFile() && others.length < MAX_OTHER_FILES) {
+        others.push(full);
       }
     }
   }
@@ -256,7 +292,9 @@ export async function scanFolder(id: number, opts: { baselineOnly?: boolean } = 
     } catch {
       throw new Error('The folder can no longer be found. It may have been renamed, moved or disconnected; use Change folder to point to it again.');
     }
-    const files = await walk(folder.path, nestedInside(folder.path, id));
+    const others: string[] = [];
+    const files = await walk(folder.path, nestedInside(folder.path, id), others);
+    await recordOthers(id, folder.path, others);
     for (const full of files) {
       const rel = path.relative(folder.path, full).split(path.sep).join('/');
       let st;

@@ -31,7 +31,7 @@ function migrate(d: Database.Database) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       kind TEXT NOT NULL,              -- chat | file | manual | librarian
       user TEXT NOT NULL,              -- who contributed it
-      folder_label TEXT,               -- e.g. "Jesse / SharePoint Systems"
+      folder_label TEXT,               -- e.g. "Engineering SharePoint"
       rel_path TEXT,                   -- path relative to the watched folder
       filename TEXT,
       content_hash TEXT,
@@ -170,6 +170,14 @@ function migrate(d: Database.Database) {
       mtime_ms INTEGER NOT NULL,
       hash TEXT NOT NULL,
       seen_at TEXT NOT NULL,
+      PRIMARY KEY (folder_id, rel_path)
+    );
+    -- Files in watched folders the wiki cannot read (models, raw data, code), recorded by name and
+    -- size only so the folder tree and filing plans see the whole folder; never read or queued
+    CREATE TABLE IF NOT EXISTS folder_other_files (
+      folder_id INTEGER NOT NULL REFERENCES watched_folders(id),
+      rel_path TEXT NOT NULL,
+      size INTEGER NOT NULL,
       PRIMARY KEY (folder_id, rel_path)
     );
     -- How each folder inside a watched folder is filed (see lib/filingPlan.ts); a file follows its nearest folder's rule

@@ -37,7 +37,7 @@ const SCENARIOS = [
       { name: 'survey_section', args: { section: '*' } },
     ],
     reply: (tools) =>
-      /Current structure \(generated/.test(tools) && tools.includes('"Lib share" (2 files, none filed yet)') && /Printers\/ \(1 file, none filed yet\)/.test(tools) &&
+      /Current structure \(generated/.test(tools) && tools.includes('"Lib share" (2 documents, none filed yet)') && /Printers\/ \(1 document, none filed yet\)/.test(tools) &&
       tools.includes('organising only arranges pages') && /Proposed (the summary|a new section page)/.test(tools)
         ? 'WHOLE-SURVEY-SEEN'
         : 'WHOLE-SURVEY-NOT-SEEN',

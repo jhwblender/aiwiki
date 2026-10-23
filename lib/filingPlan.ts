@@ -76,15 +76,17 @@ function storeSuggested(folderId: number, rules: Map<string, { rule: Rule; reaso
 
 // ---------- the tree ----------
 
-type DirInfo = { dir: string; files: string[]; size: number; dirs: string[] };
+// files: documents the wiki can read; others: everything else (models, raw data, code), listed only
+type DirInfo = { dir: string; files: string[]; others: string[]; size: number; dirs: string[] };
 
 function treeOf(folderId: number): Map<string, DirInfo> {
   const rows = db().prepare('SELECT rel_path, size FROM watched_files WHERE folder_id = ?').all(folderId) as { rel_path: string; size: number }[];
+  const otherRows = db().prepare('SELECT rel_path, size FROM folder_other_files WHERE folder_id = ?').all(folderId) as { rel_path: string; size: number }[];
   const tree = new Map<string, DirInfo>();
   const dirInfo = (d: string): DirInfo => {
     let n = tree.get(d);
     if (!n) {
-      n = { dir: d, files: [], size: 0, dirs: [] };
+      n = { dir: d, files: [], others: [], size: 0, dirs: [] };
       tree.set(d, n);
       const p = parentDir(d);
       if (p !== null) dirInfo(p).dirs.push(d);
@@ -92,16 +94,21 @@ function treeOf(folderId: number): Map<string, DirInfo> {
     return n;
   };
   dirInfo('.');
-  for (const r of rows) {
-    const n = dirInfo(dirOf(r.rel_path));
-    n.files.push(path.posix.basename(r.rel_path));
-    for (let d: string | null = n.dir; d !== null; d = parentDir(d)) tree.get(d)!.size += r.size;
+  for (const [list, readable] of [[rows, true], [otherRows, false]] as const) {
+    for (const r of list) {
+      const n = dirInfo(dirOf(r.rel_path));
+      (readable ? n.files : n.others).push(path.posix.basename(r.rel_path));
+      for (let d: string | null = n.dir; d !== null; d = parentDir(d)) tree.get(d)!.size += r.size;
+    }
   }
   return tree;
 }
 
-const allFilesUnder = (tree: Map<string, DirInfo>, d: string): number =>
-  (tree.get(d)?.files.length ?? 0) + (tree.get(d)?.dirs ?? []).reduce((n, c) => n + allFilesUnder(tree, c), 0);
+// documents (or, with others, every file) at and under a folder
+const allFilesUnder = (tree: Map<string, DirInfo>, d: string, others = false): number =>
+  (tree.get(d)?.files.length ?? 0) +
+  (others ? (tree.get(d)?.others.length ?? 0) : 0) +
+  (tree.get(d)?.dirs ?? []).reduce((n, c) => n + allFilesUnder(tree, c, others), 0);
 
 // ---------- rules from patterns, no model ----------
 
@@ -112,10 +119,10 @@ export function patternRules(folderId: number): Map<string, { rule: Rule; reason
     if (n.dir === '.') continue;
     // Many sub-folders holding the same kind of files: capture runs, exports, one folder per test
     if (n.dirs.length >= 5) {
-      const sig = (d: string) => [...new Set(tree.get(d)!.files.map(shapeOf))].sort().join(',');
+      const sig = (d: string) => [...new Set([...tree.get(d)!.files, ...tree.get(d)!.others].map(shapeOf))].sort().join(',');
       // a real file name for each kind, to name the kinds in the reason
       const example = new Map<string, string>();
-      for (const c of n.dirs) for (const f of tree.get(c)!.files) if (!example.has(shapeOf(f))) example.set(shapeOf(f), f);
+      for (const c of n.dirs) for (const f of [...tree.get(c)!.files, ...tree.get(c)!.others]) if (!example.has(shapeOf(f))) example.set(shapeOf(f), f);
       const counts = new Map<string, number>();
       for (const c of n.dirs) {
         const s = sig(c);
@@ -150,22 +157,26 @@ export function applyPatternRules(folderId: number) {
 // rule patterns suggest. Folders under a look-alike group are folded into one line.
 export function planOutline(folderId: number, maxLines = 160): string {
   const tree = treeOf(folderId);
+  const root = db().prepare('SELECT path FROM watched_folders WHERE id = ?').get(folderId) as { path: string } | undefined;
   const patterns = patternRules(folderId);
   const lines: string[] = [];
   const walk = (d: string, depth: number) => {
     if (lines.length >= maxLines) return;
     const n = tree.get(d)!;
     const exts = new Map<string, number>();
-    for (const f of n.files) {
+    for (const f of [...n.files, ...n.others]) {
       const e = path.posix.extname(f).slice(1).toLowerCase() || 'none';
       exts.set(e, (exts.get(e) ?? 0) + 1);
     }
-    const kinds = [...exts.entries()].sort((a, b) => b[1] - a[1]).map(([e, c]) => `${c} ${e}`).join(', ');
-    const examples = [...new Set(n.files)].slice(0, 3).join(', ');
-    const total = allFilesUnder(tree, d);
+    const kinds = [...exts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([e, c]) => `${c} ${e}`).join(', ');
+    const examples = [...new Set([...n.files, ...n.others])].slice(0, 3).join(', ');
+    const docs = allFilesUnder(tree, d);
+    const total = allFilesUnder(tree, d, true);
     const hint = patterns.get(d);
+    const name = d === '.' ? `(top level${root ? `: "${path.basename(root.path)}"` : ''})` : `${d}/`;
     lines.push(
-      `${'  '.repeat(depth)}${d === '.' ? '(top level)' : `${d}/`} | ${total} files in all, ${(n.size / 1e6).toFixed(1)} MB${n.files.length ? `; here: ${kinds}; e.g. ${examples}` : ''}` +
+      `${'  '.repeat(depth)}${name} | ${total} files in all, ${docs} of them documents the wiki can read, ${(n.size / 1e6).toFixed(1)} MB` +
+        (n.files.length + n.others.length ? `; here: ${kinds}; e.g. ${examples}` : '') +
         (n.dirs.length ? `; ${n.dirs.length} sub-folders` : '') +
         (hint ? ` | looks like: ${hint.reason}` : ''),
     );
@@ -190,7 +201,8 @@ Rules:
 A folder's rule applies to everything under it unless a sub-folder has its own. The top level is "file" unless you say otherwise.
 Answer with one line per folder you give a rule, nothing else, in this form:
 folder path | rule | short reason
-Use the folder paths exactly as listed, and (top level) for the top level.`;
+Use the folder paths exactly as listed, and (top level) for the top level.
+Folders with no documents the wiki can read need no rule, but their contents tell you what a neighbouring folder holds.`;
 
 export function parsePlan(text: string, folderId: number): Map<string, { rule: Rule; reason: string }> {
   const tree = treeOf(folderId);
@@ -261,7 +273,8 @@ export function looksLikeData(text: string): boolean {
 export type PlanNode = {
   dir: string;
   name: string;
-  files: number; // all files under it
+  files: number; // all files under it, readable or not
+  documents: number; // the files under it the wiki can read
   rule: RuleRow | null; // set on this folder itself
   effective: Rule; // what applies here, set here or inherited
   // what happened to the files under it, by filing outcome; files never queued count as skipped
@@ -272,6 +285,7 @@ export type PlanNode = {
 
 export function planTree(folderId: number, folderLabel: string): PlanNode {
   const tree = treeOf(folderId);
+  const root = db().prepare('SELECT path FROM watched_folders WHERE id = ?').get(folderId) as { path: string } | undefined;
   const rules = rulesFor(folderId);
   const jobs = db()
     .prepare(
@@ -282,8 +296,9 @@ export function planTree(folderId: number, folderLabel: string): PlanNode {
   const statusOf = new Map(jobs.filter((j) => j.rel_path).map((j) => [j.rel_path!, j.status]));
   const files = db().prepare('SELECT rel_path FROM watched_files WHERE folder_id = ?').all(folderId) as { rel_path: string }[];
   const counts = new Map<string, Record<string, number>>();
-  for (const { rel_path } of files) {
-    const status = statusOf.get(rel_path) ?? (ruleFor(folderId, rel_path, rules).rule === 'skip' ? 'skipped' : 'unfiled');
+  const others = db().prepare('SELECT rel_path FROM folder_other_files WHERE folder_id = ?').all(folderId) as { rel_path: string }[];
+  for (const { rel_path, other } of [...files, ...others.map((o) => ({ ...o, other: true }))] as { rel_path: string; other?: boolean }[]) {
+    const status = other ? 'other' : statusOf.get(rel_path) ?? (ruleFor(folderId, rel_path, rules).rule === 'skip' ? 'skipped' : 'unfiled');
     for (let d: string | null = dirOf(rel_path); d !== null; d = parentDir(d)) {
       const c = counts.get(d) ?? {};
       c[status] = (c[status] ?? 0) + 1;
@@ -295,8 +310,9 @@ export function planTree(folderId: number, folderLabel: string): PlanNode {
     const effective = own?.rule ?? inherited;
     return {
       dir: d,
-      name: d === '.' ? folderLabel : path.posix.basename(d),
-      files: allFilesUnder(tree, d),
+      name: d === '.' ? (root ? path.basename(root.path) : folderLabel) : path.posix.basename(d),
+      files: allFilesUnder(tree, d, true),
+      documents: allFilesUnder(tree, d),
       rule: own,
       effective,
       counts: counts.get(d) ?? {},

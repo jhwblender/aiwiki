@@ -156,7 +156,7 @@ export default function SettingsView() {
                       setNameNote('');
                     }}
                     onKeyDown={(e) => e.key === 'Enter' && saveName()}
-                    placeholder="For example Jesse Wood"
+                    placeholder="For example Sam Taylor"
                     autoComplete="name"
                     maxLength={60}
                   />

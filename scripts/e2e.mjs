@@ -792,6 +792,11 @@ try {
   putFile('Docs/readings.txt', Array.from({ length: 600 }, (_, i) => `${i},${(i * 0.37).toFixed(3)},${(i * 1.9).toFixed(2)}`).join('\n'));
   putFile('Raw/notes.txt', 'FACT: Raw folder notes.\n');
   for (let i = 1; i <= 6; i++) putFile(`Captures/run-0${i}/meta.json`, `{"run": ${i}, "note": "FACT: Capture run ${i} was recorded."}\n`);
+  putFile('Models/bracket.step', 'ISO-10303-21;');
+  putFile('Captures/run-01/adc.bin', 'raw');
+  putFile('desktop.ini', '[.ShellClassInfo]');
+  putFile('Deep/a/b/c/d/e/f/g/h/i/deep-note.txt', 'FACT: Deep note.\n');
+  putFile('Tool.app/Contents/Resources/help.md', 'FACT: Inside an app bundle.\n');
   const planFolder = await api('POST', '/api/folders', { label: 'Plan share', path: planDir, user: 'Alex', fileExisting: true });
   const jobsOf = async () => (await api('GET', '/api/ingest')).data.jobs;
   const planJob = await waitJob((await jobsOf()).find((j) => j.kind === 'plan' && j.folderLabel === 'Plan share')?.id);
@@ -818,6 +823,11 @@ try {
   await waitJob((await jobsOf()).find((j) => j.kind === 'plan' && j.folderLabel === 'Plan share')?.id);
   planned = (await api('GET', `/api/folders/${planFolder.data.id}/plan`)).data.tree;
   check("planning again keeps a person's rule", planned.children.find((c) => c.dir === 'Raw')?.rule?.setBy === 'Kim');
+  const modelsNode = planned.children.find((c) => c.dir === 'Models');
+  check('the tree shows the real folder name and files the wiki cannot read', planned.name === path.basename(planDir) &&
+    modelsNode?.files === 1 && modelsNode.documents === 0 && modelsNode.counts.other === 1 && planned.counts.other === 2, JSON.stringify({ name: planned.name, modelsNode }));
+  check('system files and app bundles are left out, deep folders are not', !planned.children.some((c) => c.dir === 'Tool.app') &&
+    planned.files === 12 && !!planned.children.find((c) => c.dir === 'Deep'), JSON.stringify({ files: planned.files, dirs: planned.children.map((c) => c.dir) }));
   for (const f of (await api('GET', '/api/folders')).data) await api('DELETE', `/api/folders/${f.id}`);
   fs.rmSync(planDir, { recursive: true, force: true });
   for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });

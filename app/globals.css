@@ -347,3 +347,4 @@ fieldset.visibility legend { font-size: 13px; font-weight: 500; padding: 0; marg
 .plan-name { flex: 1; min-width: 160px; overflow-wrap: anywhere; font-size: 14px; }
 .plan-reason { margin-top: 1px; }
 .plan-row select { font: inherit; font-size: 13px; padding: 3px 6px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); color: var(--ink); max-width: 100%; }
+.plan-none { align-self: center; }

@@ -202,7 +202,7 @@ function pendingOpsIn(section: string): { kind: string; path: string; newPath: s
 }
 
 const FOLDER_MAP_HEADER =
-  'How the team groups its own documents: the watched folders as trees with file counts (and how many are not filed yet, so still coming), and where in the wiki the pages filed from each folder ended up (-> section (pages)). ' +
+  'How the team groups its own documents: the watched folders as trees with document counts (how many are not filed yet, so still coming, and other files such as models or raw data that the wiki cannot read), and where in the wiki the pages filed from each folder ended up (-> section (pages)). ' +
   'Use it to see what belongs together; organise the wiki by topic for a reader rather than copying the folder layout:';
 
 // The watched folders that feed the wiki, as compact trees with file counts, and where in the
@@ -252,6 +252,16 @@ function folderMap(known: Set<string>, onlyLabels?: Set<string>, maxDirs = 40): 
     );
     const total = new Map<string, number>();
     const coming = new Map<string, number>();
+    // files the wiki cannot read still show what a folder is for (models, raw data, code)
+    const other = new Map<string, number>();
+    for (const { rel_path } of db().prepare('SELECT rel_path FROM folder_other_files WHERE folder_id = ?').all(f.id) as { rel_path: string }[]) {
+      const parts = rel_path.split('/').slice(0, -1);
+      for (let i = 0; i <= Math.min(parts.length, 3); i++) {
+        const d = parts.slice(0, i).join('/') || '.';
+        other.set(d, (other.get(d) ?? 0) + 1);
+        if (!total.has(d)) total.set(d, 0);
+      }
+    }
     for (const file of files) {
       const parts = file.split('/').slice(0, -1);
       for (let i = 0; i <= Math.min(parts.length, 3); i++) {
@@ -263,7 +273,8 @@ function folderMap(known: Set<string>, onlyLabels?: Set<string>, maxDirs = 40): 
     const count = (d: string) => {
       const n = total.get(d) ?? 0;
       const c = coming.get(d) ?? 0;
-      const files = `${n} file${n === 1 ? '' : 's'}`;
+      const o = other.get(d) ?? 0;
+      const files = `${n} document${n === 1 ? '' : 's'}${o ? `, ${o} other files the wiki cannot read` : ''}`;
       return !c ? files : c === n ? `${files}, none filed yet` : `${files}, ${c} not filed yet`;
     };
     lines.push(`- "${f.label}" (${count('.')})${where(f.label, '.')}`);

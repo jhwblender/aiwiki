@@ -19,7 +19,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   try {
     const f = folderOf((await ctx.params).id);
     const planning = !!db().prepare("SELECT 1 FROM ingest_jobs WHERE doc_key = ? AND status IN ('queued', 'working')").get(`plan:${f.label}`);
-    return NextResponse.json({ tree: planTree(f.id, f.label), planning });
+    return NextResponse.json({ label: f.label, tree: planTree(f.id, f.label), planning });
   } catch (e) {
     return fail(e);
   }

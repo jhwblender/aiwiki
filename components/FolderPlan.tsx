@@ -6,6 +6,7 @@ type Node = {
   dir: string;
   name: string;
   files: number;
+  documents: number;
   rule: { rule: Rule; reason: string; setBy: string } | null;
   effective: Rule;
   counts: Record<string, number>;
@@ -34,6 +35,7 @@ const OUTCOMES: [string, string][] = [
   ['failed', 'failed'],
   ['cancelled', 'cancelled'],
   ['unfiled', 'not filed'],
+  ['other', 'other files the wiki cannot read'],
 ];
 
 function who(setBy: string) {
@@ -45,6 +47,7 @@ function who(setBy: string) {
 // One watched folder as a tree: how each folder in it is filed, and what happened to its files
 export default function FolderPlan({ folderId, user }: { folderId: number; user: string }) {
   const [tree, setTree] = useState<Node | null>(null);
+  const [label, setLabel] = useState('');
   const [planning, setPlanning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -56,6 +59,7 @@ export default function FolderPlan({ folderId, user }: { folderId: number; user:
       const d = await r.json();
       if (!r.ok) throw new Error(d.error);
       setTree(d.tree);
+      setLabel(d.label);
       setPlanning(d.planning);
     } catch (e: any) {
       setError(e.message || 'Could not load the folder.');
@@ -95,7 +99,10 @@ export default function FolderPlan({ folderId, user }: { folderId: number; user:
     <div className="folder-plan">
       <div className="plan-head">
         <strong>{tree.name}</strong>
-        <span className="muted small-text">{tree.files} files</span>
+        <span className="muted small-text">
+          {label && label !== tree.name ? `watched as "${label}", ` : ''}
+          {tree.files.toLocaleString()} files
+        </span>
         <span className="spacer" />
         <button className="btn small quiet" disabled={busy || planning} onClick={() => post({ action: 'plan' })}>
           {planning ? 'Planning' : 'Plan again'}
@@ -162,7 +169,7 @@ function Branch({
           <span>{node.name}</span>
           <span className="muted small-text">
             {' '}
-            {node.files} file{node.files === 1 ? '' : 's'}
+            {node.files.toLocaleString()} file{node.files === 1 ? '' : 's'}
             {outcomes.length > 0 && `: ${outcomes.join(', ')}`}
           </span>
           {node.rule && node.rule.reason && (
@@ -171,20 +178,24 @@ function Branch({
             </div>
           )}
         </div>
-        <select
-          value={node.rule ? node.rule.rule : 'inherit'}
-          disabled={busy}
-          onChange={(e) => change(e.target.value)}
-          aria-label={`How ${node.name} is filed`}
-          title={RULE_HELP[node.effective]}
-        >
-          {node.dir !== '.' && <option value="inherit">Same as above ({RULE_LABEL[parentRule].toLowerCase()})</option>}
-          {(Object.keys(RULE_LABEL) as Rule[]).map((r) => (
-            <option key={r} value={r}>
-              {RULE_LABEL[r]}
-            </option>
-          ))}
-        </select>
+        {node.documents === 0 ? (
+          <span className="muted small-text plan-none">Nothing here the wiki can read</span>
+        ) : (
+          <select
+            value={node.rule ? node.rule.rule : 'inherit'}
+            disabled={busy}
+            onChange={(e) => change(e.target.value)}
+            aria-label={`How ${node.name} is filed`}
+            title={RULE_HELP[node.effective]}
+          >
+            {node.dir !== '.' && <option value="inherit">Same as above ({RULE_LABEL[parentRule].toLowerCase()})</option>}
+            {(Object.keys(RULE_LABEL) as Rule[]).map((r) => (
+              <option key={r} value={r}>
+                {RULE_LABEL[r]}
+              </option>
+            ))}
+          </select>
+        )}
         {canFile && (
           <button className="btn small quiet" disabled={busy} onClick={fileNow} title="Send what was skipped or kept searchable here to be filed under the current rule">
             File these now
