@@ -1,3 +1,5 @@
+import http from 'node:http';
+import https from 'node:https';
 import type { LocalModelSettings } from '../settings';
 import type { Provider, ToolCall } from './providers';
 
@@ -5,12 +7,14 @@ import type { Provider, ToolCall } from './providers';
 
 // Turns network failures into a sentence a non-programmer can act on.
 function describeFailure(e: unknown, url: string, seconds: number): string {
-  const err = e as { name?: string; cause?: unknown };
+  const err = e as { name?: string; cause?: unknown; code?: string };
   if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
-    return `No answer from ${url} within ${seconds} seconds. Check that the model server is running and not overloaded.`;
+    const mins = seconds >= 120 ? `${Math.round(seconds / 60)} minutes` : `${seconds} seconds`;
+    return `No answer from ${url} within ${mins}. The model may be too slow for this much text; a smaller model or a shorter document helps.`;
   }
-  // The useful code can sit a few causes deep
-  let code: string | undefined;
+  if (err?.code === 'ERR_INVALID_URL') return `${url} is not a valid web address.`;
+  // The useful code is on the error itself, or a few causes deep
+  let code: string | undefined = err?.code;
   let reason = '';
   for (let c: any = err?.cause; c && !code; c = c.cause) {
     code = c.code ?? c.errors?.find((x: any) => x?.code)?.code;
@@ -42,6 +46,49 @@ function describeStatus(status: number, body: string): string {
   return `The model server returned an error (${status}): ${body.slice(0, 300)}`;
 }
 
+const CONNECT_MS = 10_000;
+
+// One request with Node's own http module. fetch is not used for model calls: it gives up after five
+// minutes without a reply, whatever timeout is asked for, and a large local model on a long prompt
+// can take longer than that before it answers at all.
+function send(url: string, method: string, headers: Record<string, string>, body: string | undefined, timeoutMs: number): Promise<{ status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    let u: URL;
+    try {
+      u = new URL(url);
+    } catch {
+      reject(Object.assign(new Error('Invalid address'), { code: 'ERR_INVALID_URL' }));
+      return;
+    }
+    const mod = u.protocol === 'https:' ? https : http;
+    const req = mod.request(u, { method, headers: body === undefined ? headers : { ...headers, 'Content-Length': String(Buffer.byteLength(body)) } }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
+      res.on('end', () => {
+        clearTimeout(timer);
+        resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString('utf8') });
+      });
+      res.on('error', fail);
+    });
+    const timer = setTimeout(() => req.destroy(Object.assign(new Error('timed out'), { name: 'TimeoutError' })), timeoutMs);
+    req.on('socket', (sock) => {
+      // a long wait for the answer must not look like a dead connection to anything in between
+      sock.setKeepAlive(true, 30_000);
+      if (!sock.connecting) return;
+      const connect = setTimeout(() => req.destroy(Object.assign(new Error('connect timed out'), { code: 'ETIMEDOUT' })), CONNECT_MS);
+      sock.once('connect', () => clearTimeout(connect));
+      sock.once('close', () => clearTimeout(connect));
+    });
+    req.on('error', fail);
+    function fail(e: unknown) {
+      clearTimeout(timer);
+      reject(e);
+    }
+    if (body !== undefined) req.write(body);
+    req.end();
+  });
+}
+
 export async function localRequest(
   s: LocalModelSettings,
   path: string,
@@ -52,19 +99,14 @@ export async function localRequest(
   const url = `${s.baseUrl}${path}`;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (s.apiKey) headers.Authorization = `Bearer ${s.apiKey}`;
-  let resp: Response;
+  let status: number;
+  let text: string;
   try {
-    resp = await fetch(url, {
-      method: body === undefined ? 'GET' : 'POST',
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutSeconds * 1000),
-    });
+    ({ status, text } = await send(url, body === undefined ? 'GET' : 'POST', headers, body === undefined ? undefined : JSON.stringify(body), timeoutSeconds * 1000));
   } catch (e) {
     throw new Error(describeFailure(e, s.baseUrl, timeoutSeconds));
   }
-  const text = await resp.text();
-  if (!resp.ok) throw new Error(describeStatus(resp.status, text));
+  if (status < 200 || status >= 300) throw new Error(describeStatus(status, text));
   try {
     return JSON.parse(text);
   } catch {
