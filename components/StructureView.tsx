@@ -86,7 +86,9 @@ function Branch({ node, pending, user, onSaved }: { node: Node; pending: Record<
         <Link href={`/wiki/${node.path}`} className="struct-title">
           {node.title}
         </Link>
-        {node.children.length > 0 && <span className="muted small-text">{node.pages} pages</span>}
+        {node.children.length > 0 && <span className="muted small-text">
+            {node.pages} page{node.pages === 1 ? '' : 's'}
+          </span>}
         {waiting > 0 && (
           <Link href={`/wiki/${node.path}`} className="badge" title="Suggestions waiting for review on this page">
             {waiting}

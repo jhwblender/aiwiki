@@ -3,7 +3,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import type { PageData, PendingOp, PendingSet, Segment } from '@/lib/types';
-import Md, { slugify } from './Md';
+import Md from './Md';
+import PlaceDialog, { titleOf } from './PlaceDialog';
+import { usePages } from './WikiContext';
+import { joinSummary, splitSummary } from '@/lib/summary';
 import SourceChip from './SourceChip';
 import { markTableRows, markWords, rehypeMarks } from './wordMarks';
 
@@ -159,6 +162,11 @@ export default function PageView({
   const [data, setData] = useState<PageData | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
+  // The summary is edited in its own box, so it can be changed but not dropped by accident
+  const [summaryDraft, setSummaryDraft] = useState('');
+  const [hadSummary, setHadSummary] = useState(false);
+  const [moving, setMoving] = useState(false);
+  const pages = usePages();
   const [setIdx, setSetIdx] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -200,33 +208,52 @@ export default function PageView({
     }
   }
 
-  function startEdit() {
+  function startEdit(title?: string) {
     if (!data) return;
-    setDraft(data.exists ? data.content : `# ${data.title}\n\n`);
+    const split = data.exists ? splitSummary(data.content) : { summary: null, rest: `# ${title || data.title}\n\n` };
+    setDraft(split.rest);
+    setSummaryDraft(split.summary ?? '');
+    setHadSummary(!!split.summary);
     setEditing(true);
   }
+
+  // A page just named in New page opens straight in the editor with its title
+  useEffect(() => {
+    if (!data || data.exists || data.path !== path) return;
+    try {
+      const fresh = JSON.parse(sessionStorage.getItem('wiki-new-page') || 'null');
+      if (fresh?.path === path) {
+        sessionStorage.removeItem('wiki-new-page');
+        startEdit(fresh.title);
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, path]);
+
+  const summaryNote = !summaryDraft.trim()
+    ? hadSummary
+      ? 'The summary can be changed but not removed.'
+      : !data?.exists
+        ? 'A new page needs a summary.'
+        : ''
+    : '';
 
   async function save() {
     await guarded(async () => {
       const r = await fetch('/api/page', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path, content: draft, user }),
+        body: JSON.stringify({ path, content: summaryDraft.trim() ? joinSummary(draft, summaryDraft) : draft, user }),
       });
       if (!r.ok) throw new Error((await r.json()).error || 'Save failed');
       setEditing(false);
     });
   }
 
-  async function move() {
-    const next = window.prompt(
-      'Move or rename this page. Type its new path, for example systems/networking/vpn. Pages under it move too, and links to it are updated.',
-      path,
-    );
-    const to = next ? slugify(next) : '';
-    if (!to || to === path) return;
+  async function move(to: string, title: string) {
+    setMoving(false);
     await guarded(async () => {
-      const d = await post('/api/page/move', { from: path, to, user });
+      const d = await post('/api/page/move', { from: path, to, title, user });
       router.push(`/wiki/${d.path}`);
     });
   }
@@ -252,16 +279,44 @@ export default function PageView({
   return (
     <main className={'page' + (dragging ? ' dragging' : '')} {...dropProps}>
       {dragging && <div className="drop-hint page-drop">Drop files to add them to this page</div>}
-      <div className="crumbs">{data.path.split('/').join(' / ')}</div>
+      <nav className="crumbs" aria-label="Where this page is">
+        {data.path === 'index' ? (
+          'Home'
+        ) : (
+          <>
+            <Link href="/wiki/index">Home</Link>
+            {data.path.split('/').map((_, i, parts) => {
+              const p = parts.slice(0, i + 1).join('/');
+              return (
+                <span key={p}>
+                  {' › '}
+                  {i < parts.length - 1 ? <Link href={`/wiki/${p}`}>{titleOf(pages, p)}</Link> : data.title}
+                </span>
+              );
+            })}
+          </>
+        )}
+      </nav>
+      {moving && (
+        <PlaceDialog
+          mode="move"
+          page={path}
+          initialTitle={data.title}
+          initialParent={path.split('/').slice(0, -1).join('/')}
+          busy={busy}
+          onCancel={() => setMoving(false)}
+          onDone={move}
+        />
+      )}
       <div className="title-row">
         <h1 className="doc-title">{data.title}</h1>
         {!editing && data.exists && (
           <div className="actions">
-            <button className="btn" onClick={startEdit}>
+            <button className="btn" onClick={() => startEdit()}>
               Edit
             </button>
             {data.path !== 'index' && (
-              <button className="btn quiet" onClick={move}>
+              <button className="btn quiet" onClick={() => setMoving(true)}>
                 Move
               </button>
             )}
@@ -278,9 +333,23 @@ export default function PageView({
 
       {editing ? (
         <div className="editor">
-          <textarea value={draft} onChange={(e) => setDraft(e.target.value)} spellCheck autoFocus />
+          <label className="field summary-field">
+            <span>Summary</span>
+            <textarea
+              value={summaryDraft}
+              onChange={(e) => setSummaryDraft(e.target.value)}
+              rows={2}
+              spellCheck
+              placeholder="One or two sentences on what this page covers. It shows at the top of the page and on the structure page."
+            />
+            {summaryNote && <span className="small-text field-note">{summaryNote}</span>}
+          </label>
+          <label className="field">
+            <span>Page</span>
+            <textarea value={draft} onChange={(e) => setDraft(e.target.value)} spellCheck autoFocus />
+          </label>
           <div className="editor-bar">
-            <button className="btn primary" disabled={busy} onClick={save}>
+            <button className="btn primary" disabled={busy || !!summaryNote} onClick={save}>
               Save page
             </button>
             <button className="btn quiet" onClick={() => setEditing(false)}>
@@ -369,11 +438,11 @@ export default function PageView({
                 ),
               )
             ) : data.exists ? (
-              <Md>{data.content}</Md>
+              <Summarised content={data.content} />
             ) : (
               <div className="empty">
                 <p>{data.children.length ? 'This section has no page of its own yet.' : 'This page does not exist yet.'}</p>
-                <button className="btn primary" onClick={startEdit}>
+                <button className="btn primary" onClick={() => startEdit()}>
                   Create page
                 </button>
               </div>
@@ -415,5 +484,20 @@ export default function PageView({
         </>
       )}
     </main>
+  );
+}
+
+// The page with its summary shown apart at the top
+function Summarised({ content }: { content: string }) {
+  const { summary, rest } = splitSummary(content);
+  return (
+    <>
+      {summary && (
+        <div className="page-summary">
+          <Md>{summary}</Md>
+        </div>
+      )}
+      <Md>{rest}</Md>
+    </>
   );
 }

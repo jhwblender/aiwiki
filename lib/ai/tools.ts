@@ -6,6 +6,7 @@ import { documentInfo, findDocumentByName, readDocumentPart, searchDocuments } f
 import { db } from '../db';
 import { librarianSettings, surveySection, WHOLE } from '../librarian';
 import { summaryOf, withSummary } from '../structure';
+import { summaryProblem } from '../summary';
 import type { ToolDef } from './providers';
 
 export const toolDefs: ToolDef[] = [
@@ -453,8 +454,11 @@ export async function runTool(name: string, args: Record<string, any>, ctx: Tool
         if (count > 1) return `old_text matches ${count} places. Include more surrounding text so it is unique.`;
         const cited = citesSource(ctx, newText, w.content);
         if (cited) return citationError(cited);
+        const next = w.content.replace(oldText, () => newText);
+        const lost = summaryProblem(w.content, next);
+        if (lost) return `Error: ${lost} Use set_summary to change it. Nothing was staged.`;
         const csId = await ensureChangeSet(ctx, String(args.summary ?? 'Update page'));
-        if (!(await stage(ctx, csId, p, w.content.replace(oldText, () => newText), w.revising))) return WITHDRAWN(p);
+        if (!(await stage(ctx, csId, p, next, w.revising))) return WITHDRAWN(p);
         return `Proposed change to "${p}". It is pending human review and not live yet.`;
       }
       case 'append_to_page': {
@@ -484,6 +488,8 @@ export async function runTool(name: string, args: Record<string, any>, ctx: Tool
         if (rival) return `A new page at "${p}" is already suggested and waiting for review ("${rival.summary}"). Do not suggest it again; tell the person it is pending.`;
         const cited = citesSource(ctx, String(args.content ?? ''), '');
         if (cited) return citationError(cited);
+        const noSummary = summaryProblem(null, String(args.content ?? ''));
+        if (noSummary) return `Error: ${noSummary} Start the content with "# Title", a blank line, then the summary paragraph. Nothing was staged.`;
         const csId = await ensureChangeSet(ctx, String(args.summary ?? 'New page'));
         await stage(ctx, csId, p, String(args.content ?? ''), null, true);
         return `Proposed new page "${p}". It is pending human review and not live yet.`;

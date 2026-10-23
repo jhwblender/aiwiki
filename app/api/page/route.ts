@@ -3,6 +3,7 @@ import { deletePage, normalizePath, readPage, subPages, titleFor, writePage } fr
 import { pendingForPage, pendingOpsForPage, sourcesForPage } from '@/lib/proposals';
 import { fail, userFrom } from '@/lib/api';
 import type { PageData } from '@/lib/types';
+import { summaryProblem } from '@/lib/summary';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -37,7 +38,10 @@ export async function PUT(req: NextRequest) {
     const body = await req.json();
     const p = normalizePath(String(body.path || ''));
     const user = userFrom(body.user);
-    await writePage(p, String(body.content ?? ''), user, `Edit ${p}`);
+    const content = String(body.content ?? '');
+    const problem = summaryProblem(await readPage(p), content);
+    if (problem) throw new Error(problem);
+    await writePage(p, content, user, `Edit ${p}`);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return fail(e);

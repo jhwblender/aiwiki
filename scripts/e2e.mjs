@@ -335,9 +335,9 @@ try {
   check('approving the removal deletes the old page', !fs.existsSync(path.join(wikiDir, 'team/onboarding/first-week.md')) && pageFile('team/onboarding').includes('whole week'));
 
   await chat('Please tidy the handbook', 'Alex', 'local', 'e2e-chat-stale'); // handbook is gone from team/, so nothing to move
-  await api('PUT', '/api/page', { path: 'team/handbook', content: '# Handbook draft\n', user: 'Jordan' });
+  await api('PUT', '/api/page', { path: 'team/handbook', content: '# Handbook draft\n\nA draft of the team handbook.\n', user: 'Jordan' });
   await chat('Please tidy the handbook', 'Alex', 'local', 'e2e-chat-stale2');
-  await api('PUT', '/api/page', { path: 'guides/handbook', content: '# Someone got there first\n', user: 'Jordan' });
+  await api('PUT', '/api/page', { path: 'guides/handbook', content: '# Someone got there first\n\nA page that was here first.\n', user: 'Jordan' });
   const staleOp = (await getPage('team/handbook')).ops[0];
   check('a move whose target now exists is marked out of date', !!staleOp?.stale, JSON.stringify(staleOp));
   check('an out-of-date move cannot be approved', (await api('POST', `/api/ops/${staleOp.opId}`, { action: 'approve', user: 'Kim' })).status === 400);
@@ -766,15 +766,20 @@ try {
   check('approving it moves every page under it', fs.existsSync(path.join(wikiDir, 'help/printers.md')) && fs.existsSync(path.join(wikiDir, 'help/network/wifi.md')) && !fs.existsSync(path.join(wikiDir, 'kb')));
   const putSummary = (p, summary) => api('PUT', '/api/structure', { path: p, summary, user: 'Kim' });
   check('a person can give a folder of pages a summary', (await putSummary('help', 'Help with everyday office things.')).status === 200 && pageFile('help') === '# Help\n\nHelp with everyday office things.\n');
-  await api('PUT', '/api/page', { path: 'help/network', content: '# Network\n\n## Notes\n\nKeep the router on.\n', user: 'Kim' });
-  await putSummary('help/network', 'Wifi and VPN at the office.');
-  check('a summary goes under the title and leaves the rest of the page', pageFile('help/network') === '# Network\n\nWifi and VPN at the office.\n\n## Notes\n\nKeep the router on.\n', pageFile('help/network'));
+  await api('PUT', '/api/page', { path: 'help/network', content: '# Network\n\nWifi and VPN at the office.\n\n## Notes\n\nKeep the router on.\n', user: 'Kim' });
+  const unsummarised = await api('PUT', '/api/page', { path: 'help/network', content: '# Network\n\n## Notes\n\nKeep the router on.\n', user: 'Kim' });
+  check('an edit cannot remove the summary', unsummarised.status === 400 && /cannot be removed/.test(unsummarised.data.error ?? ''), JSON.stringify(unsummarised.data));
+  const bare = await api('PUT', '/api/page', { path: 'help/bare', content: '# Bare\n\n- just a list\n', user: 'Kim' });
+  check('a new page needs a summary', bare.status === 400 && /needs a summary/.test(bare.data.error ?? ''));
   await putSummary('help/network', 'Wifi, VPN and the router.');
   check('editing a summary replaces only the summary', pageFile('help/network') === '# Network\n\nWifi, VPN and the router.\n\n## Notes\n\nKeep the router on.\n', pageFile('help/network'));
   check('a summary must be sentences, not a list', (await putSummary('help', '- one\n- two')).status === 400);
   const helpNode = findNode((await api('GET', '/api/structure')).data.sections, 'help');
   check('the structure lists every page under a section', helpNode?.summary === 'Help with everyday office things.' && helpNode.children.some((c) => c.path === 'help/network' && c.children.length === 2), JSON.stringify(helpNode, (k, v) => (k === 'summary' ? undefined : v)));
   check('summary edits are committed under the editor', git('log', '-1', '--format=%an %s').trim() === 'Kim Edit the summary of help/network');
+  const renamed = await api('POST', '/api/page/move', { from: 'help/printers', to: 'help/printer-guide', title: 'Printer guide', user: 'Kim' });
+  check('a move with a new title renames the page too', renamed.status === 200 && pageFile('help/printer-guide').startsWith('# Printer guide\n') &&
+    pageFile('help/network/wifi').includes('[[help/printer-guide]]'), JSON.stringify({ d: renamed.data, wifi: pageFile('help/network/wifi') }));
 
   // 34. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;

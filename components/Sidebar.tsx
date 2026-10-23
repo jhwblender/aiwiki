@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import type { PageListItem } from '@/lib/types';
-import { slugify } from './Md';
+import PlaceDialog from './PlaceDialog';
 
 type Node = { name: string; path: string; page?: PageListItem; children: Map<string, Node> };
 
@@ -86,14 +86,18 @@ export default function Sidebar({
 
   const tree = useMemo(() => buildTree(items), [items]);
 
-  function newPage() {
-    const name = window.prompt('Page title or path (for example systems/backup-policy)');
-    if (!name) return;
-    const slug = slugify(name);
-    if (slug) {
-      onNavigate();
-      router.push(`/wiki/${slug}`);
-    }
+  const [creating, setCreating] = useState(false);
+  // A new page goes beside the current one, or under it when it is a section
+  const hasChildren = items.some((i) => i.path.startsWith(current + '/'));
+  const defaultParent = !current || current === 'index' ? '' : hasChildren ? current : current.split('/').slice(0, -1).join('/');
+
+  function created(path: string, title: string) {
+    setCreating(false);
+    try {
+      sessionStorage.setItem('wiki-new-page', JSON.stringify({ path, title }));
+    } catch {}
+    onNavigate();
+    router.push(`/wiki/${path}`);
   }
 
   return (
@@ -102,9 +106,10 @@ export default function Sidebar({
         <Link href="/wiki/index" onClick={onNavigate}>
           Team wiki
         </Link>
-        <button className="btn small" onClick={newPage}>
+        <button className="btn small" onClick={() => setCreating(true)}>
           New page
         </button>
+        {creating && <PlaceDialog mode="new" initialParent={defaultParent} onCancel={() => setCreating(false)} onDone={created} />}
       </div>
       <input
         className="search"

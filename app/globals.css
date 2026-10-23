@@ -316,3 +316,17 @@ fieldset.visibility legend { font-size: 13px; font-weight: 500; padding: 0; marg
 .struct-summary.missing { color: var(--ink-soft); font-style: italic; font-family: var(--font-ui); font-size: 14px; }
 .struct-pages { margin: 2px 0 8px; color: var(--ink-soft); overflow-wrap: anywhere; }
 .struct-edit textarea { width: 100%; margin-top: 6px; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 6px; font: inherit; font-family: var(--font-doc); font-size: 16px; background: var(--panel); color: var(--ink); box-sizing: border-box; }
+
+/* ---------- summaries and choosing a place ---------- */
+.page-summary { font-size: 19px; color: var(--ink); border-left: 3px solid var(--teal); padding-left: 14px; margin: 0 0 1.2em; }
+.page-summary p { margin: 0.2em 0; }
+.editor .field { margin-top: 10px; }
+.editor .summary-field textarea { min-height: 0; font-family: var(--font-doc); font-size: 16px; }
+.field-note { color: var(--rem-ink); font-weight: 400; }
+.place-dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 48px); border: 1px solid var(--rule); border-radius: 10px; padding: 18px 20px; background: var(--panel); color: var(--ink); box-sizing: border-box; }
+.place-dialog::backdrop { background: rgba(23, 33, 43, 0.35); }
+.place-dialog h2 { margin: 0 0 4px; font-size: 18px; }
+.place-list { list-style: none; margin: 4px 0 0; padding: 4px; max-height: 40vh; overflow-y: auto; border: 1px solid var(--rule); border-radius: 6px; font-weight: 400; font-size: 14px; }
+.place-list label { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 5px; cursor: pointer; }
+.place-list label.picked { background: var(--teal-soft); }
+.crumbs a { color: inherit; }
