@@ -4,7 +4,7 @@ import type { PendingSet } from '../types';
 import { toBlocks } from '../diff';
 import { documentInfo, findDocumentByName, readDocumentPart, searchDocuments } from '../docsearch';
 import { db } from '../db';
-import { DEFAULT_LIMIT, surveySection } from '../librarian';
+import { librarianSettings, surveySection, WHOLE } from '../librarian';
 import type { ToolDef } from './providers';
 
 export const toolDefs: ToolDef[] = [
@@ -78,11 +78,11 @@ export const toolDefs: ToolDef[] = [
   {
     name: 'survey_section',
     description:
-      'Survey a section of the wiki before tidying it: lists its pages and points out likely duplicates, pages that may be in the wrong place, ' +
-      'missing overview pages, broken links and which watched folders the pages came from. Read-only.',
+      'Survey a section, or the whole wiki, before tidying it: lists its pages or sections and points out likely duplicates, pages that may be in the wrong place, ' +
+      'missing overview pages, broken links, and how the watched folders are organised and where their files ended up. Read-only.',
     parameters: {
       type: 'object',
-      properties: { section: { type: 'string', description: 'The section path, for example "systems" or "systems/hardware"' } },
+      properties: { section: { type: 'string', description: 'The section path, for example "systems" or "systems/hardware", or "*" for the whole wiki' } },
       required: ['section'],
     },
   },
@@ -90,6 +90,7 @@ export const toolDefs: ToolDef[] = [
     name: 'move_page',
     description:
       'Propose moving or renaming a page. Pages under it move too, and links to it are updated everywhere. ' +
+      'Also moves a folder of pages that has no page of its own. ' +
       'Paths can nest up to 5 levels, for example "systems/networking/vpn". Not done until a human approves.',
     parameters: {
       type: 'object',
@@ -150,7 +151,12 @@ async function ensureChangeSet(ctx: ToolContext, summary: string): Promise<numbe
   // A tidy run is its own source, asked for by the person who started it; documents it read are extra sources
   const sourceIds = ctx.librarian
     ? [
-        createSource({ kind: 'librarian', user: ctx.user, filename: 'Librarian', note: `Tidy of the "${ctx.librarian.section}" section` }),
+        createSource({
+          kind: 'librarian',
+          user: ctx.user,
+          filename: 'Librarian',
+          note: ctx.librarian.section === WHOLE ? 'Tidy of the whole wiki' : `Tidy of the "${ctx.librarian.section}" section`,
+        }),
         ...fileSources(),
       ]
     : ctx.files.length
@@ -502,13 +508,15 @@ export async function runTool(name: string, args: Record<string, any>, ctx: Tool
       case 'survey_section': {
         const survey = await surveySection(String(args.section ?? ''));
         // Asking in chat for a tidy gets the same cap as a tidy run
-        ctx.limit ??= DEFAULT_LIMIT;
+        ctx.limit ??= librarianSettings().limit;
         return survey.report;
       }
       case 'move_page': {
         const p = normalizePath(String(args.path ?? ''));
         const to = normalizePath(String(args.new_path ?? ''));
-        if ((await readPage(p)) === null) return moveSuggestedPage(ctx, p, to, String(args.summary ?? 'Move page'));
+        // A folder of pages without a page of its own moves like a page; anything else missing may be a suggested page
+        const isFolder = (await listPages()).some((x) => x.path.startsWith(p + '/'));
+        if ((await readPage(p)) === null && !isFolder) return moveSuggestedPage(ctx, p, to, String(args.summary ?? 'Move page'));
         try {
           await planMove(p, to);
         } catch (e: any) {

@@ -38,6 +38,7 @@ AI Wiki splits the job: **the AI does the reading and writing, people make every
 - Sees pending suggestions, so it does not suggest the same thing twice; a follow-up message revises its own earlier suggestion
 - Suggests moving, renaming, splitting and merging pages; links are rewritten when a page moves
 - Shows its progress live while it works, and keeps working if you close the chat
+- **Librarian:** keeps the wiki organised on its own. It settles the sections, writes overview pages, keeps the home page a map of the wiki, merges duplicates, moves misplaced pages and fixes broken links, using the watched folders to see what belongs together. Every change is a suggestion like any other
 
 **Runs where you want**
 - Any OpenAI-compatible local server (Ollama, LM Studio, vLLM), or Anthropic's Claude
@@ -102,13 +103,13 @@ More detail for contributors is in [CLAUDE.md](CLAUDE.md).
 npm run e2e
 ```
 
-Starts a scripted mock model and a throwaway wiki, then drives the whole flow through the API: chat, file drops (including a generated scanned PDF and photo), background filing, watched folders, page moves, conflicts and approvals. 160 checks, no model or network needed.
+Starts a scripted mock model and a throwaway wiki, then drives the whole flow through the API: chat, file drops (including a generated scanned PDF and photo), background filing, watched folders, the librarian, page moves, conflicts and approvals. Over 200 checks, no model or network needed.
 
 ## Status
 
 A working prototype in daily use by one team. It runs on a single machine; there are no real logins yet, so run it only where everyone who can reach it is trusted.
 
-Next up: background filing controls (pause, progress log), using folder structure when filing, personal-only folders, a librarian that tidies the wiki on request, conflict handling between sources, bulk review, and sign-in with roles. The full plan is in [CLAUDE.md](CLAUDE.md).
+Next up: conflict handling between sources, bulk review, a companion desktop app, and sign-in with roles. The full plan is in [CLAUDE.md](CLAUDE.md).
 
 ## License
 

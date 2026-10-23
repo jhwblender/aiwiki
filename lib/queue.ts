@@ -4,7 +4,7 @@ import { extractText, getFile } from './files';
 import { getProvider } from './ai/providers';
 import { checkVersion, recordVersion, type DocIdentity } from './ingest';
 import { runAgent } from './ai/agent';
-import { DEFAULT_LIMIT, MAX_LIMIT, surveySection, tidyInstruction } from './librarian';
+import { AUTO_USER, librarianSettings, MAX_LIMIT, scopeName, surveySection, tidyInstruction } from './librarian';
 
 // Work done without anyone watching a chat: drops sent "in the background", files from watched
 // folders, and librarian tidy runs over a section. One job runs at a time, oldest first, through
@@ -66,18 +66,18 @@ export function enqueue(input: {
   return Number(r.lastInsertRowid);
 }
 
-// A librarian run over one section. Only one per section waits at a time.
+// A librarian run over one section, or the whole wiki (WHOLE). Only one per scope waits at a time.
 export function enqueueTidy(input: { section: string; user: string; provider?: string; limit?: number }): number {
   const key = `tidy:${input.section}`;
   const waiting = db().prepare("SELECT id FROM ingest_jobs WHERE doc_key = ? AND status IN ('queued', 'working')").get(key);
-  if (waiting) throw new Error(`A tidy of "${input.section}" is already waiting or running.`);
-  const limit = Math.min(MAX_LIMIT, Math.max(1, Math.floor(Number(input.limit) || DEFAULT_LIMIT)));
+  if (waiting) throw new Error(`A tidy of ${scopeName(input.section)} is already waiting or running.`);
+  const limit = Math.min(MAX_LIMIT, Math.max(1, Math.floor(Number(input.limit) || librarianSettings().limit)));
   const r = db()
     .prepare(
       `INSERT INTO ingest_jobs (file_id, doc_key, display_name, user, provider, mode, tidy_limit, status, created_at)
        VALUES (NULL, ?, ?, ?, ?, 'tidy', ?, 'queued', ?)`,
     )
-    .run(key, `Tidy of ${input.section}`, input.user, input.provider ?? null, limit, now());
+    .run(key, `Tidy of ${scopeName(input.section)}`, input.user, input.provider ?? null, limit, now());
   changed();
   kick();
   return Number(r.lastInsertRowid);
@@ -227,11 +227,13 @@ async function agentFor(row: any, signal: AbortSignal, run: () => ReturnType<typ
 
 async function runTidy(row: any, signal: AbortSignal, onProgress: (text: string) => void) {
   const section = String(row.doc_key).slice('tidy:'.length);
-  const limit = row.tidy_limit || DEFAULT_LIMIT;
-  onProgress(`Surveying the ${section} section`);
+  const limit = row.tidy_limit || librarianSettings().limit;
+  onProgress(`Surveying ${scopeName(section)}`);
   const survey = await surveySection(section);
   if (!survey.pages) return finish(row.id, 'skipped', `There are no pages in "${section}".`);
   if (survey.pages === 1 && !survey.findings) return finish(row.id, 'skipped', `"${section}" has only one page and nothing to tidy.`);
+  // The librarian's own runs only spend model time when the survey found something
+  if (row.user === AUTO_USER && !survey.findings) return finish(row.id, 'skipped', `Nothing to tidy in ${scopeName(section)}.`);
   onProgress(`Found ${survey.findings} thing${survey.findings === 1 ? '' : 's'} to look at in ${survey.pages} pages`);
   const res = await agentFor(row, signal, () =>
     runAgent({

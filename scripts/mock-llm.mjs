@@ -13,6 +13,17 @@ const surveyLine = (text, re) => text.match(re) ?? [];
 
 const SCENARIOS = [
   {
+    // a librarian run over the whole wiki: reports whether it saw the sections and the watched folder map
+    keyword: 'librarian pass over the whole wiki',
+    steps: [{ name: 'survey_section', args: { section: '*' } }],
+    reply: (tools) => (/Sections \(path/.test(tools) && tools.includes('"Lib share" (2 files)') && /Printers\/ \(1 file\)/.test(tools) ? 'WHOLE-SURVEY-SEEN' : 'WHOLE-SURVEY-NOT-SEEN'),
+  },
+  {
+    keyword: 'move the kb folder',
+    steps: [{ name: 'move_page', args: { path: 'kb', new_path: 'help', summary: 'Help pages belong under help' } }],
+    reply: 'I proposed moving the kb pages under help.',
+  },
+  {
     // a librarian tidy run: merges the first duplicate pair, adds the first missing overview and fixes a broken link.
     // First in the list because the survey can mention words other scenarios listen for.
     keyword: 'librarian pass over',

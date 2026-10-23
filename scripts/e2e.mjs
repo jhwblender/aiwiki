@@ -78,6 +78,11 @@ const server = spawn(path.join(ROOT, 'node_modules/.bin/next'), ['dev', '-p', St
     // the checks trigger folder scans themselves
     WATCH_INTERVAL_SECONDS: '3600',
     INGEST_RETRY_SECONDS: '1',
+    // the checks ask the librarian to look for due runs themselves, and nothing needs to settle first
+    LIBRARIAN_CHECK_SECONDS: '3600',
+    LIBRARIAN_QUIET_SECONDS: '0',
+    LIBRARIAN_SECTION_GAP_SECONDS: '0',
+    LIBRARIAN_WHOLE_GAP_SECONDS: '0',
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -729,7 +734,31 @@ try {
   await api('POST', `/api/proposals/${merged.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
   await api('POST', `/api/ops/${removal.opId}`, { action: 'reject', user: 'Kim' });
 
-  // 33. Search finds approved content
+  // 33. The librarian's settings, its own runs over the whole wiki, and moving a folder of pages
+  check('the limit per run is checked', (await api('PUT', '/api/librarian', { limit: 500 })).status === 400);
+  check('the limit per run can be changed', (await api('PUT', '/api/librarian', { limit: 30 })).data.limit === 30 && (await api('GET', '/api/librarian')).data.settings.limit === 30);
+  const libDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aiwiki-lib-'));
+  for (const [rel, text] of [['Manuals/Printers/guide.txt', 'Printer guide\n'], ['Manuals/Network/wifi.txt', 'Wifi notes\n']]) {
+    fs.mkdirSync(path.dirname(path.join(libDir, rel)), { recursive: true });
+    fs.writeFileSync(path.join(libDir, rel), text);
+    fs.utimesSync(path.join(libDir, rel), new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
+  }
+  await api('POST', '/api/folders', { label: 'Lib share', path: libDir, user: 'Alex', fileExisting: false });
+  const due = (await api('POST', '/api/librarian', { action: 'check' })).data;
+  check('the librarian starts with the whole wiki on its own', due.started === '*', JSON.stringify(due));
+  const wholeJob = await waitJob((await api('GET', '/api/ingest')).data.jobs.find((j) => j.kind === 'tidy' && j.displayName === 'Tidy of the whole wiki')?.id);
+  check('a whole-wiki run sees the sections and the watched folders', wholeJob?.status === 'done' && wholeJob.user === 'Librarian' && wholeJob.detail === 'WHOLE-SURVEY-SEEN', JSON.stringify(wholeJob));
+  await api('PUT', '/api/librarian', { auto: false });
+  check('the librarian can be told not to run on its own', (await api('POST', '/api/librarian', { action: 'check' })).data.started === null);
+  for (const f of (await api('GET', '/api/folders')).data) await api('DELETE', `/api/folders/${f.id}`);
+  fs.rmSync(libDir, { recursive: true, force: true });
+  const kbMove = await chat('Please move the kb folder', 'Alex');
+  const kbOp = (await getPage('kb')).ops[0];
+  check('a folder without its own page can be moved', kbMove.proposed?.some((p) => p.path === 'kb') && kbOp?.kind === 'move' && kbOp.newPath === 'help', JSON.stringify({ kbMove, kbOp }));
+  await api('POST', `/api/ops/${kbOp.opId}`, { action: 'approve', user: 'Kim' });
+  check('approving it moves every page under it', fs.existsSync(path.join(wikiDir, 'help/printers.md')) && fs.existsSync(path.join(wikiDir, 'help/network/wifi.md')) && !fs.existsSync(path.join(wikiDir, 'kb')));
+
+  // 34. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;
   check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
 } catch (e) {

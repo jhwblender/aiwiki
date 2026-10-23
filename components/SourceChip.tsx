@@ -5,7 +5,8 @@ import type { SourceInfo } from '@/lib/types';
 export function sourceSummary(s: SourceInfo | null): string {
   if (!s) return 'Unknown source';
   if (s.kind === 'chat') return `Chat with ${s.user}`;
-  if (s.kind === 'librarian') return `Librarian, started by ${s.user}`;
+  // The librarian's own scheduled runs are started by "Librarian"
+  if (s.kind === 'librarian') return s.user === 'Librarian' ? 'Librarian, on its own' : `Librarian, started by ${s.user}`;
   if (s.kind === 'file') return `${s.filename ?? 'File'} from ${s.user}`;
   return s.user;
 }

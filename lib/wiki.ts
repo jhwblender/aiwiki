@@ -170,6 +170,17 @@ export async function writePage(p: string, content: string, author: string, mess
   changed();
 }
 
+// Remove folders left empty after their pages moved or were deleted, up to the wiki folder
+async function pruneEmptyDirs(p: string) {
+  for (let dir = path.dirname(fileFor(p)); dir.startsWith(WIKI_DIR + path.sep); dir = path.dirname(dir)) {
+    try {
+      await fs.rmdir(dir); // only succeeds when empty
+    } catch {
+      return;
+    }
+  }
+}
+
 // ---------- moving ----------
 
 function safePath(target: string): string | null {
@@ -230,6 +241,7 @@ export async function movePage(from: string, to: string, author: string, message
       await fs.mkdir(path.dirname(fileFor(newPath)), { recursive: true });
       await fs.writeFile(fileFor(newPath), content);
       await fs.rm(fileFor(oldPath));
+      await pruneEmptyDirs(oldPath);
       db().prepare('DELETE FROM pages_fts WHERE path = ?').run(oldPath);
       touched.push(oldPath + '.md', newPath + '.md');
     }
@@ -254,6 +266,7 @@ export async function deletePage(p: string, author: string, message = `Delete ${
   await ensureInit();
   await serial(async () => {
     await fs.rm(fileFor(p), { force: true });
+    await pruneEmptyDirs(p);
     db().prepare('DELETE FROM pages_fts WHERE path = ?').run(p);
     await git.add(p + '.md');
     const who = author.replace(/[<>\n]/g, '').trim() || 'anonymous';
@@ -264,6 +277,14 @@ export async function deletePage(p: string, author: string, message = `Delete ${
     }
   });
   changed();
+}
+
+// When anything in a section (a page, or pages under it) last changed, or anything at all; ms, 0 if never
+export async function lastChanged(section?: string): Promise<number> {
+  await ensureInit();
+  const paths = section ? ['--', `${section}.md`, `${section}/`] : [];
+  const out = await serial(() => git.raw(['log', '-1', '--format=%ct', ...paths]));
+  return (Number(out.trim()) || 0) * 1000;
 }
 
 export async function history(p: string, limit = 20) {
