@@ -134,7 +134,12 @@ export default function BackgroundJobs() {
               </button>
             )}
           </div>
-          {state.paused && c!.working > 0 && <p className="muted small-text">The file being read finishes first, then filing stops.</p>}
+          {state.paused && (
+            <p className="muted small-text">
+              {c!.working > 0 ? 'The file being read finishes first, then filing stops. ' : ''}Tidy runs from the librarian still run while
+              filing is paused.
+            </p>
+          )}
 
           {state.waitingForModel && (
             <div className="notice queue-wait">

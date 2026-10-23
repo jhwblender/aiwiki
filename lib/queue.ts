@@ -143,7 +143,7 @@ export function isPaused(): boolean {
   return r?.value === '1';
 }
 
-// Pausing lets the file being read finish, then stops before the next one
+// Pausing lets the file being read finish, then stops before the next one; tidy runs still go
 export function setPaused(paused: boolean) {
   db()
     .prepare("INSERT INTO settings (key, value) VALUES ('queue.paused', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value")
@@ -375,9 +375,10 @@ export function kick() {
         worker.recovered = true;
       }
       for (;;) {
-        if (isPaused()) break;
-        // A tidy run was asked for by someone waiting on it, so it goes before a backlog of files
-        const row = db().prepare(`SELECT * FROM ingest_jobs WHERE status = 'queued' ORDER BY ${RUN_ORDER} LIMIT 1`).get() as any;
+        // A tidy run was asked for by someone waiting on it, so it goes before a backlog of files,
+        // and pausing (which holds back files) does not hold it
+        const onlyTidy = isPaused() ? "AND mode = 'tidy'" : '';
+        const row = db().prepare(`SELECT * FROM ingest_jobs WHERE status = 'queued' ${onlyTidy} ORDER BY ${RUN_ORDER} LIMIT 1`).get() as any;
         if (!row) break;
         db().prepare("UPDATE ingest_jobs SET status = 'working', started_at = ? WHERE id = ?").run(now(), row.id);
         changed();

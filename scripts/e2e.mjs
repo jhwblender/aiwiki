@@ -701,12 +701,18 @@ try {
   const surveyed = await chat('Please tidy the kb section', 'Alex');
   check('the chat can survey a section', surveyed.reply === 'SURVEY-SEEN' && surveyed.trace?.includes('Surveyed the kb section'), JSON.stringify(surveyed));
   check('a missing section cannot be tidied', (await api('POST', '/api/librarian', { section: 'nowhere', user: 'Alex' })).status === 400);
+  // a slow file keeps the queue busy so the tidy has to wait, and filing is paused behind it
+  const busyJob = await queueOne('busy.txt', 'FACT: Busy fact.\n', 'Please slowly add a canteen section');
+  for (let i = 0; i < 80 && (await api('GET', '/api/ingest')).data.current?.job?.id !== busyJob; i++) await new Promise((r) => setTimeout(r, 100));
   await ctl('pause');
   const tidyJob = (await api('POST', '/api/librarian', { section: 'kb', user: 'Alex', provider: 'local', limit: 3 })).data.job;
   check('a section is tidied only once at a time', (await api('POST', '/api/librarian', { section: 'kb', user: 'Alex' })).status === 400);
   check('a waiting tidy shows on its section', (await api('GET', '/api/librarian')).data.sections.find((s) => s.section === 'kb')?.run === 'queued');
-  await ctl('resume');
   const tidied = await waitJob(tidyJob);
+  check('a tidy runs while filing is paused', (await api('GET', '/api/ingest')).data.paused === true && tidied?.status === 'done');
+  await ctl('resume');
+  await waitJob(busyJob);
+  for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
   check('a tidy run suggests changes up to its limit', tidied?.status === 'done' && tidied.kind === 'tidy' &&
     JSON.stringify([...tidied.proposed].sort()) === JSON.stringify(['kb/network', 'kb/printers', 'kb/printing']) && /over the limit/.test(tidied.detail ?? ''), JSON.stringify(tidied));
   check('nothing over the limit is suggested', (await getPage('kb/network/wifi')).pending.length === 0);
