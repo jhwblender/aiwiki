@@ -1,4 +1,6 @@
-// Rendering happens in the layout's shell; this route only exists so /structure resolves.
+import { redirect } from 'next/navigation';
+
+// The structure is the home page's table of contents now
 export default function StructurePage() {
-  return null;
+  redirect('/wiki/index#contents');
 }

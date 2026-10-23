@@ -304,7 +304,9 @@ fieldset.visibility legend { font-size: 13px; font-weight: 500; padding: 0; marg
 
 /* ---------- structure ---------- */
 .struct { list-style: none; margin: 0; padding: 0; }
-.structure > .struct { margin-top: 18px; }
+.contents { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--rule); scroll-margin-top: 16px; }
+.contents h2 { font-family: var(--font-doc); font-size: 24px; margin: 0 0 4px; }
+.contents > .struct { margin-top: 16px; }
 .struct .struct { margin-left: 14px; padding-left: 14px; border-left: 1px solid var(--rule); }
 .struct-node { margin: 0 0 14px; }
 .struct-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
@@ -330,3 +332,18 @@ fieldset.visibility legend { font-size: 13px; font-weight: 500; padding: 0; marg
 .place-list label { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 5px; cursor: pointer; }
 .place-list label.picked { background: var(--teal-soft); }
 .crumbs a { color: inherit; }
+
+/* ---------- filing plan by folder ---------- */
+.folder-plan { margin-top: 14px; border-top: 1px solid var(--rule); padding-top: 10px; }
+.plan-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.plan-tree { list-style: none; margin: 0; padding: 0; }
+.plan-tree .plan-tree { margin-left: 12px; padding-left: 8px; border-left: 1px solid var(--rule); }
+.plan-row { display: flex; align-items: flex-start; gap: 6px; padding: 5px 0 5px 6px; flex-wrap: wrap; border-left: 3px solid transparent; }
+.plan-row.rule-sample { border-left-color: var(--teal); }
+.plan-row.rule-index { border-left-color: var(--rule); }
+.plan-row.rule-skip { border-left-color: var(--rule); }
+.plan-row.rule-skip .plan-name > span:first-child { color: var(--ink-soft); text-decoration: line-through; text-decoration-color: var(--rule); }
+.plan-toggle { width: 20px; flex-shrink: 0; border: 0; background: none; color: var(--ink-soft); cursor: pointer; padding: 0; font-size: 13px; line-height: 22px; text-align: center; }
+.plan-name { flex: 1; min-width: 160px; overflow-wrap: anywhere; font-size: 14px; }
+.plan-reason { margin-top: 1px; }
+.plan-row select { font: inherit; font-size: 13px; padding: 3px 6px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); color: var(--ink); max-width: 100%; }

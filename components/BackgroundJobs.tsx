@@ -2,11 +2,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import Md from './Md';
+import FolderPlan from './FolderPlan';
 
-type Status = 'queued' | 'working' | 'done' | 'skipped' | 'failed' | 'cancelled';
+type Status = 'queued' | 'working' | 'done' | 'kept' | 'skipped' | 'failed' | 'cancelled';
 type Job = {
   id: number;
-  kind: 'file' | 'index' | 'tidy';
+  kind: 'file' | 'index' | 'tidy' | 'plan';
   displayName: string;
   folderLabel: string | null;
   relPath: string | null;
@@ -30,11 +31,12 @@ const LABEL: Record<Status, string> = {
   queued: 'Waiting',
   working: 'Reading',
   done: 'Done',
+  kept: 'Kept',
   skipped: 'Skipped',
   failed: 'Failed',
   cancelled: 'Cancelled',
 };
-const FILTERS: Status[] = ['queued', 'done', 'skipped', 'failed', 'cancelled'];
+const FILTERS: Status[] = ['queued', 'done', 'kept', 'skipped', 'failed', 'cancelled'];
 
 function when(iso: string) {
   try {
@@ -54,6 +56,19 @@ function elapsed(fromIso: string, now: number) {
 export default function BackgroundJobs() {
   const [state, setState] = useState<State | null>(null);
   const [filter, setFilter] = useState<Status | null>(null);
+  // By folder shows each watched folder as a tree; the other views list jobs
+  const [byFolder, setByFolder] = useState(true);
+  const [folders, setFolders] = useState<{ id: number; label: string; visibility: string }[]>([]);
+  const [user, setUser] = useState('');
+  useEffect(() => {
+    try {
+      setUser(localStorage.getItem('wiki-user') || '');
+    } catch {}
+    fetch('/api/folders', { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((d) => Array.isArray(d) && setFolders(d.filter((f: any) => f.visibility !== 'personal')))
+      .catch(() => {});
+  }, []);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -189,11 +204,19 @@ export default function BackgroundJobs() {
           )}
 
           <div className="queue-filters" role="tablist" aria-label="Show">
+            {folders.length > 0 && (
+              <button role="tab" aria-selected={byFolder} className={'btn small' + (byFolder ? ' picked' : ' quiet')} onClick={() => setByFolder(true)}>
+                By folder
+              </button>
+            )}
             <button
               role="tab"
-              aria-selected={!filter}
-              className={'btn small' + (!filter ? ' picked' : ' quiet')}
-              onClick={() => setFilter(null)}
+              aria-selected={!byFolder && !filter}
+              className={'btn small' + (!byFolder && !filter ? ' picked' : ' quiet')}
+              onClick={() => {
+                setByFolder(false);
+                setFilter(null);
+              }}
             >
               Recent
             </button>
@@ -201,15 +224,22 @@ export default function BackgroundJobs() {
               <button
                 key={f}
                 role="tab"
-                aria-selected={filter === f}
-                className={'btn small' + (filter === f ? ' picked' : ' quiet')}
-                onClick={() => setFilter(f)}
+                aria-selected={!byFolder && filter === f}
+                className={'btn small' + (!byFolder && filter === f ? ' picked' : ' quiet')}
+                onClick={() => {
+                  setByFolder(false);
+                  setFilter(f);
+                }}
               >
                 {LABEL[f]} {c![f]}
               </button>
             ))}
           </div>
 
+          {byFolder && folders.length > 0 ? (
+            folders.map((f) => <FolderPlan key={f.id} folderId={f.id} user={user || 'anonymous'} />)
+          ) : (
+            <>
           {filter === 'queued' && c!.queued > 0 && (
             <div className="queue-actions">
               {state.waitingByFolder.length > 1 &&
@@ -293,6 +323,8 @@ export default function BackgroundJobs() {
                 <li className="muted small-text">And {c![filter] - state.jobs.length} more not shown.</li>
               )}
             </ul>
+          )}
+            </>
           )}
         </>
       )}

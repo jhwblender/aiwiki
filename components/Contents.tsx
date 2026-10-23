@@ -5,9 +5,10 @@ import Link from 'next/link';
 type Node = { path: string; title: string; exists: boolean; summary: string | null; pages: number; children: Node[] };
 type Data = { home: { title: string; summary: string | null } | null; sections: Node[]; pending: Record<string, number> };
 
-// The wiki's structure, generated from the pages so it is always current. Only the summaries are
-// written by people (or suggested by the librarian); the arrangement comes from where pages are.
-export default function StructureView({ user, version, onChanged }: { user: string; version: number; onChanged: () => void }) {
+// The home page's table of contents: the wiki's structure, generated from the pages so it is always
+// current. Only the summaries are written by people (or suggested by the librarian); the arrangement
+// comes from where pages are.
+export default function Contents({ user, version, onChanged }: { user: string; version: number; onChanged: () => void }) {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState('');
 
@@ -24,15 +25,18 @@ export default function StructureView({ user, version, onChanged }: { user: stri
     load();
   }, [load, version]);
 
+  // The Contents link (/wiki/index#contents) lands here once the list has loaded
+  const loaded = !!data;
+  useEffect(() => {
+    if (loaded && window.location.hash === '#contents') document.getElementById('contents')?.scrollIntoView();
+  }, [loaded]);
+
   return (
-    <main className="page structure">
-      <div className="crumbs">Wiki structure</div>
-      <div className="title-row">
-        <h1 className="doc-title">Structure</h1>
-      </div>
+    <section className="contents" id="contents" aria-label="Contents">
+      <h2>Contents</h2>
       <p className="muted small-text">
-        Every section and page, arranged as they are in the wiki. This page builds itself from the pages, so it is always up to date. Each
-        section&apos;s summary says what belongs in it; the librarian and filing use the summaries to decide where new information goes.
+        Every section and page, as they are arranged in the wiki; this list keeps itself up to date. Each section&apos;s summary says what
+        belongs in it, and the librarian and filing use the summaries to decide where new information goes.
       </p>
       {error && <div className="error">{error}</div>}
       {!data ? (
@@ -46,7 +50,7 @@ export default function StructureView({ user, version, onChanged }: { user: stri
           ))}
         </ul>
       )}
-    </main>
+    </section>
   );
 }
 

@@ -91,7 +91,7 @@ export default function Librarian() {
       <h2>Librarian</h2>
       <p className="muted small-text">
         The librarian has two jobs. <strong>Organise</strong> designs the layout of the whole wiki: which sections there are, what
-        belongs in each (the summaries on the <a href="/structure">structure page</a>), and homes for what the watched folders show is
+        belongs in each (the summaries on the <a href="/wiki/index#contents">contents on the home page</a>), and homes for what the watched folders show is
         still coming. <strong>Tidy</strong> cleans one section inside that layout: duplicates, stubs, misplaced pages and broken links.
         Everything it suggests waits for someone to approve it on the page.
       </p>

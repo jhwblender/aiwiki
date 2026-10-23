@@ -154,8 +154,8 @@ export default function Sidebar({
           </Link>
         )}
         <div className="side-links">
-          <Link href="/structure" className="settings-link">
-            Structure
+          <Link href="/wiki/index#contents" className="settings-link">
+            Contents
           </Link>
           <Link href="/settings" className="settings-link">
             Settings

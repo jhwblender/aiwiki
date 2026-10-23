@@ -5,6 +5,7 @@ import Link from 'next/link';
 import type { PageData, PendingOp, PendingSet, Segment } from '@/lib/types';
 import Md from './Md';
 import PlaceDialog, { titleOf } from './PlaceDialog';
+import Contents from './Contents';
 import { usePages } from './WikiContext';
 import { joinSummary, splitSummary } from '@/lib/summary';
 import SourceChip from './SourceChip';
@@ -448,6 +449,8 @@ export default function PageView({
               </div>
             )}
           </article>
+
+          {data.path === 'index' && <Contents user={user} version={version} onChanged={onChanged} />}
 
           {data.children.length > 0 && (
             <nav className="subpages" aria-label="Sub-pages">

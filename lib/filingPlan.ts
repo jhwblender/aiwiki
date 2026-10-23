@@ -113,6 +113,9 @@ export function patternRules(folderId: number): Map<string, { rule: Rule; reason
     // Many sub-folders holding the same kind of files: capture runs, exports, one folder per test
     if (n.dirs.length >= 5) {
       const sig = (d: string) => [...new Set(tree.get(d)!.files.map(shapeOf))].sort().join(',');
+      // a real file name for each kind, to name the kinds in the reason
+      const example = new Map<string, string>();
+      for (const c of n.dirs) for (const f of tree.get(c)!.files) if (!example.has(shapeOf(f))) example.set(shapeOf(f), f);
       const counts = new Map<string, number>();
       for (const c of n.dirs) {
         const s = sig(c);
@@ -120,7 +123,8 @@ export function patternRules(folderId: number): Map<string, { rule: Rule; reason
       }
       const [best, count] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0] ?? ['', 0];
       if (count >= 5 && count >= n.dirs.length * 0.6) {
-        out.set(n.dir, { rule: 'sample', reason: `${count} sub-folders hold the same kind of files (${best.split(',').slice(0, 3).join(', ')})` });
+        const names = best.split(',').slice(0, 3).map((s) => example.get(s) ?? s);
+        out.set(n.dir, { rule: 'sample', reason: `${count} sub-folders hold the same kind of files, such as ${names.join(', ')}` });
         continue;
       }
     }
@@ -128,7 +132,8 @@ export function patternRules(folderId: number): Map<string, { rule: Rule; reason
     const shapes = new Map<string, number>();
     for (const f of n.files) shapes.set(shapeOf(f), (shapes.get(shapeOf(f)) ?? 0) + 1);
     const camera = n.files.filter((f) => IMAGE.test(f) && CAMERA.test(shapeOf(f))).length;
-    const [series, seriesCount] = [...shapes.entries()].sort((a, b) => b[1] - a[1])[0] ?? ['', 0];
+    const [seriesShape, seriesCount] = [...shapes.entries()].sort((a, b) => b[1] - a[1])[0] ?? ['', 0];
+    const series = n.files.find((f) => shapeOf(f) === seriesShape) ?? seriesShape;
     if (camera >= 8 && camera >= n.files.length * 0.7) out.set(n.dir, { rule: 'sample', reason: `${camera} camera photos` });
     else if (seriesCount >= 10 && seriesCount >= n.files.length * 0.7) out.set(n.dir, { rule: 'sample', reason: `${seriesCount} numbered files like ${series}` });
   }
