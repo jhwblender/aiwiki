@@ -746,8 +746,15 @@ try {
   await api('POST', '/api/folders', { label: 'Lib share', path: libDir, user: 'Alex', fileExisting: false });
   const due = (await api('POST', '/api/librarian', { action: 'check' })).data;
   check('the librarian starts with the whole wiki on its own', due.started === '*', JSON.stringify(due));
-  const wholeJob = await waitJob((await api('GET', '/api/ingest')).data.jobs.find((j) => j.kind === 'tidy' && j.displayName === 'Tidy of the whole wiki')?.id);
-  check('a whole-wiki run sees the sections and the watched folders', wholeJob?.status === 'done' && wholeJob.user === 'Librarian' && wholeJob.detail === 'WHOLE-SURVEY-SEEN', JSON.stringify(wholeJob));
+  const wholeJob = await waitJob((await api('GET', '/api/ingest')).data.jobs.find((j) => j.kind === 'tidy' && j.displayName === 'Organise the wiki')?.id);
+  check('organising sees the structure and the watched folders, and cannot edit page text', wholeJob?.status === 'done' && wholeJob.user === 'Librarian' && wholeJob.detail === 'WHOLE-SURVEY-SEEN', JSON.stringify(wholeJob));
+  const summarised = wholeJob?.proposed?.[0];
+  const sumSet = summarised ? (await getPage(summarised)).pending[0] : null;
+  check('organising suggests a section summary from the librarian', wholeJob?.proposed?.length === 1 && sumSet?.source?.kind === 'librarian' && sumSet.source.user === 'Librarian', JSON.stringify({ p: wholeJob?.proposed, src: sumSet?.source }));
+  if (sumSet) await api('POST', `/api/proposals/${sumSet.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
+  const allNodes = (nodes) => nodes.flatMap((n) => [n, ...allNodes(n.children)]);
+  const findNode = (nodes, p) => allNodes(nodes).find((n) => n.path === p);
+  check('an approved summary shows on the structure page', findNode((await api('GET', '/api/structure')).data.sections ?? [], summarised)?.summary === 'Everything about this part of the wiki.');
   await api('PUT', '/api/librarian', { auto: false });
   check('the librarian can be told not to run on its own', (await api('POST', '/api/librarian', { action: 'check' })).data.started === null);
   for (const f of (await api('GET', '/api/folders')).data) await api('DELETE', `/api/folders/${f.id}`);
@@ -757,6 +764,17 @@ try {
   check('a folder without its own page can be moved', kbMove.proposed?.some((p) => p.path === 'kb') && kbOp?.kind === 'move' && kbOp.newPath === 'help', JSON.stringify({ kbMove, kbOp }));
   await api('POST', `/api/ops/${kbOp.opId}`, { action: 'approve', user: 'Kim' });
   check('approving it moves every page under it', fs.existsSync(path.join(wikiDir, 'help/printers.md')) && fs.existsSync(path.join(wikiDir, 'help/network/wifi.md')) && !fs.existsSync(path.join(wikiDir, 'kb')));
+  const putSummary = (p, summary) => api('PUT', '/api/structure', { path: p, summary, user: 'Kim' });
+  check('a person can give a folder of pages a summary', (await putSummary('help', 'Help with everyday office things.')).status === 200 && pageFile('help') === '# Help\n\nHelp with everyday office things.\n');
+  await api('PUT', '/api/page', { path: 'help/network', content: '# Network\n\n## Notes\n\nKeep the router on.\n', user: 'Kim' });
+  await putSummary('help/network', 'Wifi and VPN at the office.');
+  check('a summary goes under the title and leaves the rest of the page', pageFile('help/network') === '# Network\n\nWifi and VPN at the office.\n\n## Notes\n\nKeep the router on.\n', pageFile('help/network'));
+  await putSummary('help/network', 'Wifi, VPN and the router.');
+  check('editing a summary replaces only the summary', pageFile('help/network') === '# Network\n\nWifi, VPN and the router.\n\n## Notes\n\nKeep the router on.\n', pageFile('help/network'));
+  check('a summary must be sentences, not a list', (await putSummary('help', '- one\n- two')).status === 400);
+  const helpNode = findNode((await api('GET', '/api/structure')).data.sections, 'help');
+  check('the structure lists every page under a section', helpNode?.summary === 'Help with everyday office things.' && helpNode.children.some((c) => c.path === 'help/network' && c.children.length === 2), JSON.stringify(helpNode, (k, v) => (k === 'summary' ? undefined : v)));
+  check('summary edits are committed under the editor', git('log', '-1', '--format=%an %s').trim() === 'Kim Edit the summary of help/network');
 
   // 34. Search finds approved content
   const hits = (await api('GET', '/api/search?q=nightly')).data;

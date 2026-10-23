@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 import type { PageListItem } from '@/lib/types';
 import Sidebar from './Sidebar';
 import PageView from './PageView';
+import StructureView from './StructureView';
 import ChatPanel, { type IncomingFiles } from './ChatPanel';
 import { PagesContext } from './WikiContext';
 
@@ -15,7 +16,10 @@ function pathFrom(pathname: string): string {
 }
 
 export default function Shell() {
-  const path = pathFrom(usePathname() || '');
+  const pathname = usePathname() || '';
+  // /structure shows the generated structure in place of a page
+  const onStructure = pathname === '/structure';
+  const path = onStructure ? '' : pathFrom(pathname);
   // The name is set on the Settings page and kept in this browser
   const [user, setUserState] = useState('');
   const [version, setVersion] = useState(0);
@@ -113,17 +117,21 @@ export default function Shell() {
           user={user}
           onNavigate={() => setSideOpen(false)}
         />
-        <PageView
-          path={path}
-          user={effectiveUser}
-          version={version}
-          onChanged={bump}
-          onDropFiles={(files) => {
-            setIncoming({ files, note: 'Add what is useful from the attached files to this page.', key: Date.now() });
-            setChatOpen(true);
-            setSideOpen(false);
-          }}
-        />
+        {onStructure ? (
+          <StructureView user={effectiveUser} version={version} onChanged={bump} />
+        ) : (
+          <PageView
+            path={path}
+            user={effectiveUser}
+            version={version}
+            onChanged={bump}
+            onDropFiles={(files) => {
+              setIncoming({ files, note: 'Add what is useful from the attached files to this page.', key: Date.now() });
+              setChatOpen(true);
+              setSideOpen(false);
+            }}
+          />
+        )}
         {chatOpen && (
           <ChatPanel user={effectiveUser} currentPath={path} onChanged={bump} incoming={incoming} onIncomingTaken={() => setIncoming(null)} />
         )}

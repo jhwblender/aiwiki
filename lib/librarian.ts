@@ -1,6 +1,7 @@
 import { db } from './db';
 import { listPages, normalizePath, readPage } from './wiki';
 import { pendingCounts } from './proposals';
+import { structureOutline, summaryOf } from './structure';
 
 // The librarian keeps the wiki organised beyond single edits. Before the assistant looks at a
 // section, this survey works out what is worth its attention without a model: pages that share
@@ -18,6 +19,8 @@ export const WHOLE = '*';
 export const AUTO_USER = 'Librarian';
 
 export const scopeName = (section: string) => (section === WHOLE ? 'the whole wiki' : `the ${section} section`);
+// What a run is called in Background filing: Organise for the whole wiki, Tidy for a section
+export const runName = (section: string) => (section === WHOLE ? 'Organise the wiki' : `Tidy of the ${section} section`);
 
 function setting(key: string): string | undefined {
   return (db().prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined)?.value;
@@ -137,25 +140,6 @@ function bySectionOf(all: Page[]): Map<string, Page[]> {
   return out;
 }
 
-// The first sentence of a page's prose (lists and tables only when there is nothing else), to say
-// in a line what it is about
-function gist(md: string, n = 120): string {
-  const blocks = md
-    .replace(/^#{1,6}\s.*$/gm, '')
-    .split(/\n\s*\n/)
-    .filter((b) => b.trim());
-  const prose = blocks.find((b) => !/^\s*([-*+|>]|\d+[.)])\s?/.test(b.trim()));
-  if (prose) return firstSentence(prose, n);
-  // only lists: name what the page is divided into
-  const headings = [...md.matchAll(/^#{2,6}\s+(.+)$/gm)].map((m) => m[1].trim());
-  return headings.length ? clip(`covers ${headings.join(', ')}`, n) : firstSentence(blocks[0] ?? '', n);
-}
-
-function firstSentence(md: string, n: number): string {
-  const text = md.replace(/^#{1,6}\s.*$/gm, '').replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_w, t: string, l?: string) => l ?? t).replace(/\s+/g, ' ').trim();
-  return clip(text.split(/(?<=[.!?])\s/)[0] ?? '', n);
-}
-
 // Text of a page without its title and headings, to tell an empty overview from a real one
 const bodyChars = (md: string) => md.replace(/^#{1,6}\s.*$/gm, '').replace(/\s+/g, ' ').trim().length;
 
@@ -218,7 +202,7 @@ function pendingOpsIn(section: string): { kind: string; path: string; newPath: s
 }
 
 const FOLDER_MAP_HEADER =
-  'How the team groups its own documents: the watched folders as trees with file counts, and where in the wiki the pages filed from each folder ended up (-> section (pages)). ' +
+  'How the team groups its own documents: the watched folders as trees with file counts (and how many are not filed yet, so still coming), and where in the wiki the pages filed from each folder ended up (-> section (pages)). ' +
   'Use it to see what belongs together; organise the wiki by topic for a reader rather than copying the folder layout:';
 
 // The watched folders that feed the wiki, as compact trees with file counts, and where in the
@@ -262,24 +246,34 @@ function folderMap(known: Set<string>, onlyLabels?: Set<string>, maxDirs = 40): 
   const lines: string[] = [];
   for (const f of folders) {
     const files = (db().prepare('SELECT rel_path FROM watched_files WHERE folder_id = ?').all(f.id) as { rel_path: string }[]).map((r) => r.rel_path);
+    // Files the wiki has not filed yet are what is still coming
+    const filed = new Set(
+      (db().prepare('SELECT rel_path FROM documents WHERE folder_label = ? AND personal = 0').all(f.label) as { rel_path: string | null }[]).map((r) => r.rel_path),
+    );
     const total = new Map<string, number>();
+    const coming = new Map<string, number>();
     for (const file of files) {
       const parts = file.split('/').slice(0, -1);
-      for (let i = 1; i <= Math.min(parts.length, 3); i++) {
-        const d = parts.slice(0, i).join('/');
+      for (let i = 0; i <= Math.min(parts.length, 3); i++) {
+        const d = parts.slice(0, i).join('/') || '.';
         total.set(d, (total.get(d) ?? 0) + 1);
+        if (!filed.has(file)) coming.set(d, (coming.get(d) ?? 0) + 1);
       }
     }
-    lines.push(`- "${f.label}" (${files.length} files)${where(f.label, '.')}`);
+    const count = (d: string) => {
+      const n = total.get(d) ?? 0;
+      const c = coming.get(d) ?? 0;
+      const files = `${n} file${n === 1 ? '' : 's'}`;
+      return !c ? files : c === n ? `${files}, none filed yet` : `${files}, ${c} not filed yet`;
+    };
+    lines.push(`- "${f.label}" (${count('.')})${where(f.label, '.')}`);
+    total.delete('.');
     // the shallowest folders first when the tree is large, shown in tree order
     const dirs = [...total.keys()]
       .sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b))
       .slice(0, maxDirs)
       .sort();
-    for (const d of dirs) {
-      const n = total.get(d)!;
-      lines.push(`${'  '.repeat(d.split('/').length)}- ${d.split('/').pop()}/ (${n} file${n === 1 ? '' : 's'})${where(f.label, d)}`);
-    }
+    for (const d of dirs) lines.push(`${'  '.repeat(d.split('/').length)}- ${d.split('/').pop()}/ (${count(d)})${where(f.label, d)}`);
     if (total.size > dirs.length) lines.push(`  ...and ${total.size - dirs.length} more folders`);
   }
   return lines;
@@ -303,8 +297,15 @@ export async function surveySection(sectionInput: string): Promise<Survey> {
     return { section, pages: 0, findings: 0, report: `There are no pages in "${section}".` };
   }
 
-  // The tree, with sizes, so the assistant sees the shape before reading anything
-  lines.push(`Section "${section}": ${mine.length} page${mine.length > 1 ? 's' : ''}.`, '', 'Pages:');
+  // What the section is for, as Organise set it, then the tree with sizes
+  const own = mine.find((p) => p.path === section);
+  const purpose = own ? summaryOf(own.content) : null;
+  lines.push(
+    `Section "${section}": ${mine.length} page${mine.length > 1 ? 's' : ''}.`,
+    purpose ? `What belongs here (its summary): ${purpose}` : 'This section has no summary saying what belongs in it.',
+    '',
+    'Pages:',
+  );
   const TREE_MAX = 60;
   const shallowest = Math.min(...mine.map((p) => p.path.split('/').length));
   for (const p of mine.slice(0, TREE_MAX)) {
@@ -445,39 +446,28 @@ export async function surveyWiki(): Promise<Survey> {
   const lines: string[] = [];
   let findings = 0;
   if (!bySection.size) return { section: WHOLE, pages: all.length, findings: 0, report: 'The wiki only has its home page.' };
-
-  lines.push(`The whole wiki: ${all.length} pages in ${bySection.size} top-level sections.`, '', 'Sections (path "title" (pages): what its overview says; what is directly inside):');
-  const SECTIONS_MAX = 40;
   const names = [...bySection.keys()].sort();
-  for (const name of names.slice(0, SECTIONS_MAX)) {
-    const pages = bySection.get(name)!;
-    const own = pages.find((p) => p.path === name);
-    const kids = new Map<string, number>();
-    for (const p of pages) {
-      if (p.path === name) continue;
-      const child = p.path.split('/')[1];
-      kids.set(child, (kids.get(child) ?? 0) + 1);
-    }
-    const inside = [...kids.entries()].slice(0, 12).map(([k, n]) => (n > 1 ? `${k} (${n})` : k));
-    lines.push(
-      `- ${name} "${own?.title ?? name}" (${pages.length}): ${own ? gist(own.content) || '(overview has no text)' : '(no overview page)'}` +
-        (inside.length ? `; inside: ${inside.join(', ')}${kids.size > 12 ? ', ...' : ''}` : ''),
-    );
-  }
-  if (names.length > SECTIONS_MAX) lines.push(`...and ${names.length - SECTIONS_MAX} more sections`);
 
-  // The home page is the map of the wiki: it should point at every section
-  const home = all.find((p) => p.path === 'index');
-  const linked = new Set((home ? linksIn(home.content) : []).map((l) => safePath(l)).filter(Boolean).map((l) => top(l!)));
-  const unlinked = names.filter((n) => !linked.has(n));
-  const homeIssues: string[] = [];
-  if (!home) homeIssues.push('- There is no home page (index).');
-  else if (unlinked.length) homeIssues.push(`- The home page (index) does not link to: ${unlinked.slice(0, 20).join(', ')}${unlinked.length > 20 ? ', ...' : ''}`);
-  const noOverview = names.filter((n) => !bySection.get(n)!.some((p) => p.path === n) && bySection.get(n)!.length >= 2);
-  if (noOverview.length) homeIssues.push(`- Sections with no overview page of their own: ${noOverview.slice(0, 20).join(', ')}`);
-  if (homeIssues.length) {
-    lines.push('', 'Home page and overviews (the home page should be a short map that links every section):', ...homeIssues);
-    findings += homeIssues.length;
+
+  lines.push(
+    `The whole wiki: ${all.length} pages in ${bySection.size} top-level sections.`,
+    '',
+    'Current structure (generated from the pages; each line is a page or folder with its summary, the opening paragraph that says what belongs there):',
+    await structureOutline(150),
+  );
+
+  // Sections that do not say what belongs in them, so filing has to guess
+  const unsummarised: string[] = [];
+  const folders = new Set(all.flatMap((p) => p.path.split('/').slice(0, -1).map((_, i, parts) => parts.slice(0, i + 1).join('/'))));
+  for (const f of [...folders].sort()) {
+    const page = all.find((p) => p.path === f);
+    if (!page) unsummarised.push(`- ${f} has no page of its own, so nothing says what belongs in it`);
+    else if (!summaryOf(page.content)) unsummarised.push(`- ${f} has no summary`);
+  }
+  for (const name of names) if (!folders.has(name) && !summaryOf(bySection.get(name)![0].content)) unsummarised.push(`- ${name} has no summary`);
+  if (unsummarised.length) {
+    lines.push('', 'Sections without a summary (set_summary gives each one; filing relies on them):', ...unsummarised.slice(0, 20));
+    findings += Math.min(unsummarised.length, 20);
   }
 
   // Sections too small to stand alone, with the section they read most like
@@ -539,27 +529,17 @@ export async function surveyWiki(): Promise<Survey> {
   return { section: WHOLE, pages: all.length, findings, report: lines.join('\n') };
 }
 
-// The wiki's sections in a few lines, for anyone placing new pages: the structure the librarian keeps
-export async function sectionGuide(): Promise<string> {
-  const bySection = bySectionOf(await loadPages());
-  if (!bySection.size) return '';
-  const lines = [...bySection.keys()]
-    .sort()
-    .slice(0, 40)
-    .map((name) => {
-      const pages = bySection.get(name)!;
-      const own = pages.find((p) => p.path === name);
-      const kids = [...new Set(pages.filter((p) => p.path !== name).map((p) => p.path.split('/')[1]))].slice(0, 8);
-      return `- ${name} (${pages.length} page${pages.length > 1 ? 's' : ''})${own ? `: ${gist(own.content, 100)}` : ''}${kids.length ? ` [${kids.join(', ')}]` : ''}`;
-    });
-  return lines.join('\n');
-}
-
 // What the tidy run asks the assistant to do; the survey follows it
 export function tidyInstruction(section: string, limit: number, survey: string): string {
-  const scope = section === WHOLE ? 'the whole wiki' : `the "${section}" section of the wiki`;
+  if (section === WHOLE) {
+    return (
+      `Organise the whole wiki. Design the layout first, then suggest the moves and summaries that get there; you can suggest changes to up to ${limit} pages in this run. ` +
+      'Do not stop at faults: ask whether this is the arrangement you would build for a reader, given what is in the wiki and what the folders show is coming.\n\n' +
+      `<<<Survey>>>\n${survey}\n<<<End of survey>>>`
+    );
+  }
   return (
-    `Librarian pass over ${scope}. You can suggest changes to up to ${limit} pages in this run; work through what helps readers most first. ` +
+    `Librarian pass over the "${section}" section of the wiki. You can suggest changes to up to ${limit} pages in this run; work through what helps readers most first. ` +
     'Read every page you change, and both pages before a merge. Leave alone anything that is already tidy, and say so.\n\n' +
     `<<<Survey>>>\n${survey}\n<<<End of survey>>>`
   );

@@ -4,7 +4,7 @@ import { extractText, getFile } from './files';
 import { getProvider } from './ai/providers';
 import { checkVersion, recordVersion, type DocIdentity } from './ingest';
 import { runAgent } from './ai/agent';
-import { AUTO_USER, librarianSettings, MAX_LIMIT, scopeName, surveySection, tidyInstruction } from './librarian';
+import { AUTO_USER, librarianSettings, MAX_LIMIT, runName, scopeName, surveySection, tidyInstruction, WHOLE } from './librarian';
 
 // Work done without anyone watching a chat: drops sent "in the background", files from watched
 // folders, and librarian tidy runs over a section. One job runs at a time, oldest first, through
@@ -70,14 +70,14 @@ export function enqueue(input: {
 export function enqueueTidy(input: { section: string; user: string; provider?: string; limit?: number }): number {
   const key = `tidy:${input.section}`;
   const waiting = db().prepare("SELECT id FROM ingest_jobs WHERE doc_key = ? AND status IN ('queued', 'working')").get(key);
-  if (waiting) throw new Error(`A tidy of ${scopeName(input.section)} is already waiting or running.`);
+  if (waiting) throw new Error(`${input.section === WHOLE ? 'Organising the wiki' : `A tidy of ${scopeName(input.section)}`} is already waiting or running.`);
   const limit = Math.min(MAX_LIMIT, Math.max(1, Math.floor(Number(input.limit) || librarianSettings().limit)));
   const r = db()
     .prepare(
       `INSERT INTO ingest_jobs (file_id, doc_key, display_name, user, provider, mode, tidy_limit, status, created_at)
        VALUES (NULL, ?, ?, ?, ?, 'tidy', ?, 'queued', ?)`,
     )
-    .run(key, `Tidy of ${scopeName(input.section)}`, input.user, input.provider ?? null, limit, now());
+    .run(key, runName(input.section), input.user, input.provider ?? null, limit, now());
   changed();
   kick();
   return Number(r.lastInsertRowid);
@@ -240,7 +240,7 @@ async function runTidy(row: any, signal: AbortSignal, onProgress: (text: string)
       history: [{ role: 'user', content: tidyInstruction(section, limit, survey.report) }],
       user: row.user,
       providerId: row.provider ?? undefined,
-      librarian: { section, limit },
+      librarian: { section, limit, organise: section === WHOLE },
       onProgress,
       signal,
     }),

@@ -54,7 +54,10 @@ export default function Librarian() {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'The tidy could not start.');
-      setMessage({ kind: 'ok', text: `Tidying ${name}. Follow it under Background filing; its suggestions appear on the pages for review.` });
+      setMessage({
+        kind: 'ok',
+        text: `${section === WHOLE ? 'Organising' : 'Tidying'} ${name}. Follow it under Background filing; its suggestions appear on the pages for review.`,
+      });
     } catch (e: any) {
       setMessage({ kind: 'error', text: e.message });
     } finally {
@@ -80,15 +83,17 @@ export default function Librarian() {
     }
   }
 
-  const label = (run: Run, starting: boolean) => (run === 'working' ? 'Tidying' : run === 'queued' ? 'Waiting' : starting ? 'Starting' : 'Tidy');
+  const label = (run: Run, starting: boolean, action = 'Tidy') =>
+    run === 'working' ? (action === 'Tidy' ? 'Tidying' : 'Organising') : run === 'queued' ? 'Waiting' : starting ? 'Starting' : action;
 
   return (
     <section className="card" id="librarian">
       <h2>Librarian</h2>
       <p className="muted small-text">
-        The librarian decides how the wiki is organised: which sections there are, what goes in each, and that every section has an
-        overview. It finds duplicate pages, pages in the wrong place and broken links, and uses the watched folders to see what belongs
-        together. Everything it suggests waits for someone to approve it on the page. You can also ask the assistant in the chat to tidy.
+        The librarian has two jobs. <strong>Organise</strong> designs the layout of the whole wiki: which sections there are, what
+        belongs in each (the summaries on the <a href="/structure">structure page</a>), and homes for what the watched folders show is
+        still coming. <strong>Tidy</strong> cleans one section inside that layout: duplicates, stubs, misplaced pages and broken links.
+        Everything it suggests waits for someone to approve it on the page.
       </p>
       {message && <div className={message.kind === 'ok' ? 'notice' : 'error'}>{message.text}</div>}
       {!data ? (
@@ -102,7 +107,7 @@ export default function Librarian() {
               disabled={busy === 'settings'}
               onChange={(e) => save({ auto: e.target.checked })}
             />{' '}
-            Tidy on its own after the wiki changes (once filing is done and nothing has changed for half an hour)
+            Organise and tidy on its own after the wiki changes (once filing is done and nothing has changed for half an hour)
           </label>
           <div className="inline-field small-text">
             <label htmlFor="librarian-limit">Most pages changed per run</label>
@@ -128,10 +133,10 @@ export default function Librarian() {
             <li>
               <div className="section-name">
                 <strong>The whole wiki</strong>
-                <span className="muted small-text"> sections, home page and where things belong</span>
+                <span className="muted small-text"> its sections and what belongs in each</span>
               </div>
               <button className="btn small" disabled={!!busy || !!data.whole.run} onClick={() => tidy(WHOLE, 'the whole wiki')}>
-                {label(data.whole.run, busy === WHOLE)}
+                {label(data.whole.run, busy === WHOLE, 'Organise')}
               </button>
             </li>
             {data.sections.map((s) => (

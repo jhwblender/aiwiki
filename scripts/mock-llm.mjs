@@ -13,10 +13,22 @@ const surveyLine = (text, re) => text.match(re) ?? [];
 
 const SCENARIOS = [
   {
-    // a librarian run over the whole wiki: reports whether it saw the sections and the watched folder map
-    keyword: 'librarian pass over the whole wiki',
-    steps: [{ name: 'survey_section', args: { section: '*' } }],
-    reply: (tools) => (/Sections \(path/.test(tools) && tools.includes('"Lib share" (2 files)') && /Printers\/ \(1 file\)/.test(tools) ? 'WHOLE-SURVEY-SEEN' : 'WHOLE-SURVEY-NOT-SEEN'),
+    // an organise run: gives the first section without a summary one, tries to edit page text (which
+    // organising may not do), and reports whether it saw the structure and the watched folder map
+    keyword: 'organise the whole wiki',
+    steps: [
+      {
+        name: 'set_summary',
+        args: (text) => ({ path: text.match(/^- (\S+) has no (?:summary|page of its own)/m)?.[1] ?? 'none', summary: 'Everything about this part of the wiki.', reason: 'Say what belongs here' }),
+      },
+      { name: 'replace_in_page', args: { path: 'index', old_text: 'Welcome', new_text: 'Hello', summary: 'Rename' } },
+      { name: 'survey_section', args: { section: '*' } },
+    ],
+    reply: (tools) =>
+      /Current structure \(generated/.test(tools) && tools.includes('"Lib share" (2 files, none filed yet)') && /Printers\/ \(1 file, none filed yet\)/.test(tools) &&
+      tools.includes('organising only arranges pages') && /Proposed (the summary|a new section page)/.test(tools)
+        ? 'WHOLE-SURVEY-SEEN'
+        : 'WHOLE-SURVEY-NOT-SEEN',
   },
   {
     keyword: 'move the kb folder',

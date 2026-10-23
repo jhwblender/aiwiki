@@ -69,6 +69,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .whoami { display: flex; flex-direction: column; gap: 4px; padding: 10px 14px; border-top: 1px solid var(--rule); font-size: 12px; color: var(--ink-soft); }
 .whoami-name { display: flex; flex-direction: column; gap: 4px; }
 .settings-link { font-size: 13px; align-self: flex-start; }
+.side-links { display: flex; gap: 14px; }
 .whoami strong { color: var(--ink); font-weight: 600; }
 .name-missing { color: var(--rem-ink); }
 .whoami input { padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); font-size: 14px; color: var(--ink); }
@@ -300,3 +301,18 @@ a.file-chip { padding-right: 10px; }
 .personal-badge { display: inline-block; margin-left: 8px; padding: 0 8px; border-radius: 10px; font-size: 12px; background: #efe7f6; color: #5b3d7a; }
 fieldset.visibility { border: 0; padding: 0; margin: 14px 0 0; }
 fieldset.visibility legend { font-size: 13px; font-weight: 500; padding: 0; margin-bottom: 2px; }
+
+/* ---------- structure ---------- */
+.struct { list-style: none; margin: 0; padding: 0; }
+.structure > .struct { margin-top: 18px; }
+.struct .struct { margin-left: 14px; padding-left: 14px; border-left: 1px solid var(--rule); }
+.struct-node { margin: 0 0 14px; }
+.struct-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.struct-title { font-weight: 600; color: var(--ink); text-decoration: none; overflow-wrap: anywhere; }
+.struct-node.section > .struct-head .struct-title { font-family: var(--font-doc); font-size: 19px; }
+.struct-title:hover { color: var(--teal); }
+.struct-head .badge { text-decoration: none; }
+.struct-summary { margin: 4px 0 6px; font-family: var(--font-doc); font-size: 16px; line-height: 1.5; }
+.struct-summary.missing { color: var(--ink-soft); font-style: italic; font-family: var(--font-ui); font-size: 14px; }
+.struct-pages { margin: 2px 0 8px; color: var(--ink-soft); overflow-wrap: anywhere; }
+.struct-edit textarea { width: 100%; margin-top: 6px; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 6px; font: inherit; font-family: var(--font-doc); font-size: 16px; background: var(--panel); color: var(--ink); box-sizing: border-box; }

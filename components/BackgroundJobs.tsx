@@ -103,7 +103,7 @@ export default function BackgroundJobs() {
     <section className="card" id="background">
       <h2>Background filing</h2>
       <p className="muted small-text">
-        Files from watched folders, &quot;File in the background&quot; and librarian tidy runs are handled one at a time. What they suggest
+        Files from watched folders, &quot;File in the background&quot; and the librarian&apos;s runs are handled one at a time. What they suggest
         shows up on the pages, to approve there.
       </p>
       {error && <div className="error">{error}</div>}
@@ -136,7 +136,7 @@ export default function BackgroundJobs() {
           </div>
           {state.paused && (
             <p className="muted small-text">
-              {c!.working > 0 ? 'The file being read finishes first, then filing stops. ' : ''}Tidy runs from the librarian still run while
+              {c!.working > 0 ? 'The file being read finishes first, then filing stops. ' : ''}The librarian&apos;s runs still go while
               filing is paused.
             </p>
           )}
@@ -181,7 +181,7 @@ export default function BackgroundJobs() {
               ) : (
                 <p className="small-text muted">
                   {cur.job.kind === 'tidy'
-                    ? 'Looking over the section and waiting for the model.'
+                    ? 'Looking over the wiki and waiting for the model.'
                     : 'Reading the file and waiting for the model. Large files on a local model can take several minutes.'}
                 </p>
               )}
@@ -253,7 +253,7 @@ export default function BackgroundJobs() {
             <ul className="jobs">
               {state.jobs.map((j) => (
                 <li key={j.id} className={'job ' + j.status}>
-                  <span className="job-status">{j.kind === 'tidy' && j.status === 'working' ? 'Tidying' : LABEL[j.status]}</span>
+                  <span className="job-status">{j.kind === 'tidy' && j.status === 'working' ? (j.displayName.startsWith('Organise') ? 'Organising' : 'Tidying') : LABEL[j.status]}</span>
                   <div className="job-body">
                     <strong>{j.displayName}</strong>
                     <span className="muted small-text">

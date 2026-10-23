@@ -148,9 +148,14 @@ export default function Sidebar({
             Set your name so approvals show who made them
           </Link>
         )}
-        <Link href="/settings" className="settings-link">
-          Settings
-        </Link>
+        <div className="side-links">
+          <Link href="/structure" className="settings-link">
+            Structure
+          </Link>
+          <Link href="/settings" className="settings-link">
+            Settings
+          </Link>
+        </div>
       </div>
     </aside>
   );
