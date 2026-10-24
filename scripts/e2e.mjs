@@ -636,15 +636,84 @@ try {
   const nest_lost = (await api('GET', '/api/folders')).data.find((f) => f.label === 'Outer');
   check('a renamed folder is reported, not treated as empty', /can no longer be found/.test(nest_lost?.lastError ?? ''), JSON.stringify(nest_lost));
   const nest_repoint = await api('PATCH', `/api/folders/${nest_outer.data.id}`, { path: path.join(nest_base, 'renamed') });
-  check('a folder can be pointed at its new location', nest_repoint.status === 200 && !(await api('GET', '/api/folders')).data.find((f) => f.label === 'Outer').lastError);
+  check('pointing it at the new location renames the folder to the new top level name',
+    nest_repoint.status === 200 && nest_repoint.data.label === 'renamed', JSON.stringify(nest_repoint.data));
+  const repointed = (await api('GET', '/api/folders')).data.find((f) => f.label === 'renamed');
+  check('the repointed folder has no error', !repointed?.lastError, JSON.stringify(repointed));
   // the inner folder moved along with it, so the outer one now sees its file; it is already filed and skipped
   const afterMove = (await api('POST', `/api/folders/${nest_outer.data.id}/scan`)).data.queued;
   const afterJobs = afterMove ? [await waitJob((await api('GET', '/api/ingest')).data.jobs[0].id)] : [];
   check('nothing is filed again after pointing it at the new location', afterJobs.every((j) => j?.status === 'skipped'), JSON.stringify({ afterMove, afterJobs }));
+  check("the moved folder's jobs all carry its new name", (await api('GET', '/api/ingest')).data.jobs.every((j) => j.folderLabel !== 'Outer'));
   await waitJob((await api('GET', '/api/ingest')).data.jobs[0].id);
   for (const f of (await api('GET', '/api/folders')).data) await api('DELETE', `/api/folders/${f.id}`);
   for (const p of (await getPage('docs/basics')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
   fs.rmSync(nest_base, { recursive: true, force: true });
+
+  // 27b. Changing folder moves the name, the identity and the plan view with it
+  const move_base = fs.mkdtempSync(path.join(os.tmpdir(), 'aiwiki-move-'));
+  const move_put = (root, rel, text) => {
+    const full = path.join(root, rel);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, text);
+    const past = new Date(Date.now() - 60_000);
+    fs.utimesSync(full, past, past);
+  };
+  move_put(path.join(move_base, 'old'), 'keep.txt', 'FACT: Kept fact.\n');
+  move_put(path.join(move_base, 'old'), 'gone/deep.txt', 'FACT: Deep gone fact.\n');
+  const mv_folder = await api('POST', '/api/folders', { label: 'Will rename', path: path.join(move_base, 'old'), fileExisting: true });
+  const mv_id = mv_folder.data.id;
+  await api('POST', `/api/folders/${mv_id}/scan`);
+  const waitQueue = async () => {
+    for (let i = 0; i < 120; i++) {
+      const jobs = (await api('GET', '/api/ingest')).data.jobs;
+      if (!jobs.some((j) => ['queued', 'working'].includes(j.status))) return jobs;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    return null;
+  };
+  const mv_first = await waitQueue();
+  check('the watched folder files its documents', mv_first?.some((j) => j.displayName === 'keep.txt' && j.status === 'done') &&
+    mv_first.some((j) => j.displayName === 'deep.txt' && j.status === 'done'),
+    JSON.stringify(mv_first?.map((j) => [j.displayName, j.status])));
+
+  // Rename on disk: the old subfolder is gone, a new one holds a brand-new file, and the kept
+  // file changes content (which must land as a new version of the same document, not a new one)
+  fs.rmSync(path.join(move_base, 'old'), { recursive: true, force: true });
+  move_put(path.join(move_base, 'renamed'), 'new/fresh.txt', 'FACT: Fresh fact.\n');
+  move_put(path.join(move_base, 'renamed'), 'keep.txt', 'FACT: Kept fact, updated.\n');
+  const mv_change = await api('PATCH', `/api/folders/${mv_id}`, { path: path.join(move_base, 'renamed') });
+  check("the folder takes the new top level folder's name", mv_change.status === 200 && mv_change.data.label === 'renamed', JSON.stringify(mv_change.data));
+  check('the folder list shows the new name at the new path',
+    (await api('GET', '/api/folders')).data.some((f) => f.label === 'renamed' && f.path === path.join(move_base, 'renamed')));
+  await waitQueue();
+
+  const Database = (await import('better-sqlite3')).default;
+  const movedDb = new Database(path.join(dataDir, 'wiki.db'), { readonly: true });
+  try {
+    check('documents move to the new name, so nothing double-files',
+      movedDb.prepare("SELECT COUNT(*) n FROM documents WHERE doc_key LIKE 'folder:Will rename:%'").get().n === 0 &&
+      movedDb.prepare("SELECT COUNT(*) n FROM documents WHERE doc_key IN ('folder:renamed:keep.txt','folder:renamed:gone/deep.txt','folder:renamed:new/fresh.txt')").get().n === 3,
+      JSON.stringify(movedDb.prepare('SELECT doc_key FROM documents WHERE doc_key LIKE ? OR doc_key LIKE ?').all('folder:Will rename:%', 'folder:renamed:%').map((r) => r.doc_key)));
+    check('the changed file lands as a new version of the same document',
+      movedDb.prepare("SELECT COUNT(*) n FROM document_versions v JOIN documents d ON d.id = v.document_id WHERE d.doc_key = 'folder:renamed:keep.txt'").get().n === 2,
+      JSON.stringify(movedDb.prepare('SELECT d.doc_key, count(*) FROM document_versions v JOIN documents d ON d.id = v.document_id GROUP BY d.id').all()));
+    check("history shows the folder under its new name",
+      movedDb.prepare("SELECT COUNT(*) n FROM ingest_jobs WHERE folder_label = 'Will rename'").get().n === 0,
+      JSON.stringify(movedDb.prepare('SELECT DISTINCT folder_label FROM ingest_jobs WHERE folder_label IS NOT NULL').all()));
+  } finally {
+    movedDb.close();
+  }
+
+  const mv_plan = (await api('GET', `/api/folders/${mv_id}/plan`)).data;
+  check('the plan shows the new subfolders, not the ones left behind',
+    JSON.stringify(mv_plan.tree).includes('new') && !JSON.stringify(mv_plan.tree).includes('gone'), JSON.stringify(mv_plan.tree));
+  check('a new file in the moved folder is filed', (await api('GET', '/api/ingest')).data.jobs.some((j) => j.displayName === 'fresh.txt' && j.status === 'done'));
+  check('background filing carries the new folder name, not the old one',
+    (await api('GET', '/api/ingest')).data.jobs.every((j) => j.folderLabel !== 'Will rename'));
+  await api('DELETE', `/api/folders/${mv_id}`);
+  for (const p of (await getPage('docs/basics')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  fs.rmSync(move_base, { recursive: true, force: true });
 
   // 28. The assistant can look up detail in the original documents
   const manual = await upload([['manual.txt', Buffer.from('Wiki export\n\nThe export tool writes one file per page, plus a plain index.\n'), 'text/plain']]);

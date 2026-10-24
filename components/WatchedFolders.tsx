@@ -203,7 +203,8 @@ export default function WatchedFolders() {
               {moving === f.id && (
                 <div className="folder-move">
                   <p className="small-text">
-                    Choose where &quot;{f.label}&quot; is now. Documents already filed from it are not filed again.
+                    Choose where &quot;{f.label}&quot; is now. The folder goes by the new top level folder&apos;s name, and documents already filed
+                    from it are not filed again.
                   </p>
                   <FolderPicker
                     start={f.path}
@@ -212,7 +213,7 @@ export default function WatchedFolders() {
                       const ok = await call(
                         `/api/folders/${f.id}`,
                         { method: 'PATCH', body: JSON.stringify({ path: p }) },
-                        () => `"${f.label}" now points to its new location.`,
+                        (d) => `"${d.label ?? f.label}" now points to its new location. The wiki is checking it now.`,
                       );
                       if (ok) setMoving(null);
                     }}

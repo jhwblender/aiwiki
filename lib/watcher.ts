@@ -78,9 +78,12 @@ export function listFolders(): WatchedFolder[] {
   return rows;
 }
 
-// Point a folder at its new location after it was renamed or moved. Its documents keep their
-// identity (label and path inside the folder), so nothing already filed is filed again.
-export async function changeFolderPath(id: number, newPath: string) {
+// Point a folder at its new location after it was renamed or moved. The folder takes the top
+// level folder's name as its label (with a suffix when another folder already uses it), and
+// everything recorded under the old name moves over with it — documents, waiting jobs, plan
+// runs — so nothing already filed is filed again and nothing keeps showing the old folder.
+// Returns the label it now goes by.
+export async function changeFolderPath(id: number, newPath: string): Promise<{ label: string }> {
   const dir = path.resolve(fromWindowsPath(newPath.trim()));
   let stat;
   try {
@@ -89,9 +92,51 @@ export async function changeFolderPath(id: number, newPath: string) {
     throw new Error(`The wiki server cannot find the folder ${dir}.`);
   }
   if (!stat.isDirectory()) throw new Error(`${dir} is a file, not a folder.`);
-  const same = db().prepare('SELECT label FROM watched_folders WHERE path = ? AND id != ?').get(dir, id) as { label: string } | undefined;
+  const d = db();
+  const folder = d.prepare('SELECT * FROM watched_folders WHERE id = ?').get(id) as { label: string; path: string } | undefined;
+  if (!folder) throw new Error('Folder not found.');
+  const same = d.prepare('SELECT label FROM watched_folders WHERE path = ? AND id != ?').get(dir, id) as { label: string } | undefined;
   if (same) throw new Error(`That folder is already watched as "${same.label}".`);
-  db().prepare('UPDATE watched_folders SET path = ?, last_error = NULL WHERE id = ?').run(dir, id);
+  // A job being worked on files under the identity it was queued with; renaming the folder under
+  // it would leave one document behind the others, so the change waits.
+  if (d.prepare("SELECT 1 FROM ingest_jobs WHERE folder_label = ? AND status = 'working' AND mode != 'tidy' LIMIT 1").get(folder.label)) {
+    throw new Error(`The wiki is still filing from "${folder.label}". Wait for that to finish (or cancel it), then change the folder.`);
+  }
+  const sameDir = dir === folder.path;
+  // The top level folder's own name is the label, so the label follows the move.
+  let label = folder.label;
+  if (!sameDir) {
+    const base = path.basename(dir);
+    if (base) {
+      label = base;
+      for (let n = 2; d.prepare('SELECT 1 FROM watched_folders WHERE label = ? AND id != ?').get(label, id); n++) label = `${base} ${n}`;
+    }
+  }
+  d.transaction(() => {
+    d.prepare('UPDATE watched_folders SET path = ?, label = ?, last_error = NULL WHERE id = ?').run(dir, label, id);
+    if (label !== folder.label) {
+      // Documents and jobs are identified by "folder:<label>:<path inside>" (the same for
+      // personal ones), so the recorded identity moves to the new name with the folder.
+      for (const kind of ['folder', 'personal'] as const) {
+        const from = `${kind}:${folder.label}:`;
+        const to = `${kind}:${label}:`;
+        const like = `${likeEscape(from)}%`;
+        const move = (table: 'documents' | 'ingest_jobs') =>
+          d.prepare(`UPDATE ${table} SET doc_key = ? || substr(doc_key, ?) WHERE doc_key LIKE ? ESCAPE '\\'`).run(to, from.length + 1, like);
+        move('documents');
+        move('ingest_jobs');
+      }
+      // A plan run keys on the label whole, and every job shows where its file came from.
+      d.prepare('UPDATE ingest_jobs SET folder_label = ? WHERE folder_label = ?').run(label, folder.label);
+      d.prepare('UPDATE documents SET folder_label = ? WHERE folder_label = ?').run(label, folder.label);
+      d.prepare('UPDATE ingest_jobs SET doc_key = ? WHERE doc_key = ?').run(`plan:${label}`, `plan:${folder.label}`);
+    }
+  })();
+  return { label };
+}
+
+function likeEscape(s: string): string {
+  return s.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
 // A Windows path pasted in while the wiki runs in WSL: C:\Users\me\Docs -> /mnt/c/Users/me/Docs
@@ -295,6 +340,7 @@ export async function scanFolder(id: number, opts: { baselineOnly?: boolean } = 
     const others: string[] = [];
     const files = await walk(folder.path, nestedInside(folder.path, id), others);
     await recordOthers(id, folder.path, others);
+    const rels = files.map((full) => path.relative(folder.path, full).split(path.sep).join('/'));
     for (const full of files) {
       const rel = path.relative(folder.path, full).split(path.sep).join('/');
       let st;
@@ -330,6 +376,9 @@ export async function scanFolder(id: number, opts: { baselineOnly?: boolean } = 
     }
     // New sub-folders may form new look-alike groups
     if (queued && folder.visibility !== 'personal') applyPatternRules(id);
+    // The full listing succeeded: forget files that are gone, so the folder's plan and counts
+    // show the folder as it is now (e.g. after a move), not as it was where it used to live.
+    d.prepare('DELETE FROM watched_files WHERE folder_id = ? AND rel_path NOT IN (SELECT value FROM json_each(?))').run(id, JSON.stringify(rels));
     d.prepare('UPDATE watched_folders SET last_scan_at = ?, last_error = NULL WHERE id = ?').run(now(), id);
   } catch (e: any) {
     d.prepare('UPDATE watched_folders SET last_scan_at = ?, last_error = ? WHERE id = ?').run(now(), String(e?.message ?? e).slice(0, 300), id);

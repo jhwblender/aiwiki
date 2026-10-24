@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { changeFolderPath, removeFolder, setEnabled, setVisibility } from '@/lib/watcher';
+import { changeFolderPath, removeFolder, scanFolder, setEnabled, setVisibility } from '@/lib/watcher';
 import { fail, requireUser, isResponse } from '@/lib/api';
 
 export const runtime = 'nodejs';
@@ -11,7 +11,19 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     if (isResponse(editor)) return editor;
     const { id } = await ctx.params;
     const b = await req.json();
-    if (typeof b.path === 'string') await changeFolderPath(Number(id), b.path);
+    if (typeof b.path === 'string') {
+      const moved = await changeFolderPath(Number(id), b.path);
+      if (typeof b.enabled === 'boolean') setEnabled(Number(id), b.enabled);
+      if (b.visibility === 'wiki' || b.visibility === 'personal') {
+        const queued = await setVisibility(Number(id), b.visibility, !!b.fileExisting);
+        void scanFolder(Number(id)).catch(() => {});
+        return NextResponse.json({ ok: true, label: moved.label, queued });
+      }
+      // Bring the new location in (and its subfolders onto the plan view) without waiting
+      // for the next regular scan
+      void scanFolder(Number(id)).catch(() => {});
+      return NextResponse.json({ ok: true, label: moved.label });
+    }
     if (typeof b.enabled === 'boolean') setEnabled(Number(id), b.enabled);
     if (b.visibility === 'wiki' || b.visibility === 'personal') {
       return NextResponse.json({ ok: true, queued: await setVisibility(Number(id), b.visibility, !!b.fileExisting) });
