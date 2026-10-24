@@ -4,6 +4,7 @@ import { extractText, getFile } from './files';
 import { getProvider } from './ai/providers';
 import { checkVersion, recordVersion, type DocIdentity } from './ingest';
 import { runAgent } from './ai/agent';
+import { refileFiles } from './refile';
 import { applyPatternRules, decide, looksLikeData, parsePlan, PLAN_SYSTEM, planOutline, storePlan } from './filingPlan';
 import { AUTO_USER, librarianSettings, MAX_LIMIT, runName, scopeName, surveySection, tidyInstruction, WHOLE } from './librarian';
 
@@ -106,9 +107,15 @@ async function runPlan(row: any, onProgress: (text: string) => void) {
   }
   const plan = parsePlan(text, folder.id);
   if (!plan.size) return finish(row.id, 'done', 'The assistant gave no usable plan, so the folder follows the patterns found in it. You can set rules by hand.');
-  storePlan(folder.id, plan);
+  const changed = storePlan(folder.id, plan);
+  // Rules actually changed somewhere: files seen and skipped under there get looked at now
+  let refiledNote = '';
+  if (changed.length) {
+    const refiled = await refileFiles(folder.id, changed);
+    if (refiled) refiledNote = ` ${refiled} file${refiled === 1 ? '' : 's'} skipped before will be looked at again.`;
+  }
   const lines = [...plan.entries()].map(([d, r]) => `- ${d === '.' ? '(top level)' : d}: ${r.rule}${r.reason ? `, ${r.reason}` : ''}`);
-  finish(row.id, 'done', `Planned ${plan.size} folder${plan.size === 1 ? '' : 's'}:\n${lines.slice(0, 30).join('\n')}`);
+  finish(row.id, 'done', `Planned ${plan.size} folder${plan.size === 1 ? '' : 's'}:\n${lines.slice(0, 30).join('\n')}${refiledNote}`);
 }
 
 // A librarian run over one section, or the whole wiki (WHOLE). Only one per scope waits at a time.

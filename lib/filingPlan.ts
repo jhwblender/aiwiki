@@ -7,9 +7,11 @@ import { db } from './db';
 //   file    read and file each document (the default)
 //   sample  a group of look-alike files: file the first couple of each kind, keep the rest searchable
 //   index   keep the documents searchable for the assistant's lookups, but do not file them
-//   skip    leave the files alone: raw data, assets, things nobody needs in the wiki
+//   skip    leave the files alone: raw material (sensor data, machine logs, build output, assets)
 // Rules come from patterns in the tree (no model), then from the assistant looking at the whole tree
-// once, and people can change any of them; a person's rule is never overwritten.
+// once, and people can change any of them; a person's rule is never overwritten. When a rule actually
+// changes, the files under it are reconsidered (lib/refile.ts) - skipped ones are read then, so a
+// folder the plan wrongly skipped can be turned to file without anything to change on disk.
 
 export type Rule = 'file' | 'sample' | 'index' | 'skip';
 export const RULES: Rule[] = ['file', 'sample', 'index', 'skip'];
@@ -45,24 +47,31 @@ export function ruleFor(folderId: number, relPath: string, rules = rulesFor(fold
 
 const isPerson = (setBy: string) => setBy !== BY_PATTERN && setBy !== BY_PLAN;
 
-// A person's choice; it wins over patterns and plans from now on
-export function setRule(folderId: number, dir: string, rule: Rule | null, user: string) {
+// A person's choice; it wins over patterns and plans from now on.
+// Returns true when the folder's rule actually changed, so callers can re-evaluate its files.
+export function setRule(folderId: number, dir: string, rule: Rule | null, user: string): boolean {
   if (rule === null) {
-    db().prepare('DELETE FROM folder_rules WHERE folder_id = ? AND dir = ?').run(folderId, dir);
-    return;
+    const gone = db().prepare('DELETE FROM folder_rules WHERE folder_id = ? AND dir = ?').run(folderId, dir);
+    return gone.changes > 0;
   }
   if (!RULES.includes(rule)) throw new Error('Unknown rule.');
+  const old = rulesFor(folderId).get(dir);
+  if (old?.rule === rule) return false;
   db()
     .prepare(
       `INSERT INTO folder_rules (folder_id, dir, rule, reason, set_by, set_at) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT (folder_id, dir) DO UPDATE SET rule = excluded.rule, reason = excluded.reason, set_by = excluded.set_by, set_at = excluded.set_at`,
     )
     .run(folderId, dir, rule, `Set by ${user}`, user, now());
+  return true;
 }
 
-// Rules from patterns or a plan; never replaces what a person chose
-function storeSuggested(folderId: number, rules: Map<string, { rule: Rule; reason: string }>, setBy: string) {
+// Rules from patterns or a plan; never replaces what a person chose.
+// Returns every folder whose rule actually changed, so files under it can be reconsidered.
+// The top level defaulting to file is not a change: with no rule, files already follow file.
+function storeSuggested(folderId: number, rules: Map<string, { rule: Rule; reason: string }>, setBy: string): string[] {
   const have = rulesFor(folderId);
+  const changed: string[] = [];
   const put = db().prepare(
     `INSERT INTO folder_rules (folder_id, dir, rule, reason, set_by, set_at) VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT (folder_id, dir) DO UPDATE SET rule = excluded.rule, reason = excluded.reason, set_by = excluded.set_by, set_at = excluded.set_at`,
@@ -70,8 +79,12 @@ function storeSuggested(folderId: number, rules: Map<string, { rule: Rule; reaso
   for (const [dir, r] of rules) {
     const old = have.get(dir);
     if (old && (isPerson(old.setBy) || (setBy === BY_PATTERN && old.setBy === BY_PLAN))) continue;
+    // Setting the built-in default (top level = file) where there was no rule changes nothing
+    const wasDefault = !old && dir === '.' && r.rule === 'file';
+    if (!wasDefault && old?.rule !== r.rule) changed.push(dir);
     put.run(folderId, dir, r.rule, r.reason.slice(0, 300), setBy, now());
   }
+  return changed;
 }
 
 // ---------- the tree ----------
@@ -147,8 +160,8 @@ export function patternRules(folderId: number): Map<string, { rule: Rule; reason
   return out;
 }
 
-export function applyPatternRules(folderId: number) {
-  storeSuggested(folderId, patternRules(folderId), BY_PATTERN);
+export function applyPatternRules(folderId: number): string[] {
+  return storeSuggested(folderId, patternRules(folderId), BY_PATTERN);
 }
 
 // ---------- the assistant's plan ----------
@@ -190,13 +203,15 @@ export function planOutline(folderId: number, maxLines = 160): string {
   return lines.join('\n');
 }
 
-export const PLAN_SYSTEM = `You plan how a company wiki files the documents in a watched folder. Reading every file with the assistant is slow, so you decide per folder how its files are handled.
+export const PLAN_SYSTEM = `You plan how a wiki files the documents in a watched folder. Reading every file with the assistant is slow, so you decide per folder how its files are handled.
 
 Rules:
-- file: documents worth turning into wiki pages: procedures, guides, notes, specifications, reports, manuals.
+- file: documents worth turning into wiki pages: procedures, guides, notes, specifications, reports, manuals, project documentation, meeting notes. When in doubt about what a folder holds, choose file.
 - sample: many look-alike files or sub-folders, such as test runs, capture sessions or photo sets. The first couple of each kind are filed so the wiki learns what they are; the rest are kept searchable only.
 - index: reference material people may want to look things up in, but that should not become pages: large exports, copies of external documents, generated listings.
-- skip: nothing anyone needs: raw sensor or measurement data, logs, assets such as fonts, logos and icons, build output, folders marked to ignore.
+- skip: nothing anyone needs: raw sensor or measurement data, machine logs, build output, caches, and assets such as fonts, logos and icons.
+
+Skip is a last resort for folders of raw material only. A folder holding real documents - or code, designs or products that the wiki is about, whose documents describe them - must be "file": the wiki being about a project is not a reason to leave it out. Never skip a folder for having many files; sample or index is for that.
 
 A folder's rule applies to everything under it unless a sub-folder has its own. The top level is "file" unless you say otherwise.
 Answer with one line per folder you give a rule, nothing else, in this form:
@@ -218,8 +233,8 @@ export function parsePlan(text: string, folderId: number): Map<string, { rule: R
   return out;
 }
 
-export function storePlan(folderId: number, plan: Map<string, { rule: Rule; reason: string }>) {
-  storeSuggested(folderId, plan, BY_PLAN);
+export function storePlan(folderId: number, plan: Map<string, { rule: Rule; reason: string }>): string[] {
+  return storeSuggested(folderId, plan, BY_PLAN);
 }
 
 export function hasPlan(folderId: number): boolean {

@@ -5,6 +5,7 @@ import { db } from './db';
 import { MAX_FILE_BYTES, saveUpload } from './files';
 import { enqueue, enqueuePlan } from './queue';
 import { applyPatternRules, decide, hasPlan } from './filingPlan';
+import { refileFiles } from './refile';
 
 // Folders on the server's disk that feed the wiki. Every scan walks each enabled folder, and a
 // file that is new or whose content changed goes to the ingest queue as a version of a document
@@ -177,7 +178,7 @@ export async function addFolder(input: {
   // the tree is recorded first so a plan decides how the files are handled before any is read.
   await scanFolder(id, { baselineOnly: true });
   if (input.visibility !== 'personal') enqueuePlan({ id, label, user: input.user });
-  if (input.fileExisting) await queueExisting(id);
+  if (input.fileExisting) await refileFiles(id, ['.']);
   return rowToFolder({ ...(db().prepare('SELECT * FROM watched_folders WHERE id = ?').get(id) as any), file_count: countFiles(id) });
 }
 
@@ -219,41 +220,18 @@ export async function setVisibility(id: number, visibility: 'wiki' | 'personal',
   // The private copies are no longer needed for searching
   d.prepare('DELETE FROM documents_fts WHERE document_id IN (SELECT id FROM documents WHERE doc_key LIKE ?)').run(like('personal'));
   if (!hasPlan(id)) enqueuePlan(folder);
-  return fileExisting ? queueExisting(id) : 0;
+  return fileExisting ? refileFiles(id, ['.']) : 0;
 }
 
 // File again what sits under one folder after its rule changed: files that were skipped or kept
 // searchable, or never queued, go back in the queue (filed ones and waiting ones are left alone)
 export async function refile(id: number, dir: string): Promise<number> {
-  const folder = db().prepare('SELECT label FROM watched_folders WHERE id = ?').get(id) as { label: string } | undefined;
+  const folder = db().prepare('SELECT id FROM watched_folders WHERE id = ?').get(id);
   if (!folder) throw new Error('Folder not found.');
-  return queueExisting(id, (rel) => {
-    if (dir !== '.' && !rel.startsWith(dir + '/')) return false;
-    const last = db().prepare('SELECT status FROM ingest_jobs WHERE doc_key = ? ORDER BY id DESC LIMIT 1').get(`folder:${folder.label}:${rel}`) as
-      | { status: string }
-      | undefined;
-    return !last || ['skipped', 'kept', 'cancelled'].includes(last.status);
-  });
+  return refileFiles(id, [dir]);
 }
 
 // Queue every recorded file of a folder for filing, except those its rules skip
-async function queueExisting(id: number, include: (rel: string) => boolean = () => true): Promise<number> {
-  const folder = db().prepare('SELECT * FROM watched_folders WHERE id = ?').get(id) as any;
-  let queued = 0;
-  for (const { rel_path } of db().prepare('SELECT rel_path FROM watched_files WHERE folder_id = ?').all(id) as { rel_path: string }[]) {
-    if (!include(rel_path)) continue;
-    if (folder.visibility !== 'personal' && decide(folder.label, rel_path).action === 'skip') continue;
-    try {
-      const data = await fs.readFile(path.join(folder.path, rel_path));
-      const stored = await saveUpload(path.basename(rel_path), data, folder.user);
-      enqueue({ fileId: stored.id, identity: identityFor(folder, rel_path), user: folder.user, mode: folder.visibility === 'personal' ? 'index' : 'file' });
-      queued++;
-    } catch {
-      // gone or unreadable; the next scan sees it if it comes back
-    }
-  }
-  return queued;
-}
 
 export function setEnabled(id: number, enabled: boolean) {
   db().prepare('UPDATE watched_folders SET enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id);
@@ -375,11 +353,14 @@ export async function scanFolder(id: number, opts: { baselineOnly?: boolean } = 
       }
     }
     // New sub-folders may form new look-alike groups
-    if (queued && folder.visibility !== 'personal') applyPatternRules(id);
+    let ruleChanges: string[] = [];
+    if (queued && folder.visibility !== 'personal') ruleChanges = applyPatternRules(id);
     // The full listing succeeded: forget files that are gone, so the folder's plan and counts
     // show the folder as it is now (e.g. after a move), not as it was where it used to live.
     d.prepare('DELETE FROM watched_files WHERE folder_id = ? AND rel_path NOT IN (SELECT value FROM json_each(?))').run(id, JSON.stringify(rels));
     d.prepare('UPDATE watched_folders SET last_scan_at = ?, last_error = NULL WHERE id = ?').run(now(), id);
+    // A new pattern rule changed how files are handled: skipped ones under it are reconsidered
+    if (ruleChanges.length) void refileFiles(id, ruleChanges);
   } catch (e: any) {
     d.prepare('UPDATE watched_folders SET last_scan_at = ?, last_error = ? WHERE id = ?').run(now(), String(e?.message ?? e).slice(0, 300), id);
   }

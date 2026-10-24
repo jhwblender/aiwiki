@@ -986,9 +986,12 @@ try {
   const rawNode = planned.children.find((c) => c.dir === 'Raw');
   check('the folder tree shows each rule and what happened', rawNode?.rule?.rule === 'skip' && rawNode.rule.setBy === 'librarian' && rawNode.counts.skipped === 1 &&
     planned.children.find((c) => c.dir === 'Captures')?.counts?.kept === 4, JSON.stringify(planned.children.map((c) => [c.dir, c.rule, c.counts])));
-  await api('POST', `/api/folders/${planFolder.data.id}/plan`, { dir: 'Raw', rule: 'file', user: 'Kim' });
-  const refiled = (await api('POST', `/api/folders/${planFolder.data.id}/plan`, { action: 'refile', dir: 'Raw' })).data;
-  check('after a rule changes, what it skipped can be filed', refiled.queued === 1 && (await byRel('Raw/notes.txt'))?.status === 'done', JSON.stringify(refiled));
+  const ruleChange = await api('POST', `/api/folders/${planFolder.data.id}/plan`, { dir: 'Raw', rule: 'file', user: 'Kim' });
+  check('changing a rule re-evaluates what it skipped, without asking', ruleChange.status === 200 && ruleChange.data.requeued === 1, JSON.stringify(ruleChange.data));
+  const rawRefiled = await byRel('Raw/notes.txt');
+  check('the skipped file is filed after the rule changes', rawRefiled?.status === 'done', JSON.stringify(rawRefiled));
+  const sameAgain = await api('POST', `/api/folders/${planFolder.data.id}/plan`, { dir: 'Raw', rule: 'file', user: 'Kim' });
+  check('setting the same rule again queues nothing again', sameAgain.data.requeued === 0, JSON.stringify(sameAgain.data));
   await api('POST', `/api/folders/${planFolder.data.id}/plan`, { action: 'plan' });
   await waitJob((await jobsOf()).find((j) => j.kind === 'plan' && j.folderLabel === 'Plan share')?.id);
   planned = (await api('GET', `/api/folders/${planFolder.data.id}/plan`)).data.tree;

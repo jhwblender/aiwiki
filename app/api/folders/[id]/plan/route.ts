@@ -40,8 +40,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const dir = typeof b.dir === 'string' && b.dir ? b.dir : '.';
     if (b.action === 'refile') return NextResponse.json({ queued: await refile(f.id, dir) });
     if (b.rule !== null && !RULES.includes(b.rule)) throw new Error('Unknown rule.');
-    setRule(f.id, dir, b.rule as Rule | null, editor.displayName);
-    return NextResponse.json({ ok: true });
+    // Only when the rule actually changed are its files re-evaluated, so picking the rule the
+    // folder already had does not queue anything again
+    const changed = setRule(f.id, dir, b.rule as Rule | null, editor.displayName);
+    return NextResponse.json({ ok: true, requeued: changed ? await refile(f.id, dir) : 0 });
   } catch (e) {
     return fail(e);
   }
