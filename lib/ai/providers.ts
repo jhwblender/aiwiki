@@ -15,9 +15,10 @@ export type Msg =
 export interface Provider {
   id: 'anthropic' | 'local';
   label: string;
-  chat(req: { system: string; messages: Msg[]; tools: ToolDef[] }): Promise<{ text: string; toolCalls: ToolCall[]; raw?: unknown }>;
+  // signal: set while a run is stopping, so an in-flight model call is cut right away
+  chat(req: { system: string; messages: Msg[]; tools: ToolDef[]; signal?: AbortSignal }): Promise<{ text: string; toolCalls: ToolCall[]; raw?: unknown }>;
   // Read a photo or a scanned page and answer the prompt about it in text
-  describeImage(image: { data: Buffer; mime: string }, prompt: string): Promise<string>;
+  describeImage(image: { data: Buffer; mime: string }, prompt: string, signal?: AbortSignal): Promise<string>;
 }
 
 // ---------- Anthropic ----------
@@ -31,7 +32,7 @@ function anthropicProvider(): Provider {
   return {
     id: 'anthropic',
     label: `Anthropic (${model})`,
-    async chat({ system, messages, tools }) {
+    async chat({ system, messages, tools, signal }) {
       const msgs: Anthropic.Beta.BetaMessageParam[] = [];
       for (const m of messages) {
         if (m.role === 'user') {
@@ -70,7 +71,7 @@ function anthropicProvider(): Provider {
           output_config: { effort: 'medium' },
           betas: [FALLBACK_BETA],
           fallbacks: 'default',
-        });
+        }, { signal });
       } catch (e) {
         if (e instanceof Anthropic.AuthenticationError) throw new Error('The Anthropic API key was rejected. Check ANTHROPIC_API_KEY in .env.local.');
         if (e instanceof Anthropic.NotFoundError) throw new Error(`Anthropic does not recognise the model "${model}". Check ANTHROPIC_MODEL.`);
@@ -89,7 +90,7 @@ function anthropicProvider(): Provider {
       if (res.stop_reason === 'max_tokens' && !toolCalls.length) text += '\n\n(The reply was cut off because it was too long.)';
       return { text, toolCalls, raw: res.content };
     },
-    async describeImage(image, prompt) {
+    async describeImage(image, prompt, signal) {
       const res = await client.messages.create({
         model,
         max_tokens: 4000,
@@ -105,7 +106,7 @@ function anthropicProvider(): Provider {
             ],
           },
         ],
-      });
+      }, { signal });
       if (res.stop_reason === 'refusal') throw new Error('The model declined to describe this image.');
       return res.content.map((b) => (b.type === 'text' ? b.text : '')).join('').trim();
     },

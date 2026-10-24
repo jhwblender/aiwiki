@@ -51,7 +51,7 @@ const CONNECT_MS = 10_000;
 // One request with Node's own http module. fetch is not used for model calls: it gives up after five
 // minutes without a reply, whatever timeout is asked for, and a large local model on a long prompt
 // can take longer than that before it answers at all.
-function send(url: string, method: string, headers: Record<string, string>, body: string | undefined, timeoutMs: number): Promise<{ status: number; text: string }> {
+function send(url: string, method: string, headers: Record<string, string>, body: string | undefined, timeoutMs: number, signal?: AbortSignal): Promise<{ status: number; text: string }> {
   return new Promise((resolve, reject) => {
     let u: URL;
     try {
@@ -66,11 +66,17 @@ function send(url: string, method: string, headers: Record<string, string>, body
       res.on('data', (c: Buffer) => chunks.push(c));
       res.on('end', () => {
         clearTimeout(timer);
+        cleanupAbort();
         resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString('utf8') });
       });
       res.on('error', fail);
     });
     const timer = setTimeout(() => req.destroy(Object.assign(new Error('timed out'), { name: 'TimeoutError' })), timeoutMs);
+    // A stopping run cuts the request as soon as it is asked to, instead of waiting out the
+    // model's whole answer.
+    const onAbort = () => req.destroy(Object.assign(new Error('stopped'), { name: 'AbortError' }));
+    const cleanupAbort = () => signal?.removeEventListener('abort', onAbort);
+    signal?.addEventListener('abort', onAbort);
     req.on('socket', (sock) => {
       // a long wait for the answer must not look like a dead connection to anything in between
       sock.setKeepAlive(true, 30_000);
@@ -82,6 +88,7 @@ function send(url: string, method: string, headers: Record<string, string>, body
     req.on('error', fail);
     function fail(e: unknown) {
       clearTimeout(timer);
+      cleanupAbort();
       reject(e);
     }
     if (body !== undefined) req.write(body);
@@ -94,6 +101,7 @@ export async function localRequest(
   path: string,
   body: unknown | undefined,
   timeoutSeconds: number,
+  signal?: AbortSignal,
 ): Promise<any> {
   if (!s.baseUrl) throw new Error('No local model address is set. Add one on the Settings page.');
   const url = `${s.baseUrl}${path}`;
@@ -102,7 +110,7 @@ export async function localRequest(
   let status: number;
   let text: string;
   try {
-    ({ status, text } = await send(url, body === undefined ? 'GET' : 'POST', headers, body === undefined ? undefined : JSON.stringify(body), timeoutSeconds * 1000));
+    ({ status, text } = await send(url, body === undefined ? 'GET' : 'POST', headers, body === undefined ? undefined : JSON.stringify(body), timeoutSeconds * 1000, signal));
   } catch (e) {
     throw new Error(describeFailure(e, s.baseUrl, timeoutSeconds));
   }
@@ -130,7 +138,7 @@ export function localProvider(s: LocalModelSettings): Provider {
   return {
     id: 'local',
     label: `Local (${s.model})`,
-    async chat({ system, messages, tools }) {
+    async chat({ system, messages, tools, signal }) {
       const msgs: any[] = [{ role: 'system', content: system }];
       for (const m of messages) {
         if (m.role === 'user') msgs.push({ role: 'user', content: m.content });
@@ -160,17 +168,18 @@ export function localProvider(s: LocalModelSettings): Provider {
           ...(tools.length ? { tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } })) } : {}),
         },
         900,
+        signal,
       );
       const msg = data.choices?.[0]?.message ?? {};
       return { text: msg.content ?? '', toolCalls: parseToolCalls(msg) };
     },
-    describeImage(image, prompt) {
-      return describeLocalImage(s, image, prompt);
+    describeImage(image, prompt, signal) {
+      return describeLocalImage(s, image, prompt, signal);
     },
   };
 }
 
-export async function describeLocalImage(s: LocalModelSettings, image: { data: Buffer; mime: string }, prompt: string): Promise<string> {
+export async function describeLocalImage(s: LocalModelSettings, image: { data: Buffer; mime: string }, prompt: string, signal?: AbortSignal): Promise<string> {
   const model = s.visionModel || s.model;
   const data = await localRequest(
     s,
@@ -189,6 +198,7 @@ export async function describeLocalImage(s: LocalModelSettings, image: { data: B
       ],
     },
     900,
+    signal,
   );
   const text = String(data.choices?.[0]?.message?.content ?? '').trim();
   if (!text) throw new Error(`${model} returned nothing for the image. It may not be able to read images; set a vision model on the Settings page.`);

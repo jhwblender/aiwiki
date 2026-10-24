@@ -565,10 +565,12 @@ export function startMock(port = 4555) {
         res.writeHead(404).end();
         return;
       }
-      // "slowly" in a message makes each answer take a moment, to see progress in the UI
+      // "slowly" in the opening message makes the first model call take a moment, to see progress in the UI
       const body = JSON.parse(raw || '{}');
-      const slow = (body.messages ?? []).some((m) => typeof m.content === 'string' && m.role === 'user' && /slowly/i.test(m.content));
-      setTimeout(() => send(200, respond(body)), slow ? 1500 : 0);
+      const slow =
+        (body.messages ?? []).some((m) => m.role === 'user' && typeof m.content === 'string' && /slowly/i.test(m.content)) &&
+        !(body.messages ?? []).some((m) => m.role === 'assistant');
+      setTimeout(() => send(200, respond(body)), slow ? 4000 : 0);
     });
   });
   return new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve(server)));

@@ -606,8 +606,12 @@ try {
   for (const p of (await getPage('docs/basics')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
   const stopId = await startStream('Please slowly add where facts come from', 'e2e-chat-stop');
   check('a running request can be stopped', (await api('POST', `/api/chat/runs/${stopId}/stop`)).data.stopped === true);
-  const stoppedEvents = await readRun(stopId);
+  const stopAt = Date.now();
+  const stoppedEvents = await readRun(stopId); // blocks until the run finally ends
+  const stopDelay = Date.now() - stopAt;
   check('a stopped request ends as stopped', stoppedEvents.at(-1).type === 'error' && stoppedEvents.at(-1).error === 'Stopped.', JSON.stringify(stoppedEvents.at(-1)));
+  // The model call was still generating (4 s); stopping must cut it instead of waiting it out
+  check('stopping cuts the model call right away instead of finishing the step', stopDelay < 2500, `took ${stopDelay} ms`);
   check('an unknown request says so', (await fetch(`${BASE}/api/chat/runs/nope`, { headers: { Cookie: COOKIES.get('Alex') } })).status === 404);
   for (const p of (await getPage('docs/basics')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
@@ -714,6 +718,55 @@ try {
   await api('DELETE', `/api/folders/${mv_id}`);
   for (const p of (await getPage('docs/basics')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
   fs.rmSync(move_base, { recursive: true, force: true });
+
+  // 27c. The same when a file is still waiting in the queue while the folder moves
+  const mv2_base = fs.mkdtempSync(path.join(os.tmpdir(), 'aiwiki-mvq-'));
+  move_put(path.join(mv2_base, 'old'), 'keep.txt', 'FACT: Kept fact.\n');
+  const mv2_folder = await api('POST', '/api/folders', { label: 'Waiting move', path: path.join(mv2_base, 'old'), fileExisting: true });
+  const mv2_id = mv2_folder.data.id;
+  await api('POST', `/api/folders/${mv2_id}/scan`);
+  await waitQueue();
+  // Hold the queue: filing is paused, so a new folder file waits instead of working
+  await api('POST', '/api/ingest/control', { action: 'pause' });
+  move_put(path.join(mv2_base, 'old'), 'hold/me.txt', 'FACT: Queued fact.\n');
+  await api('POST', `/api/folders/${mv2_id}/scan`);
+  let holdState = null;
+  for (let i = 0; i < 40 && !holdState; i++) {
+    const st = (await api('GET', '/api/ingest')).data;
+    if (st.jobs.some((j) => j.displayName === 'me.txt' && j.status === 'queued')) holdState = st;
+    else await new Promise((r) => setTimeout(r, 250));
+  }
+  check('a folder file waits in the queue while filing is paused', !!holdState, JSON.stringify(holdState?.jobs?.map((j) => [j.displayName, j.status])));
+
+  // Move the folder under the waiting job
+  fs.renameSync(path.join(mv2_base, 'old'), path.join(mv2_base, 'moved'));
+  let mvq_change = null;
+  for (let i = 0; i < 15 && !mvq_change; i++) {
+    const r = await api('PATCH', `/api/folders/${mv2_id}`, { path: path.join(mv2_base, 'moved') });
+    if (r.status === 200) mvq_change = r.data; // a working attempt in flight may briefly refuse the change
+    else await new Promise((res) => setTimeout(res, 400));
+  }
+  check('the folder can change while only waiting jobs exist', !!mvq_change && mvq_change.label === 'moved', JSON.stringify(mvq_change));
+  const mvq_waiting = (await api('GET', '/api/ingest')).data.jobs.find((j) => j.displayName === 'me.txt');
+  check('the waiting job follows the new folder name', mvq_waiting?.folderLabel === 'moved', JSON.stringify(mvq_waiting));
+  check("the waiting file is registered in the moved folder's plan",
+    JSON.stringify((await api('GET', `/api/folders/${mv2_id}/plan`)).data.tree).includes('hold'));
+  await api('POST', '/api/ingest/control', { action: 'resume' });
+  const mvq_done = await waitQueue();
+  const meJob = mvq_done?.find((j) => j.displayName === 'me.txt');
+  check('the queued file files fully under the new name', meJob?.status === 'done' && meJob.folderLabel === 'moved', JSON.stringify(meJob));
+  const mv2Db = new Database(path.join(dataDir, 'wiki.db'), { readonly: true });
+  try {
+    check('the queued file lands as a document under the new name, not the old one',
+      mv2Db.prepare("SELECT COUNT(*) n FROM documents WHERE doc_key = 'folder:moved:hold/me.txt'").get().n === 1 &&
+      mv2Db.prepare("SELECT COUNT(*) n FROM documents WHERE doc_key LIKE 'folder:Waiting move:%'").get().n === 0,
+      JSON.stringify(mv2Db.prepare('SELECT doc_key FROM documents WHERE doc_key LIKE ? OR doc_key LIKE ?').all('folder:moved:hold/%', 'folder:Waiting move:%').map((r) => r.doc_key)));
+  } finally {
+    mv2Db.close();
+  }
+  await api('DELETE', `/api/folders/${mv2_id}`);
+  for (const p of (await getPage('docs/basics')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  fs.rmSync(mv2_base, { recursive: true, force: true });
 
   // 28. The assistant can look up detail in the original documents
   const manual = await upload([['manual.txt', Buffer.from('Wiki export\n\nThe export tool writes one file per page, plus a plain index.\n'), 'text/plain']]);

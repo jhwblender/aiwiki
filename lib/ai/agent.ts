@@ -131,7 +131,7 @@ export async function runAgent(opts: {
         const identity = typeof att === 'number' ? dropIdentity(f.filename) : att.identity;
         const info = (typeof att !== 'number' && att.info) || checkVersion(identity, f);
         const location = identity.folderLabel ? folderContext(identity.folderLabel, identity.relPath) : undefined;
-        const prepared = await prepareFile(f, (image, prompt) => provider.describeImage(image, prompt), info, identity.displayName, location);
+        const prepared = await prepareFile(f, (image, prompt) => provider.describeImage(image, prompt, opts.signal), info, identity.displayName, location);
         handled.push({ identity, file: f, info });
         if (prepared.parts) (ctx.fileParts ??= new Map()).set(identity.displayName, prepared.parts);
         ctx.files.push({
@@ -168,7 +168,15 @@ export async function runAgent(opts: {
     opts.onProgress?.(i === 0 ? 'Thinking' : 'Thinking about what it found');
     // A long tidy run would outgrow a local model's context; keep the latest results in full
     if (opts.librarian) shortenOldResults(messages);
-    const res = await provider.chat({ system, messages, tools });
+    let res;
+    try {
+      res = await provider.chat({ system, messages, tools, signal: opts.signal });
+    } catch (e) {
+      // The person asked to stop: the in-flight call was cut, so end clean instead of reporting
+      // a network error
+      if (opts.signal?.aborted) throw new Error('Stopped.');
+      throw e;
+    }
     messages.push({ role: 'assistant', content: res.text, toolCalls: res.toolCalls, raw: res.raw });
     if (!res.toolCalls.length) {
       if (!nudged && ctx.proposed.size === 0 && CLAIMS_CHANGE.test(res.text)) {
