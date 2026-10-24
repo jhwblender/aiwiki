@@ -46,7 +46,7 @@ AI Wiki splits the job: **the AI does the reading and writing, people make every
 
 ## Quick start
 
-Needs Node 22 or newer and git.
+Needs Node 22 or newer and git — or let `./start.sh` download Node 22 for you on the first run (no administrator password).
 
 ```bash
 git clone https://github.com/jhwblender/aiwiki.git
@@ -59,7 +59,7 @@ Open http://localhost:3000, go to **Settings**, and connect a model:
 - **Ollama:** click *Ollama* to fill in `http://localhost:11434/v1`, pick a model with tool calling (Qwen 2.5 or newer, Llama 3.1 or newer), then *Test connection*
 - **Claude:** add `ANTHROPIC_API_KEY` to `.env.local` and run `./start.sh` again
 
-`./start.sh` checks for Node, npm and git, installs the packages on the first run (or after the package list changes), builds only when the code changed, and starts the wiki. `./stop.sh` stops it. Other options:
+`./start.sh` checks for Node, npm and git, offers to download Node 22 if it is missing (into `~/.local/share/aiwiki/node`, no administrator password), installs the packages on the first run (or after the package list changes), builds only when the code changed, and starts the wiki. `./stop.sh` stops it. Other options:
 
 ```bash
 ./start.sh --open       # open the browser when ready

@@ -7,8 +7,8 @@
 #   ./start.sh --shortcut  put a "Start wiki" file on the Windows desktop (WSL only)
 #   PORT=3001 ./start.sh   use another port
 #
-# The first run checks for Node, npm and git, installs the packages, and creates
-# .env.local from .env.example.
+# The first run checks for Node, npm and git, offers to download Node 22 if it
+# is missing, installs the packages, and creates .env.local from .env.example.
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -55,6 +55,128 @@ open_browser() {
   fi
 }
 
+# ---------- Node the script can install for this user ----------
+# It lives under the user's data folder, so no administrator password is needed
+# and nothing outside that folder is changed. Later runs find it here.
+WIKI_NODE_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/aiwiki/node"
+NODE_INSTALL_TMP=""
+
+cleanup_node_install() {
+  if [[ -n "$NODE_INSTALL_TMP" ]]; then
+    rm -rf "$NODE_INSTALL_TMP" "${NODE_INSTALL_TMP}.tar.gz"
+  fi
+}
+trap cleanup_node_install EXIT
+
+wiki_node_works() {
+  [[ -x "$WIKI_NODE_HOME/bin/node" ]] && "$WIKI_NODE_HOME/bin/node" -v >/dev/null 2>&1
+}
+
+ask_to_install_node() {
+  local answer
+  # Without a terminal (a service, a pipe, a plain double-click) nobody can answer.
+  [[ -t 0 && -t 1 ]] || return 1
+  printf '\nNode.js is not installed. The wiki needs Node 22.\n'
+  printf 'Download Node 22 into\n  %s\nand use it for the wiki? This needs no administrator password (about 30 MB).\n' "$WIKI_NODE_HOME"
+  printf 'Install Node 22 now? [y/N] '
+  read -r answer || return 1
+  case "$answer" in
+    [yY]|[yY][eE][sS]) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+sha256_file() {
+  if command -v sha256sum >/dev/null; then sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null; then shasum -a 256 "$1" | awk '{print $1}'
+  elif command -v openssl >/dev/null; then openssl dgst -sha256 "$1" | awk '{print $NF}'
+  else return 1
+  fi
+}
+
+fetch_file() {
+  if command -v curl >/dev/null; then
+    curl -fL --progress-bar -o "$2" "$1"
+  elif command -v wget >/dev/null; then
+    wget -O "$2" "$1"
+  else
+    return 127
+  fi
+}
+
+install_wiki_node() {
+  local os arch index tarball expected actual staging archive sum
+
+  case "$(uname -s)" in
+    Linux) os=linux ;;
+    Darwin) os=darwin ;;
+    *) fail "Automatic Node.js install is not supported on $(uname -s). Install Node 22 or newer from https://nodejs.org, then run ./start.sh again." ;;
+  esac
+  if [[ -f /etc/alpine-release ]]; then
+    fail "This is Alpine Linux, where Node's official builds do not run. Install Node 22 with 'sudo apk add nodejs npm', then run ./start.sh again."
+  fi
+  case "$(uname -m)" in
+    x86_64|amd64) arch=x64 ;;
+    aarch64|arm64) arch=arm64 ;;
+    armv7l)
+      [[ "$os" == linux ]] || fail "Automatic Node.js install is not supported on $(uname -s) $(uname -m). Install Node 22 or newer from https://nodejs.org, then run ./start.sh again."
+      arch=armv7l ;;
+    *) fail "There is no Node.js 22 download for $(uname -m). Install it from https://nodejs.org, then run ./start.sh again." ;;
+  esac
+
+  command -v tar >/dev/null || fail "tar is needed to unpack Node.js. Install it (it is usually part of the system), then run ./start.sh again."
+  command -v awk >/dev/null || fail "awk is needed to check the Node.js download. Install it, then run ./start.sh again."
+  command -v curl >/dev/null || command -v wget >/dev/null \
+    || fail "curl or wget is needed to download Node.js. Install one, then run ./start.sh again."
+
+  mkdir -p "$(dirname "$WIKI_NODE_HOME")" \
+    || fail "Could not create $(dirname "$WIKI_NODE_HOME"). Check that your home folder is writable, then run ./start.sh again."
+
+  staging="$WIKI_NODE_HOME.partial.$$"
+  archive="$staging.tar.gz"
+  rm -rf "$staging" "$archive"
+  mkdir -p "$staging" \
+    || fail "Could not create $staging. Check that your home folder is writable, then run ./start.sh again."
+  NODE_INSTALL_TMP="$staging"
+
+  index="$staging/SHASUMS256.txt"
+  say "Downloading Node.js 22 (about 30 MB)..."
+  fetch_file "https://nodejs.org/dist/latest-v22.x/SHASUMS256.txt" "$index" \
+    || fail "Could not download Node.js. Check the internet connection, then run ./start.sh again."
+
+  # The checksum file has one line per download; pick this computer's file.
+  sum="$(awk -v suffix="-$os-$arch.tar.gz" 'index($2, suffix) == length($2) - length(suffix) + 1 { print $1, $2; exit }' "$index")"
+  expected="${sum%% *}"
+  tarball="${sum#* }"
+  [[ "$expected" =~ ^[0-9a-f]{64}$ ]] \
+    || fail "Could not read the Node.js checksum. Try ./start.sh again; if it keeps failing, install Node 22 from https://nodejs.org."
+  [[ "$tarball" =~ ^node-v22\.[0-9]+\.[0-9]+-$os-$arch\.tar\.gz$ ]] \
+    || fail "Could not find a Node.js 22 download for this computer ($os $arch). Install Node 22 from https://nodejs.org, then run ./start.sh again."
+
+  fetch_file "https://nodejs.org/dist/latest-v22.x/$tarball" "$archive" \
+    || fail "Could not download $tarball. Check the internet connection, then run ./start.sh again."
+
+  actual="$(sha256_file "$archive")" \
+    || fail "Could not check the Node.js download (install sha256sum, shasum or openssl), then run ./start.sh again."
+  [[ "$actual" == "$expected" ]] \
+    || fail "The Node.js download did not match its checksum, so it was not used. Try ./start.sh again; if it keeps failing, install Node 22 from https://nodejs.org."
+
+  tar -xzf "$archive" -C "$staging" --strip-components=1 \
+    || fail "Could not unpack the Node.js download. Check that there is enough disk space, then run ./start.sh again."
+  [[ -x "$staging/bin/node" ]] \
+    || fail "The Node.js download did not contain node. Install Node 22 from https://nodejs.org, then run ./start.sh again."
+  "$staging/bin/node" -v >/dev/null 2>&1 \
+    || fail "The downloaded Node.js cannot run on this system (it needs a recent glibc). Install Node 22 with your package manager, then run ./start.sh again."
+
+  # Replace an older or broken copy only once the new one is unpacked and checked.
+  rm -rf "$WIKI_NODE_HOME" \
+    || fail "Could not replace $WIKI_NODE_HOME. Check permissions, then run ./start.sh again."
+  mv "$staging" "$WIKI_NODE_HOME" \
+    || fail "Could not move Node.js into $WIKI_NODE_HOME. Check permissions, then run ./start.sh again."
+  rm -f "$archive"
+  NODE_INSTALL_TMP=""
+}
+
 # ---------- Windows desktop shortcut ----------
 if [[ "$SHORTCUT" == yes ]]; then
   command -v powershell.exe >/dev/null || fail "--shortcut only works inside WSL on Windows."
@@ -68,31 +190,47 @@ if [[ "$SHORTCUT" == yes ]]; then
 fi
 
 # ---------- requirements ----------
+command -v git >/dev/null || fail "git is not installed. Install it (sudo apt install git), then run this again."
+
+# Use the Node this script downloaded on an earlier run.
+if ! command -v node >/dev/null && wiki_node_works; then
+  PATH="$WIKI_NODE_HOME/bin:$PATH"; export PATH
+fi
+
 # Node installed with nvm can be missing from a launcher's PATH (a login shell
 # does not always read ~/.bashrc). Add the newest nvm version if there is one.
 if ! command -v node >/dev/null && [[ -d "$HOME/.nvm/versions/node" ]]; then
   BEST_MAJOR=0
-  for NODE_HOME in "$HOME"/.nvm/versions/node/v*/bin; do
-    [[ -x "$NODE_HOME/node" ]] || continue
-    NVM_VERSION="${NODE_HOME%/bin}"; NVM_VERSION="${NVM_VERSION##*/v}"; NVM_VERSION="${NVM_VERSION%%.*}"
+  for NVM_BIN in "$HOME"/.nvm/versions/node/v*/bin; do
+    [[ -x "$NVM_BIN/node" ]] || continue
+    NVM_VERSION="${NVM_BIN%/bin}"; NVM_VERSION="${NVM_VERSION##*/v}"; NVM_VERSION="${NVM_VERSION%%.*}"
     [[ "$NVM_VERSION" =~ ^[0-9]+$ ]] || continue
     if (( NVM_VERSION > BEST_MAJOR )); then
       BEST_MAJOR="$NVM_VERSION"
-      PATH="$NODE_HOME:$PATH"; export PATH
+      PATH="$NVM_BIN:$PATH"; export PATH
     fi
   done
 fi
 
 if ! command -v node >/dev/null; then
-  if [[ -n "${WSL_DISTRO_NAME:-}" ]] && command -v node.exe >/dev/null; then
-    fail "Node.js is installed on Windows, but not inside WSL, and the wiki runs in WSL.
+  if ask_to_install_node; then
+    install_wiki_node
+    PATH="$WIKI_NODE_HOME/bin:$PATH"; export PATH
+    command -v node >/dev/null \
+      || fail "Node.js was downloaded to $WIKI_NODE_HOME, but it cannot be run. Delete that folder and run ./start.sh again."
+    say "Using Node $(node -v) from $WIKI_NODE_HOME"
+  else
+    HINT=""
+    [[ -t 0 && -t 1 ]] || HINT=" Run ./start.sh in a terminal to be offered an automatic install."
+    if [[ -n "${WSL_DISTRO_NAME:-}" ]] && command -v node.exe >/dev/null; then
+      fail "Node.js is installed on Windows, but not inside WSL, and the wiki runs in WSL.
   Install Node 22 or newer inside WSL (https://nodejs.org, or use nvm:
-  https://github.com/nvm-sh/nvm), then run ./start.sh again."
+  https://github.com/nvm-sh/nvm), then run ./start.sh again.$HINT"
+    fi
+    fail "Node.js is not installed. Install Node 22 or newer (https://nodejs.org), then run ./start.sh again.$HINT"
   fi
-  fail "Node.js is not installed. Install Node 22 or newer (https://nodejs.org), then run this again."
 fi
 command -v npm >/dev/null || fail "npm is missing. It normally comes with Node.js; install Node 22 or newer (which includes npm), then run this again."
-command -v git >/dev/null || fail "git is not installed. Install it (sudo apt install git), then run this again."
 
 NODE_VERSION="$(node -v 2>/dev/null)" || fail "Node.js is installed but does not run. Reinstall Node 22 or newer, then run this again."
 NODE_MAJOR="${NODE_VERSION#v}"; NODE_MAJOR="${NODE_MAJOR%%.*}"
