@@ -2,7 +2,7 @@
 
 AI-integrated company wiki. People use it like a normal wiki. A built-in assistant can search and read the wiki to answer questions, and it turns new information (chat messages, and later dropped or watched files) into proposed edits that anyone can approve or reject inline on the page.
 
-Audience: starts with the systems team, eventually the whole company. Most reviewers are not programmers.
+Audience: a small group first, then wider use. Most reviewers are not programmers.
 
 ## Commands
 

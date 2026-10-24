@@ -4,12 +4,20 @@
 //
 // Run on its own:  node scripts/mock-llm.mjs 4555
 // Then set LOCAL_LLM_BASE_URL=http://127.0.0.1:4555/v1
+//
+// The scenarios edit the seeded guide page (guide/basics) and, after the e2e move
+// test, the page it became (docs/basics). They only ever propose; nothing is written
+// until a person approves.
 
 import http from 'node:http';
 import { pathToFileURL } from 'node:url';
 
 // A librarian survey line, read back by the tidy scenario
 const surveyLine = (text, re) => text.match(re) ?? [];
+
+// The guide page is the subject of most scenarios
+const GUIDE = 'guide/basics';
+const GUIDE_MOVED = 'docs/basics';
 
 const SCENARIOS = [
   {
@@ -21,7 +29,7 @@ const SCENARIOS = [
   {
     // a long file: part 1 must not include the end, and read_file_part fetches the last part
     keyword: 'skim this file',
-    steps: [{ name: 'read_file_part', args: (text) => ({ file: 'long-manual.txt', part: Number(text.match(/only part 1 of (\d+)/)?.[1] ?? 0) }) }],
+    steps: [{ name: 'read_file_part', args: (text) => ({ file: 'long-notes.txt', part: Number(text.match(/only part 1 of (\d+)/)?.[1] ?? 0) }) }],
     reply: (tools) => (/part \d+ of \d+/.test(tools) && tools.includes('PART-TWO-MARKER') ? 'PARTS-OK' : 'PARTS-NOT-OK'),
   },
   {
@@ -37,15 +45,15 @@ const SCENARIOS = [
       { name: 'survey_section', args: { section: '*' } },
     ],
     reply: (tools) =>
-      /Current structure \(generated/.test(tools) && tools.includes('"Lib share" (2 documents, none filed yet)') && /Printers\/ \(1 document, none filed yet\)/.test(tools) &&
+      /Current structure \(generated/.test(tools) && tools.includes('"Docs share" (2 documents, none filed yet)') && /Pages\/ \(1 document, none filed yet\)/.test(tools) &&
       tools.includes('organising only arranges pages') && /Proposed (the summary|a new section page)/.test(tools)
         ? 'WHOLE-SURVEY-SEEN'
         : 'WHOLE-SURVEY-NOT-SEEN',
   },
   {
-    keyword: 'move the kb folder',
-    steps: [{ name: 'move_page', args: { path: 'kb', new_path: 'help', summary: 'Help pages belong under help' } }],
-    reply: 'I proposed moving the kb pages under help.',
+    keyword: 'move the notes folder',
+    steps: [{ name: 'move_page', args: { path: 'notes', new_path: 'help', summary: 'Note pages belong under help' } }],
+    reply: 'I proposed moving the notes pages under help.',
   },
   {
     // a librarian tidy run: merges the first duplicate pair, adds the first missing overview and fixes a broken link.
@@ -55,9 +63,9 @@ const SCENARIOS = [
       { name: 'read_page', args: (text) => ({ path: surveyLine(text, /^- (\S+) and (\S+): /m)[2] ?? 'none' }) },
       {
         name: 'append_to_page',
-        args: (text) => ({ path: surveyLine(text, /^- (\S+) and (\S+): /m)[1] ?? 'none', text: 'Colour printing needs a code from reception.', summary: 'Merge the duplicate printing page' }),
+        args: (text) => ({ path: surveyLine(text, /^- (\S+) and (\S+): /m)[1] ?? 'none', text: 'Renaming follows the links with the move action.', summary: 'Merge the duplicate pages page' }),
       },
-      { name: 'remove_page', args: (text) => ({ path: surveyLine(text, /^- (\S+) and (\S+): /m)[2] ?? 'none', summary: 'Merged into the printers page' }) },
+      { name: 'remove_page', args: (text) => ({ path: surveyLine(text, /^- (\S+) and (\S+): /m)[2] ?? 'none', summary: 'Merged into the pages page' }) },
       {
         name: 'create_page',
         args: (text) => {
@@ -76,78 +84,78 @@ const SCENARIOS = [
     reply: (tools) => (tools.includes('reached its limit') ? 'Tidied what I could; the broken link fix went over the limit.' : 'Tidied the section.'),
   },
   {
-    keyword: 'tidy the kb section',
-    steps: [{ name: 'survey_section', args: { area: 'kb' } }],
-    reply: (tools) => (/kb\/printers and kb\/printing/.test(tools) && tools.includes('probably meant kb/printers') ? 'SURVEY-SEEN' : 'SURVEY-NOT-SEEN'),
+    keyword: 'tidy the notes section',
+    steps: [{ name: 'survey_section', args: { area: 'notes' } }],
+    reply: (tools) => (/notes\/pages and notes\/writing/.test(tools) && tools.includes('probably meant notes/pages') ? 'SURVEY-SEEN' : 'SURVEY-NOT-SEEN'),
   },
   {
-    keyword: 'vpn',
+    keyword: 'simple markdown',
     steps: [
-      { name: 'search_pages', args: { query: 'VPN' } },
-      { name: 'read_page', args: { path: 'systems/onboarding' } },
+      { name: 'search_pages', args: { query: 'markdown' } },
+      { name: 'read_page', args: { path: GUIDE } },
       {
         name: 'replace_in_page',
         args: {
-          path: 'systems/onboarding',
-          old_text: 'Request VPN access from IT before your first day.',
-          new_text: 'Request VPN access through the IT portal before your first day.',
-          summary: 'VPN requests now go through the IT portal',
+          path: GUIDE,
+          old_text: 'Pages are simple markdown.',
+          new_text: 'Pages keep to simple markdown, and sections start with a heading.',
+          summary: 'Say pages keep to simple markdown',
         },
       },
     ],
-    reply: 'I proposed an update to [[systems/onboarding]]: VPN requests now go through the IT portal. It is waiting for review.',
+    reply: 'I proposed an update to [[guide/basics]]: pages keep to simple markdown, and sections start with a heading. It is waiting for review.',
   },
   {
-    keyword: 'dashboard',
+    keyword: 'where facts come from',
     steps: [
-      { name: 'read_page', args: { path: 'systems/onboarding' } },
+      { name: 'read_page', args: { path: GUIDE } },
       {
         name: 'replace_in_page',
         args: {
-          path: 'systems/onboarding',
-          old_text: 'Badge access is handled by facilities.',
-          new_text: 'Badge access is handled by facilities. Collect your badge from reception on day one.',
-          summary: 'Onboarding: badge pickup and dashboard link',
+          path: GUIDE,
+          old_text: 'Drop a file into the chat and the assistant will read it and suggest edits for you to approve.',
+          new_text: 'Drop a file into the chat and the assistant will read it and suggest edits for you to approve. It will place its facts on pages.',
+          summary: 'Guide: the opening line and a Sources section',
         },
       },
       {
         name: 'append_to_page',
         args: {
-          path: 'systems/onboarding',
-          text: '## Dashboards\n\nThe monitoring dashboard lives at https://grafana.example.internal. Bookmark it.',
-          summary: 'Onboarding: badge pickup and dashboard link',
+          path: GUIDE,
+          text: '## Sources\n\nThe sources list records where each new fact came from.',
+          summary: 'Guide: the opening line and a Sources section',
         },
       },
     ],
-    reply: 'I proposed two changes to [[systems/onboarding]]: badge pickup and a new Dashboards section.',
+    reply: 'I proposed two changes to [[guide/basics]]: the opening line and a new Sources section.',
   },
   {
-    keyword: 'rotation',
+    keyword: 'review list',
     steps: [
       {
         name: 'replace_in_page',
         args: {
-          path: 'systems/onboarding',
-          old_text: 'Ask your manager to add you to both.',
-          new_text: 'Ask your manager to add you to both. The rotation changes over on Mondays.',
-          summary: 'On-call rotation changes on Mondays',
+          path: GUIDE,
+          old_text: 'This page is only a starting point, so change or delete it as you like.',
+          new_text: 'This page is only a starting point, so change or delete it as you like. The review list on each page decides what is published.',
+          summary: 'Say what the review list does',
         },
       },
     ],
-    reply: 'I proposed a note about the rotation handover on [[systems/onboarding]].',
+    reply: 'I proposed a note about the review list on [[guide/basics]].',
   },
   {
     // calls tools the way small local models sometimes do: wrong case, near-miss argument names
-    keyword: 'parking',
+    keyword: 'house style',
     steps: [
-      { name: 'Read_Page', args: { page: 'systems/onboarding' } },
-      { name: 'delete_page', args: { path: 'systems/onboarding' } },
+      { name: 'Read_Page', args: { page: GUIDE } },
+      { name: 'delete_page', args: { path: GUIDE } },
       {
         name: 'appendToPage',
-        args: { page_path: 'systems/onboarding', content: 'Staff parking is in lot B.', description: 'Add parking info' },
+        args: { page_path: GUIDE, content: 'The house style asks for one blank line between paragraphs.', description: 'Add the house style' },
       },
     ],
-    reply: 'I proposed a note about parking on [[systems/onboarding]].',
+    reply: 'I proposed a note about the house style on [[guide/basics]].',
   },
   {
     // replays a real model's mistake: fixes the text in place, then also appends a "correction" copy
@@ -156,97 +164,97 @@ const SCENARIOS = [
       {
         name: 'replace_in_page',
         args: {
-          path: 'systems/onboarding',
-          old_text: 'Mondays and Fridays are remote work days.',
-          new_text: 'Every Monday is remote.',
-          summary: 'Correct the remote days',
+          path: GUIDE,
+          old_text: 'Every page ends with a list of related pages.',
+          new_text: 'Only summary pages end with a list of related pages.',
+          summary: 'Narrow the related pages rule',
         },
       },
       {
         name: 'append_to_page',
-        args: { path: 'systems/onboarding', text: '## Work schedule correction\n\nEvery Monday is remote.', summary: 'Correct the remote days' },
+        args: { path: GUIDE, text: '## Correction\n\nOnly summary pages end with a list of related pages.', summary: 'Narrow the related pages rule' },
       },
     ],
-    reply: 'I corrected the remote days.',
+    reply: 'I corrected the related pages rule.',
   },
   {
-    keyword: 'remote work days',
+    keyword: 'list of related pages',
     steps: [
       {
         name: 'append_to_page',
-        args: { path: 'systems/onboarding', text: '## Work schedule\n\nMondays and Fridays are remote work days.', summary: 'Add remote days' },
+        args: { path: GUIDE, text: '## Related pages\n\nEvery page ends with a list of related pages.', summary: 'Add the related pages rule' },
       },
     ],
-    reply: 'I proposed the remote work days.',
+    reply: 'I proposed the related pages rule.',
   },
   {
     // a correction in the same chat; only works if the chat's own pending suggestion is visible
     keyword: 'tuesday',
     steps: [
-      { name: 'read_page', args: { path: 'systems/onboarding' } },
+      { name: 'read_page', args: { path: GUIDE } },
       {
         name: 'replace_in_page',
         args: {
-          path: 'systems/onboarding',
-          old_text: 'Team lunch is on Mondays.',
-          new_text: 'Team lunch is on Tuesdays.',
-          summary: 'Team lunch is on Tuesdays',
+          path: GUIDE,
+          old_text: 'The guide is reviewed on Mondays.',
+          new_text: 'The guide is reviewed on Tuesdays.',
+          summary: 'The review day is Tuesday',
         },
       },
     ],
-    reply: 'I updated my suggestion: team lunch is on Tuesdays.',
+    reply: 'I updated my suggestion: the guide is reviewed on Tuesdays.',
   },
   {
-    keyword: 'lunch',
+    keyword: 'review day',
     steps: [
       {
         name: 'append_to_page',
-        args: { path: 'systems/onboarding', text: 'Team lunch is on Mondays.', summary: 'Add the team lunch day' },
+        args: { path: GUIDE, text: 'The guide is reviewed on Mondays.', summary: 'Add the review day' },
       },
     ],
-    reply: 'I proposed adding the team lunch day to [[systems/onboarding]].',
+    reply: 'I proposed adding the review day to [[guide/basics]].',
   },
   {
     // reports whether read_page showed pending suggestions from others
     keyword: 'anything pending',
-    steps: [{ name: 'read_page', args: { path: 'systems/onboarding' } }],
+    steps: [{ name: 'read_page', args: { path: GUIDE } }],
     reply: (toolText) => (toolText.includes('Pending suggestions from others') ? 'PENDING-SEEN' : 'PENDING-NOT-SEEN'),
   },
   {
-    keyword: 'tidy the handbook',
-    steps: [{ name: 'move_page', args: { from: 'team/handbook', to: 'guides/handbook', summary: 'Handbooks belong under guides' } }],
-    reply: 'I proposed moving the handbook to [[guides/handbook]].',
+    keyword: 'tidy the notebook',
+    steps: [{ name: 'move_page', args: { from: 'pages/notebook', to: 'guides/notebook', summary: 'Notebooks belong under guides' } }],
+    reply: 'I proposed moving the notebook to [[guides/notebook]].',
   },
   {
-    keyword: 'merge first week',
+    keyword: 'merge the details',
     steps: [
       {
         name: 'append_to_page',
-        args: { path: 'team/onboarding', text: '## First week\n\nShadow the on-call engineer for the whole week.', summary: 'Merge the first week page into onboarding' },
+        args: { path: GUIDE_MOVED, text: '## Details\n\nEarly drafts are kept in the history of the guide.', summary: 'Merge the details page into the guide' },
       },
-      { name: 'remove_page', args: { path: 'team/onboarding/first-week', summary: 'Merge the first week page into onboarding' } },
+      { name: 'remove_page', args: { path: 'docs/basics/details', summary: 'Merge the details page into the guide' } },
     ],
-    reply: 'I proposed merging the first week page into [[team/onboarding]].',
+    reply: 'I proposed merging the details page into [[docs/basics]].',
   },
   {
     keyword: 'move it again',
-    steps: [{ name: 'move_page', args: { path: 'team/handbook', new_path: 'policies/handbook', summary: 'Handbooks are policies' } }],
-    reply: 'I changed my suggestion: move the handbook to policies instead.',
+    steps: [{ name: 'move_page', args: { path: 'pages/notebook', new_path: 'style/notebook', summary: 'Notebooks are style notes' } }],
+    reply: 'I changed my suggestion: move the notebook to style instead.',
   },
   {
     // claims a move without calling the tool, then calls it after the automatic check
     keyword: 'pretend to move',
     steps: [
-      { text: 'I have proposed moving the handbook to guides/handbook.' },
-      { name: 'move_page', args: { path: 'policies/handbook', new_path: 'manuals/handbook', summary: 'Handbooks belong under manuals' } },
+      { text: 'I have proposed moving the notebook to guides/notebook.' },
+      { name: 'move_page', args: { path: 'style/notebook', new_path: 'drafts/notebook', summary: 'Notebooks belong under drafts' } },
     ],
     reply: 'Done: the move is waiting for review.',
   },
   {
     // keeps claiming without ever calling a tool
     keyword: 'only pretend',
-    steps: [{ text: 'I have proposed moving the handbook.' }, { text: 'I have proposed moving the handbook.' }],
-    reply: 'I have proposed moving the handbook.',
+    steps: [{ text: 'I have proposed moving the notebook.' }, { text: 'I have proposed moving the notebook.' }],
+    reply: 'I have proposed moving the notebook.',
   },
   {
     // files every FACT line it finds in the attached files, proving extraction reached the model
@@ -254,19 +262,19 @@ const SCENARIOS = [
     steps: [
       {
         name: 'append_to_page',
-        args: (text) => ({ path: 'team/onboarding', text: factsIn(text).join(' ') || 'FILE-NOT-SEEN', summary: 'Add facts from the attached files' }),
+        args: (text) => ({ path: GUIDE_MOVED, text: factsIn(text).join(' ') || 'FILE-NOT-SEEN', summary: 'Add facts from the attached files' }),
       },
     ],
-    reply: 'I proposed adding what the attached files say to [[team/onboarding]].',
+    reply: 'I proposed adding what the attached files say to [[docs/basics]].',
   },
   {
     // cites the file in the page text first, as a real model did, then writes it plainly
-    keyword: 'where the keys are',
+    keyword: 'what the checklist says',
     steps: [
-      { name: 'append_to_page', args: { path: 'team/onboarding', text: 'Based on the "keys.txt" file, the spare keys are in the blue cabinet.', summary: 'Spare keys location' } },
-      { name: 'append_to_page', args: { path: 'team/onboarding', text: 'The spare keys are in the blue cabinet.', summary: 'Spare keys location' } },
+      { name: 'append_to_page', args: { path: GUIDE_MOVED, text: 'Based on the "checklist.txt" file, the review checklist says approve one change at a time.', summary: 'What the checklist says' } },
+      { name: 'append_to_page', args: { path: GUIDE_MOVED, text: 'The review checklist says approve one change at a time.', summary: 'What the checklist says' } },
     ],
-    reply: 'I proposed where the spare keys are, from keys.txt.',
+    reply: 'I proposed what the checklist says, from checklist.txt.',
   },
   {
     // the background queue's default instruction; files the same way as "file this"
@@ -275,13 +283,13 @@ const SCENARIOS = [
       {
         name: 'append_to_page',
         args: (text) => ({
-          path: 'team/onboarding',
+          path: GUIDE_MOVED,
           text: factsIn(text).join(' ') || 'FILE-NOT-SEEN',
           summary: /Path in folder: .*\n[\s\S]*Folder outline/.test(text) ? 'Add facts from a document (location seen)' : 'Add facts from a document',
         }),
       },
     ],
-    reply: 'I proposed adding what the document says to [[team/onboarding]].',
+    reply: 'I proposed adding what the document says to [[docs/basics]].',
   },
   {
     // applies a changed document: replaces what it no longer says with what it now says
@@ -290,62 +298,62 @@ const SCENARIOS = [
       {
         name: 'replace_in_page',
         args: (text) => ({
-          path: 'team/onboarding',
+          path: GUIDE_MOVED,
           old_text: text.match(/No longer says:\n\s+FACT: ([^\n]+)/)?.[1] ?? 'CHANGE-NOT-SEEN',
           new_text: text.match(/Now says:\n\s+FACT: ([^\n]+)/)?.[1] ?? 'CHANGE-NOT-SEEN',
-          summary: 'Update from the new version of the parts list',
+          summary: 'Update from the new version of the sample document',
         }),
       },
     ],
-    reply: 'I proposed updating the page for the new version of the parts list.',
+    reply: 'I proposed updating the page for the new version of the sample document.',
   },
   {
-    keyword: 'add a canteen section',
-    steps: [{ name: 'append_to_page', args: { path: 'team/onboarding', text: '## Canteen\n\nThe canteen opens at 11:30.', summary: 'Add the canteen hours' } }],
-    reply: 'I proposed a canteen section on [[team/onboarding]].',
+    keyword: 'add a style section',
+    steps: [{ name: 'append_to_page', args: { path: GUIDE_MOVED, text: '## Style\n\nTitles are short and lowercase.', summary: 'Add the style rules' } }],
+    reply: 'I proposed a style section on [[docs/basics]].',
   },
   {
     // moves a pending addition from this chat to a new page
-    keyword: 'move the canteen section',
+    keyword: 'move the style section',
     steps: [
-      { name: 'read_page', args: { path: 'team/onboarding' } },
-      { name: 'replace_in_page', args: { path: 'team/onboarding', old_text: '## Canteen\n\nThe canteen opens at 11:30.', new_text: '', summary: 'Move the canteen hours' } },
-      { name: 'create_page', args: { path: 'facilities/canteen', content: '# Canteen\n\nThe canteen opens at 11:30.', summary: 'Move the canteen hours' } },
+      { name: 'read_page', args: { path: GUIDE_MOVED } },
+      { name: 'replace_in_page', args: { path: GUIDE_MOVED, old_text: '## Style\n\nTitles are short and lowercase.', new_text: '', summary: 'Move the style rules' } },
+      { name: 'create_page', args: { path: 'guide/style', content: '# Style\n\nTitles are short and lowercase.', summary: 'Move the style rules' } },
     ],
-    reply: 'I moved the canteen section to its own page, [[facilities/canteen]].',
+    reply: 'I moved the style section to its own page, [[guide/style]].',
   },
   {
-    keyword: 'suggest a gym page',
-    steps: [{ name: 'create_page', args: { path: 'facilities/gym', content: '# Gym\n\nThe gym is in the basement.', summary: 'New gym page' } }],
-    reply: 'I proposed a gym page.',
+    keyword: 'suggest a photos page',
+    steps: [{ name: 'create_page', args: { path: 'gallery/photos', content: '# Photos\n\nThe gallery files pictures by month.', summary: 'New photos page' } }],
+    reply: 'I proposed a photos page.',
   },
   {
-    keyword: 'move the gym page',
-    steps: [{ name: 'move_page', args: { path: 'facilities/gym', new_path: 'perks/gym', summary: 'The gym is a perk' } }],
-    reply: 'I moved the suggested gym page under perks.',
+    keyword: 'move the photos page',
+    steps: [{ name: 'move_page', args: { path: 'gallery/photos', new_path: 'archive/photos', summary: 'Pictures belong in the archive' } }],
+    reply: 'I moved the suggested photos page under archive.',
   },
   {
-    keyword: 'relocate the perks gym page',
-    steps: [{ name: 'move_page', args: { path: 'perks/gym', new_path: 'misc/gym', summary: 'Somewhere else' } }],
+    keyword: 'relocate the archive photos page',
+    steps: [{ name: 'move_page', args: { path: 'archive/photos', new_path: 'misc/photos', summary: 'Somewhere else' } }],
     reply: 'Done.',
   },
   {
     // answers from an original document that the wiki does not cover
-    keyword: 'what does the manual say',
+    keyword: 'does the notes file say',
     steps: [
-      { name: 'search_documents', args: { query: 'torque motor screws' } },
+      { name: 'search_documents', args: { query: 'export tool' } },
       { name: 'read_document', args: (_text, tools) => ({ document: tools.match(/document (\d+)/)?.[1] ?? 'none', part: 1 }) },
     ],
-    reply: (tools) => (tools.includes('2 Nm') ? 'DOC-SEEN: 2 Nm, from the manual (not in the wiki yet)' : 'DOC-NOT-SEEN'),
+    reply: (tools) => (tools.includes('one file per page') ? 'DOC-SEEN: one file per page, from the notes file (not in the wiki yet)' : 'DOC-NOT-SEEN'),
   },
   {
-    keyword: 'add the torque spec',
+    keyword: 'add the export note',
     steps: [
-      { name: 'search_documents', args: { query: 'torque' } },
+      { name: 'search_documents', args: { query: 'export tool' } },
       { name: 'read_document', args: (_text, tools) => ({ document: tools.match(/document (\d+)/)?.[1] ?? 'none' }) },
-      { name: 'append_to_page', args: { path: 'team/onboarding', text: 'Motor screws are torqued to 2 Nm.', summary: 'Add the motor screw torque' } },
+      { name: 'append_to_page', args: { path: GUIDE_MOVED, text: 'The export tool writes one file per page.', summary: 'Add the export note' } },
     ],
-    reply: 'I proposed adding the torque spec to [[team/onboarding]].',
+    reply: 'I proposed adding the export note to [[docs/basics]].',
   },
   {
     keyword: 'search my notes',
@@ -361,24 +369,24 @@ const SCENARIOS = [
     steps: [
       { name: 'search_documents', args: { query: 'pineapple' } },
       { name: 'read_document', args: (_text, tools) => ({ document: tools.match(/document (\d+)/)?.[1] ?? 'none' }) },
-      { name: 'append_to_page', args: { path: 'team/onboarding', text: 'The code word is PINEAPPLE.', summary: 'Add the code word' } },
+      { name: 'append_to_page', args: { path: GUIDE_MOVED, text: 'The PINEAPPLE code is in my planner.', summary: 'Add the note from my planner' } },
     ],
     reply: 'Done.',
   },
   {
-    keyword: 'backup',
+    keyword: 'naming policy',
     steps: [
-      { name: 'search_pages', args: { query: 'backup' } },
+      { name: 'search_pages', args: { query: 'naming' } },
       {
         name: 'create_page',
         args: {
-          path: 'systems/backup-policy',
-          content: '# Backup policy\n\nFile servers are backed up nightly at 01:00 and kept for 30 days.\n\nRestores are requested through the IT portal.',
-          summary: 'New page: backup policy',
+          path: 'guide/naming-policy',
+          content: '# Naming policy\n\nPage paths are short, lowercase and describe one topic.\n\nA rename uses the move action, so links follow the page.',
+          summary: 'New page: naming policy',
         },
       },
     ],
-    reply: 'There was no backup page, so I proposed a new one at [[systems/backup-policy]].',
+    reply: 'There was no naming policy page, so I proposed a new one at [[guide/naming-policy]].',
   },
 ];
 
@@ -388,7 +396,7 @@ export const anthropicRequests = [];
 // Shown for anything outside the scenarios, so nobody mistakes the mock for a real model
 const NOT_A_MODEL =
   'This is the scripted test model, not a real AI, so it can only run its demo scenarios ' +
-  '(try mentioning the VPN, the dashboard, the rotation, parking, team lunch or a backup policy). Connect a real model on the Settings page.';
+  '(try mentioning simple markdown, where facts come from, the review list, the house style, a style section, the related pages rule or a naming policy). Connect a real model on the Settings page.';
 
 // Tool results in either format, so a scenario reply can depend on what the tools returned
 function toolTexts(messages) {
@@ -430,8 +438,8 @@ function describeMockImage(messages) {
     .join(' ');
   if (/what single word/i.test(prompt)) return 'WIKI';
   const page = prompt.match(/page (\d+) of \d+ of a scanned document/i);
-  if (page) return `FACT: Scanned page ${page[1]} says the generator is tested monthly.`;
-  return 'A photo of a server rack. FACT: The rack label reads RACK-7.';
+  if (page) return `FACT: Scanned page ${page[1]} says the checklist was updated monthly.`;
+  return 'A photo of a whiteboard. FACT: The whiteboard label reads BOARD-7.';
 }
 
 // Every "FACT: ..." line in the attached files, so the mock can prove it read them

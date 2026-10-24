@@ -397,7 +397,7 @@ export default function ChatPanel({
         )}
         {msgs.length === 0 && providers.length > 0 && (
           <div className="muted pad">
-            Ask a question about the wiki, or tell me something new. For example: &quot;The VPN request form moved to the IT portal.&quot; I will
+            Ask a question about the wiki, or tell me something new. For example: &quot;The review day moved to Tuesday.&quot; I will
             propose the edit and you approve it on the page. You can also attach documents and photos, or drop them here.
           </div>
         )}

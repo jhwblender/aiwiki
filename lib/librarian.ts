@@ -202,7 +202,7 @@ function pendingOpsIn(section: string): { kind: string; path: string; newPath: s
 }
 
 const FOLDER_MAP_HEADER =
-  'How the team groups its own documents: the watched folders as trees with document counts (how many are not filed yet, so still coming, and other files such as models or raw data that the wiki cannot read), and where in the wiki the pages filed from each folder ended up (-> section (pages)). ' +
+  'How the watched folders group the documents: the watched folders as trees with document counts (how many are not filed yet, so still coming, and other files such as models or raw data that the wiki cannot read), and where in the wiki the pages filed from each folder ended up (-> section (pages)). ' +
   'Use it to see what belongs together; organise the wiki by topic for a reader rather than copying the folder layout:';
 
 // The watched folders that feed the wiki, as compact trees with file counts, and where in the

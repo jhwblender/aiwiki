@@ -240,7 +240,7 @@ if [[ "$SHORTCUT" == yes ]]; then
   [[ -d "$DESKTOP" ]] || fail "Could not find the Windows desktop folder."
   DISTRO_ARG=""
   [[ -n "${WSL_DISTRO_NAME:-}" ]] && DISTRO_ARG="-d \"$WSL_DISTRO_NAME\" "
-  printf '@echo off\r\ntitle Team wiki\r\nwsl.exe %s--cd "%s" bash -lc "./start.sh --open"\r\npause\r\n' "$DISTRO_ARG" "$(pwd)" > "$DESKTOP/Start wiki.cmd"
+  printf '@echo off\r\ntitle Wiki\r\nwsl.exe %s--cd "%s" bash -lc "./start.sh --open"\r\npause\r\n' "$DISTRO_ARG" "$(pwd)" > "$DESKTOP/Start wiki.cmd"
   say "Created \"Start wiki\" on your Windows desktop. Double-click it to start the wiki; close its window to stop it."
   exit 0
 fi

@@ -96,120 +96,120 @@ try {
   // Seed wiki
   const index = await getPage('index');
   check('seed wiki has an index page', index.exists && index.title === 'Welcome');
-  const seedOnboarding = pageFile('systems/onboarding');
+  const seedOnboarding = pageFile('guide/basics');
 
   // 1. Chat proposes a single edit; nothing is written
-  const r1 = await chat('The VPN form moved to the IT portal');
+  const r1 = await chat('Note that pages keep to simple markdown');
   check('chat returns a reply', !r1.error && r1.reply.includes('waiting for review'), JSON.stringify(r1));
-  check('chat reports the proposed page', r1.proposed?.some((p) => p.path === 'systems/onboarding'));
-  check('AI did not write the page file', pageFile('systems/onboarding') === seedOnboarding);
-  let page = await getPage('systems/onboarding');
+  check('chat reports the proposed page', r1.proposed?.some((p) => p.path === 'guide/basics'));
+  check('AI did not write the page file', pageFile('guide/basics') === seedOnboarding);
+  let page = await getPage('guide/basics');
   check('page shows one pending set', page.pending.length === 1);
-  const vpnSet = page.pending[0];
-  check('pending set links a chat source', vpnSet.source?.kind === 'chat' && vpnSet.source.user === 'Alex');
-  check('pending set has one change', changes(vpnSet).length === 1);
+  const mdSet = page.pending[0];
+  check('pending set links a chat source', mdSet.source?.kind === 'chat' && mdSet.source.user === 'Alex');
+  check('pending set has one change', changes(mdSet).length === 1);
   const pages = (await api('GET', '/api/pages')).data;
-  check('sidebar list counts the pending change', pages.find((p) => p.path === 'systems/onboarding')?.pending === 1);
+  check('sidebar list counts the pending change', pages.find((p) => p.path === 'guide/basics')?.pending === 1);
 
   // 2. A stale fingerprint is refused
-  const hunk = changes(vpnSet)[0];
-  const stale = await api('POST', `/api/proposals/${vpnSet.proposalId}/hunk`, { hunk: hunk.index, fp: 'nope', action: 'approve', user: 'Sam' });
+  const hunk = changes(mdSet)[0];
+  const stale = await api('POST', `/api/proposals/${mdSet.proposalId}/hunk`, { hunk: hunk.index, fp: 'nope', action: 'approve', user: 'Sam' });
   check('stale approval is refused', stale.status === 400);
 
   // 3. Approving the change writes the file and commits under the approver
-  const ok = await api('POST', `/api/proposals/${vpnSet.proposalId}/hunk`, { hunk: hunk.index, fp: hunk.fp, action: 'approve', user: 'Sam' });
+  const ok = await api('POST', `/api/proposals/${mdSet.proposalId}/hunk`, { hunk: hunk.index, fp: hunk.fp, action: 'approve', user: 'Sam' });
   check('approve change succeeds', ok.status === 200, JSON.stringify(ok.data));
-  check('approved text is live', pageFile('systems/onboarding').includes('through the IT portal'));
+  check('approved text is live', pageFile('guide/basics').includes('keep to simple markdown'));
   check('commit author is the approver', git('log', '-1', '--format=%an').trim() === 'Sam');
   check('commit message names the source', git('log', '-1', '--format=%B').includes('Source: chat with Alex'));
-  page = await getPage('systems/onboarding');
+  page = await getPage('guide/basics');
   check('no pending sets left', page.pending.length === 0);
   check('page lists the source', page.sources.some((s) => s.source.user === 'Alex' && s.approvedBy === 'Sam'));
 
   // 4. Two changes in one set: approve one, reject the other
-  await chat('Add the dashboard link and badge pickup');
-  page = await getPage('systems/onboarding');
+  await chat('Add where facts come from');
+  page = await getPage('guide/basics');
   const dashSet = page.pending[0];
   check('second chat stages two changes', page.pending.length === 1 && changes(dashSet).length === 2);
-  const [badge, dash] = changes(dashSet);
-  await api('POST', `/api/proposals/${dashSet.proposalId}/hunk`, { hunk: dash.index, fp: dash.fp, action: 'reject', user: 'Sam' });
-  page = await getPage('systems/onboarding');
+  const [opening, sources] = changes(dashSet);
+  await api('POST', `/api/proposals/${dashSet.proposalId}/hunk`, { hunk: sources.index, fp: sources.fp, action: 'reject', user: 'Sam' });
+  page = await getPage('guide/basics');
   check('rejecting one change leaves the other pending', page.pending.length === 1 && changes(page.pending[0]).length === 1);
-  check('rejected text is not live', !pageFile('systems/onboarding').includes('grafana'));
+  check('rejected text is not live', !pageFile('guide/basics').includes('sources list records'));
   const left = changes(page.pending[0])[0];
-  check('remaining change is the badge edit', left.fp === badge.fp);
+  check('remaining change is the opening-line edit', left.fp === opening.fp);
   await api('POST', `/api/proposals/${dashSet.proposalId}/hunk`, { hunk: left.index, fp: left.fp, action: 'approve', user: 'Sam' });
-  check('badge edit is live', pageFile('systems/onboarding').includes('Collect your badge'));
-  check('set is resolved', (await getPage('systems/onboarding')).pending.length === 0);
+  check('the opening-line edit is live', pageFile('guide/basics').includes('place its facts on pages'));
+  check('set is resolved', (await getPage('guide/basics')).pending.length === 0);
 
   // 5. Approving one suggestion does not let an older one undo it
-  await chat('Add the dashboard link and badge pickup'); // Access paragraph plus a new section
-  await chat('Mention when the rotation changes over'); // Tools paragraph
-  page = await getPage('systems/onboarding');
+  await chat('Add where facts come from'); // Access paragraph plus a new section
+  await chat('Say what the review list does'); // Tools paragraph
+  page = await getPage('guide/basics');
   check('two suggestions are pending', page.pending.length === 2);
   const [dash2, rota] = page.pending;
   await api('POST', `/api/proposals/${rota.proposalId}/resolve`, { action: 'approve', user: 'Sam' });
-  check('rotation note is live', pageFile('systems/onboarding').includes('changes over on Mondays'));
-  page = await getPage('systems/onboarding');
+  check('the review-list note is live', pageFile('guide/basics').includes('The review list on each page decides what is published'));
+  page = await getPage('guide/basics');
   const dashNow = page.pending.find((s) => s.proposalId === dash2.proposalId);
   check('older suggestion still shows only its own changes',
-    dashNow && !dashNow.conflict && changes(dashNow).length === 2 && !JSON.stringify(changes(dashNow)).includes('Mondays'),
+    dashNow && !dashNow.conflict && changes(dashNow).length === 2 && !JSON.stringify(changes(dashNow)).includes('The review list on each'),
     JSON.stringify(dashNow?.segments));
   await api('POST', `/api/proposals/${dash2.proposalId}/resolve`, { action: 'approve', user: 'Sam' });
-  const after = pageFile('systems/onboarding');
-  check('approving the older suggestion keeps the newer approval', after.includes('Mondays') && after.includes('grafana'));
+  const after = pageFile('guide/basics');
+  check('approving the older suggestion keeps the newer approval', after.includes('The review list on each page decides what is published') && after.includes('sources list records'));
 
   // 6. A human edit in the same paragraph turns a suggestion into a conflict
-  await chat('Mention when the rotation changes over');
-  page = await getPage('systems/onboarding');
+  await chat('Say what the review list does');
+  page = await getPage('guide/basics');
   const rota2 = page.pending[0];
-  const edited = after.replace(/Ask your manager to add you to both\.[^\n]*/, 'Ask the team lead to add you to both.');
-  await api('PUT', '/api/page', { path: 'systems/onboarding', content: edited, user: 'Jordan' });
-  page = await getPage('systems/onboarding');
+  const edited = after.replace(/This page is only a starting point, so change or delete it as you like\.[^\n]*/, 'This page is only a starting point, so change or delete it as you like, any time.');
+  await api('PUT', '/api/page', { path: 'guide/basics', content: edited, user: 'Jordan' });
+  page = await getPage('guide/basics');
   const rotaNow = page.pending.find((s) => s.proposalId === rota2.proposalId);
   check('overlapping suggestion is flagged as a conflict', rotaNow?.conflict === true, JSON.stringify(rotaNow));
   const refused = await api('POST', `/api/proposals/${rota2.proposalId}/resolve`, { action: 'approve', user: 'Sam' });
-  check('a conflicting suggestion cannot be approved', refused.status === 400 && pageFile('systems/onboarding') === edited);
+  check('a conflicting suggestion cannot be approved', refused.status === 400 && pageFile('guide/basics') === edited);
   const rej = await api('POST', `/api/proposals/${rota2.proposalId}/resolve`, { action: 'reject', user: 'Sam' });
-  check('a conflicting suggestion can be rejected', rej.status === 200 && (await getPage('systems/onboarding')).pending.length === 0);
+  check('a conflicting suggestion can be rejected', rej.status === 200 && (await getPage('guide/basics')).pending.length === 0);
 
   // 7. New page proposal, approved with Approve all
-  await chat('Write up our backup schedule');
-  const bp = await getPage('systems/backup-policy');
+  await chat('Write up the naming policy');
+  const bp = await getPage('guide/naming-policy');
   check('new page is pending but not live', !bp.exists && bp.pending.length === 1 && bp.pending[0].isNew);
-  check('sidebar shows the new page', (await api('GET', '/api/pages')).data.some((p) => p.path === 'systems/backup-policy' && p.isNew));
+  check('sidebar shows the new page', (await api('GET', '/api/pages')).data.some((p) => p.path === 'guide/naming-policy' && p.isNew));
   await api('POST', `/api/proposals/${bp.pending[0].proposalId}/resolve`, { action: 'approve', user: 'Kim' });
-  const bp2 = await getPage('systems/backup-policy');
-  check('approve all publishes the new page', bp2.exists && bp2.title === 'Backup policy' && bp2.pending.length === 0);
+  const bp2 = await getPage('guide/naming-policy');
+  check('approve all publishes the new page', bp2.exists && bp2.title === 'Naming policy' && bp2.pending.length === 0);
   check('resolved proposal cannot be decided twice',
     (await api('POST', `/api/proposals/${bp.pending[0].proposalId}/resolve`, { action: 'approve', user: 'Kim' })).status === 400);
 
   // 8. Reject all leaves the page alone
-  await chat('The VPN is now WireGuard'); // replays the VPN scenario; old_text no longer matches
-  const before = pageFile('systems/onboarding');
-  await chat('Write up our backup schedule'); // create_page refused because the page exists
-  check('agent cannot overwrite an existing page via create', pageFile('systems/backup-policy') === bp2.content);
-  await chat('Add the dashboard link and badge pickup'); // badge text already there; dashboard append is new
-  page = await getPage('systems/onboarding');
+  await chat('Simple markdown is the rule'); // replays the markdown scenario; old_text no longer matches
+  const before = pageFile('guide/basics');
+  await chat('Write up the naming policy'); // create_page refused because the page exists
+  check('agent cannot overwrite an existing page via create', pageFile('guide/naming-policy') === bp2.content);
+  await chat('Add where facts come from'); // the opening line already applied; the Sources append is new
+  page = await getPage('guide/basics');
   if (page.pending.length) {
     await api('POST', `/api/proposals/${page.pending[0].proposalId}/resolve`, { action: 'reject', user: 'Kim' });
   }
-  check('reject all leaves content unchanged', pageFile('systems/onboarding') === before && (await getPage('systems/onboarding')).pending.length === 0);
+  check('reject all leaves content unchanged', pageFile('guide/basics') === before && (await getPage('guide/basics')).pending.length === 0);
 
   // 9. Human edits publish immediately under the editor's name
-  const put = await api('PUT', '/api/page', { path: 'systems/onboarding', content: before + '\nEdited by hand.\n', user: 'Jordan' });
+  const put = await api('PUT', '/api/page', { path: 'guide/basics', content: before + '\nEdited by hand.\n', user: 'Jordan' });
   check('human edit saves', put.status === 200);
-  check('human edit is live', pageFile('systems/onboarding').includes('Edited by hand.'));
+  check('human edit is live', pageFile('guide/basics').includes('Edited by hand.'));
   check('human edit commit author', git('log', '-1', '--format=%an').trim() === 'Jordan');
 
   // 10. The Anthropic adapter sends a well-formed tool loop
-  const ar = await chat('Add the dashboard link and badge pickup', 'Alex', 'anthropic'); // three tool turns, then a reply
+  const ar = await chat('Add where facts come from', 'Alex', 'anthropic'); // three tool turns, then a reply
   check('Anthropic chat completes a tool loop', !ar.error && ar.proposed?.length === 1, JSON.stringify(ar));
   check('Anthropic requests were all accepted', anthropicRequests.length === 4 && anthropicRequests.every((r) => r.status === 200),
     JSON.stringify(anthropicRequests.map((r) => r.status)));
   const firstReq = anthropicRequests[0];
   check('Anthropic request asks for fallbacks', firstReq?.beta?.includes('server-side-fallback-2026-07-01') && firstReq.body.fallbacks === 'default');
-  const pendingRota = (await getPage('systems/onboarding')).pending;
+  const pendingRota = (await getPage('guide/basics')).pending;
   for (const s of pendingRota) await api('POST', `/api/proposals/${s.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
   // 11. Settings: the connection test and clear errors when the model is unreachable
@@ -229,149 +229,149 @@ try {
   await api('PUT', '/api/settings', { baseUrl: closed, model: 'mock', apiKey: 'secret' });
   const after2 = (await api('GET', '/api/settings')).data;
   check('saved settings take effect and hide the key', after2.local.baseUrl === closed && after2.local.hasApiKey === true && !JSON.stringify(after2).includes('secret'));
-  const down = await chat('Who runs payroll?');
+  const down = await chat('Who wrote the guide?');
   check('chat says the model is unreachable', UNREACHABLE.test(down.error ?? '') && down.error.includes('127.0.0.1:4599'), JSON.stringify(down));
   await api('PUT', '/api/settings', { baseUrl: mockUrl, model: 'mock', apiKey: '' });
-  const back = await chat('Who runs payroll?');
+  const back = await chat('Who wrote the guide?');
   check('mock says it is a test model', /scripted test model/.test(back.reply ?? ''), JSON.stringify(back));
 
   // 12. Sloppy tool calls from small models still work, and unknown tools get a clear error
-  const sloppy = await chat('Staff parking is in lot B');
-  check('near-miss tool and argument names still run', sloppy.proposed?.some((p) => p.path === 'systems/onboarding'), JSON.stringify(sloppy));
-  check('an unknown tool is reported, not run', sloppy.trace?.includes('delete_page') && pageFile('systems/onboarding').includes('Edited by hand.'));
-  const parking = (await getPage('systems/onboarding')).pending;
-  check('the sloppy suggestion has the right text', parking.length === 1 && JSON.stringify(parking[0].segments).includes('lot B'));
-  for (const sg of parking) await api('POST', `/api/proposals/${sg.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  const sloppy = await chat('The house style has one blank line between paragraphs');
+  check('near-miss tool and argument names still run', sloppy.proposed?.some((p) => p.path === 'guide/basics'), JSON.stringify(sloppy));
+  check('an unknown tool is reported, not run', sloppy.trace?.includes('delete_page') && pageFile('guide/basics').includes('Edited by hand.'));
+  const styleNote = (await getPage('guide/basics')).pending;
+  check('the sloppy suggestion has the right text', styleNote.length === 1 && JSON.stringify(styleNote[0].segments).includes('blank line'));
+  for (const sg of styleNote) await api('POST', `/api/proposals/${sg.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
   // 13. The assistant sees pending suggestions, and a chat revises its own instead of competing with it
   const chatA = 'e2e-chat-aaaa';
   const chatB = 'e2e-chat-bbbb';
-  await chat('Add the team lunch day', 'Alex', 'local', chatA);
-  await chat('Sorry, lunch is actually on Tuesday', 'Alex', 'local', chatA);
-  let lunch = (await getPage('systems/onboarding')).pending;
-  const lunchText = JSON.stringify(lunch[0]?.segments ?? []);
-  check('a follow-up in the same chat revises its suggestion', lunch.length === 1 && lunchText.includes('Tuesdays') && !lunchText.includes('Mondays'), lunchText);
-  check('the revised suggestion remembers the earlier message', lunch[0]?.earlierSources?.[0]?.note === 'Add the team lunch day');
-  const seen = await chat('Is anything pending on onboarding?', 'Sam', 'local', chatB);
+  await chat('Add the review day', 'Alex', 'local', chatA);
+  await chat('Sorry, the review day is actually Tuesday', 'Alex', 'local', chatA);
+  let reviewDay = (await getPage('guide/basics')).pending;
+  const reviewDayText = JSON.stringify(reviewDay[0]?.segments ?? []);
+  check('a follow-up in the same chat revises its suggestion', reviewDay.length === 1 && reviewDayText.includes('Tuesdays') && !reviewDayText.includes('Mondays'), reviewDayText);
+  check('the revised suggestion remembers the earlier message', reviewDay[0]?.earlierSources?.[0]?.note === 'Add the review day');
+  const seen = await chat('Is anything pending?', 'Sam', 'local', chatB);
   check('another chat is shown the pending suggestion', seen.reply === 'PENDING-SEEN', JSON.stringify(seen));
-  await chat('Lunch moved to Tuesday', 'Sam', 'local', chatB);
-  check('another chat cannot revise someone else\'s suggestion', (await getPage('systems/onboarding')).pending.length === 1);
-  await chat('Sorry, lunch is actually on Tuesday', 'Sam', 'local', chatA);
-  check('the same chat id under another name cannot revise it', (await getPage('systems/onboarding')).pending.length === 1);
-  await api('POST', `/api/proposals/${lunch[0].proposalId}/resolve`, { action: 'approve', user: 'Kim' });
-  check('approving the revision publishes the final text', pageFile('systems/onboarding').includes('Team lunch is on Tuesdays.') && !pageFile('systems/onboarding').includes('Mondays.'));
-  const lunchCommit = git('log', '-1', '--format=%B');
-  check('the commit names both messages', (lunchCommit.match(/^Source: chat with Alex/gm) ?? []).length === 2, lunchCommit);
-  const lunchSources = (await getPage('systems/onboarding')).sources.map((x) => x.source.note);
-  check('the page lists both messages as sources', lunchSources.includes('Add the team lunch day') && lunchSources.includes('Sorry, lunch is actually on Tuesday'));
+  await chat('Review moved to Tuesday', 'Sam', 'local', chatB);
+  check('another chat cannot revise someone else\'s suggestion', (await getPage('guide/basics')).pending.length === 1);
+  await chat('Sorry, the review day is actually Tuesday', 'Sam', 'local', chatA);
+  check('the same chat id under another name cannot revise it', (await getPage('guide/basics')).pending.length === 1);
+  await api('POST', `/api/proposals/${reviewDay[0].proposalId}/resolve`, { action: 'approve', user: 'Kim' });
+  check('approving the revision publishes the final text', pageFile('guide/basics').includes('The guide is reviewed on Tuesdays.') && !pageFile('guide/basics').includes('Mondays.'));
+  const reviewDayCommit = git('log', '-1', '--format=%B');
+  check('the commit names both messages', (reviewDayCommit.match(/^Source: chat with Alex/gm) ?? []).length === 2, reviewDayCommit);
+  const reviewDaySources = (await getPage('guide/basics')).sources.map((x) => x.source.note);
+  check('the page lists both messages as sources', reviewDaySources.includes('Add the review day') && reviewDaySources.includes('Sorry, the review day is actually Tuesday'));
 
   // 14. A correction is made in place; repeating text as a "correction" section is refused
   const chatC = 'e2e-chat-cccc';
-  await chat('Mondays and Fridays are remote work days', 'Alex', 'local', chatC);
-  await chat('Oh whoops, only Mondays', 'Alex', 'local', chatC);
-  const remote = (await getPage('systems/onboarding')).pending;
+  await chat('Every page ends with a list of related pages', 'Alex', 'local', chatC);
+  await chat('Oh whoops, only summary pages get related pages', 'Alex', 'local', chatC);
+  const remote = (await getPage('guide/basics')).pending;
   const remoteText = JSON.stringify(remote.map((x) => x.segments));
-  check('the correction replaces the text', remote.length === 1 && remoteText.includes('Every Monday is remote.') && !remoteText.includes('Fridays are remote'), remoteText);
-  check('no duplicate correction section', (remoteText.match(/Every Monday is remote\./g) ?? []).length === 1 && !/correction/i.test(remoteText), remoteText);
+  check('the correction replaces the text', remote.length === 1 && remoteText.includes('Only summary pages end with a list of related pages.') && !remoteText.includes('Every page ends with a list of related'), remoteText);
+  check('no duplicate correction section', (remoteText.match(/Only summary pages end with a list of related pages./g) ?? []).length === 1 && !/correction/i.test(remoteText), remoteText);
   for (const sg of remote) await api('POST', `/api/proposals/${sg.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
   // 15. Sections list their sub-pages
-  const section = await getPage('systems');
-  check('a section without its own page lists its sub-pages', !section.exists && section.children.some((c) => c.path === 'systems/onboarding' && c.exists));
+  const section = await getPage('guide');
+  check('a section without its own page lists its sub-pages', !section.exists && section.children.some((c) => c.path === 'guide/basics' && c.exists));
 
   // 16. Moving a page takes its sub-pages, pending suggestions and incoming links along
-  await api('PUT', '/api/page', { path: 'systems/onboarding/first-week', content: '# First week\n\nShadow the on-call engineer.\n', user: 'Jordan' });
+  await api('PUT', '/api/page', { path: 'guide/basics/details', content: '# Details\n\nEarly drafts of the guide are kept in the history.\n', user: 'Jordan' });
   await api('PUT', '/api/page', {
-    path: 'team/handbook',
-    content: '# Handbook\n\nSee [[systems/onboarding]], [[systems/onboarding/first-week|week one]] and [the guide](/wiki/systems/onboarding).\n',
+    path: 'pages/notebook',
+    content: '# Notebook\n\nSee [[guide/basics]], [[guide/basics/details|the details]] and [the guide](/wiki/guide/basics).\n',
     user: 'Jordan',
   });
-  await chat('Add the team lunch day', 'Alex', 'local', 'e2e-chat-move');
-  const beforeMove = (await getPage('systems/onboarding')).pending.length;
-  const mv = await api('POST', '/api/page/move', { from: 'systems/onboarding', to: 'team/onboarding', user: 'Kim' });
+  await chat('Add the review day', 'Alex', 'local', 'e2e-chat-move');
+  const beforeMove = (await getPage('guide/basics')).pending.length;
+  const mv = await api('POST', '/api/page/move', { from: 'guide/basics', to: 'docs/basics', user: 'Kim' });
   check('move succeeds', mv.status === 200 && mv.data.moved === 2, JSON.stringify(mv.data));
   check('the page and its sub-page are at the new path',
-    fs.existsSync(path.join(wikiDir, 'team/onboarding.md')) && fs.existsSync(path.join(wikiDir, 'team/onboarding/first-week.md')) &&
-    !fs.existsSync(path.join(wikiDir, 'systems/onboarding.md')));
-  const handbook = pageFile('team/handbook');
+    fs.existsSync(path.join(wikiDir, 'docs/basics.md')) && fs.existsSync(path.join(wikiDir, 'docs/basics/details.md')) &&
+    !fs.existsSync(path.join(wikiDir, 'guide/basics.md')));
+  const handbook = pageFile('pages/notebook');
   check('links to the moved pages are rewritten',
-    handbook.includes('[[team/onboarding]]') && handbook.includes('[[team/onboarding/first-week|week one]]') && handbook.includes('(/wiki/team/onboarding)'), handbook);
-  check('the home page link is rewritten', pageFile('index').includes('[[team/onboarding]]'));
-  const movedPage = await getPage('team/onboarding');
-  check('pending suggestions follow the page', beforeMove === 1 && movedPage.pending.length === 1 && (await getPage('systems/onboarding')).pending.length === 0);
+    handbook.includes('[[docs/basics]]') && handbook.includes('[[docs/basics/details|the details]]') && handbook.includes('(/wiki/docs/basics)'), handbook);
+  check('the home page link is rewritten', pageFile('index').includes('[[docs/basics]]'));
+  const movedPage = await getPage('docs/basics');
+  check('pending suggestions follow the page', beforeMove === 1 && movedPage.pending.length === 1 && (await getPage('guide/basics')).pending.length === 0);
   check('recorded sources follow the page', movedPage.sources.length > 0);
-  check('the move is recorded under the mover', git('log', '-1', '--format=%an %s').trim() === 'Kim Move systems/onboarding to team/onboarding');
-  check('search finds the page at its new path', (await api('GET', '/api/search?q=shadow')).data.some((h) => h.path === 'team/onboarding/first-week'));
-  check('moving onto an existing page is refused', (await api('POST', '/api/page/move', { from: 'team/handbook', to: 'team/onboarding', user: 'Kim' })).status === 400);
-  check('moving a page inside itself is refused', (await api('POST', '/api/page/move', { from: 'team', to: 'team/sub', user: 'Kim' })).status === 400);
+  check('the move is recorded under the mover', git('log', '-1', '--format=%an %s').trim() === 'Kim Move guide/basics to docs/basics');
+  check('search finds the page at its new path', (await api('GET', '/api/search?q=history')).data.some((h) => h.path === 'docs/basics/details'));
+  check('moving onto an existing page is refused', (await api('POST', '/api/page/move', { from: 'pages/notebook', to: 'docs/basics', user: 'Kim' })).status === 400);
+  check('moving a page inside itself is refused', (await api('POST', '/api/page/move', { from: 'docs', to: 'docs/sub', user: 'Kim' })).status === 400);
   check('the home page cannot be moved', (await api('POST', '/api/page/move', { from: 'index', to: 'home', user: 'Kim' })).status === 400);
-  const lunchMoved = (await getPage('team/onboarding')).pending[0];
-  const ok2 = await api('POST', `/api/proposals/${lunchMoved.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
-  check('a moved suggestion can still be approved', ok2.status === 200 && pageFile('team/onboarding').includes('Team lunch is on Mondays.'), JSON.stringify(ok2.data));
+  const reviewDayMoved = (await getPage('docs/basics')).pending[0];
+  const ok2 = await api('POST', `/api/proposals/${reviewDayMoved.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
+  check('a moved suggestion can still be approved', ok2.status === 200 && pageFile('docs/basics').includes('The guide is reviewed on Mondays.'), JSON.stringify(ok2.data));
 
   // 17. The assistant suggests moves and merges; nothing changes until a person approves
   const chatR = 'e2e-chat-reorg';
-  await chat('Please tidy the handbook', 'Alex', 'local', chatR);
-  let hb = await getPage('team/handbook');
-  check('a suggested move waits on the page', hb.ops.length === 1 && hb.ops[0].kind === 'move' && hb.ops[0].newPath === 'guides/handbook' && !hb.ops[0].stale, JSON.stringify(hb.ops));
-  check('the page has not moved yet', fs.existsSync(path.join(wikiDir, 'team/handbook.md')));
-  check('the sidebar counts the suggested move', (await api('GET', '/api/pages')).data.find((p) => p.path === 'team/handbook')?.pending === 1);
+  await chat('Please tidy the notebook', 'Alex', 'local', chatR);
+  let hb = await getPage('pages/notebook');
+  check('a suggested move waits on the page', hb.ops.length === 1 && hb.ops[0].kind === 'move' && hb.ops[0].newPath === 'guides/notebook' && !hb.ops[0].stale, JSON.stringify(hb.ops));
+  check('the page has not moved yet', fs.existsSync(path.join(wikiDir, 'pages/notebook.md')));
+  check('the sidebar counts the suggested move', (await api('GET', '/api/pages')).data.find((p) => p.path === 'pages/notebook')?.pending === 1);
   await chat('Actually move it again', 'Alex', 'local', chatR);
-  hb = await getPage('team/handbook');
-  check('a follow-up replaces the earlier move suggestion', hb.ops.length === 1 && hb.ops[0].newPath === 'policies/handbook', JSON.stringify(hb.ops));
-  const seenMove = await chat('Is anything pending on onboarding?', 'Sam', 'local', 'e2e-chat-other');
+  hb = await getPage('pages/notebook');
+  check('a follow-up replaces the earlier move suggestion', hb.ops.length === 1 && hb.ops[0].newPath === 'style/notebook', JSON.stringify(hb.ops));
+  const seenMove = await chat('Is anything pending?', 'Sam', 'local', 'e2e-chat-other');
   check('pending moves do not confuse other chats', !seenMove.error);
   const okMove = await api('POST', `/api/ops/${hb.ops[0].opId}`, { action: 'approve', user: 'Kim' });
-  check('approving the move moves the page', okMove.data.path === 'policies/handbook' && fs.existsSync(path.join(wikiDir, 'policies/handbook.md')) && !fs.existsSync(path.join(wikiDir, 'team/handbook.md')));
+  check('approving the move moves the page', okMove.data.path === 'style/notebook' && fs.existsSync(path.join(wikiDir, 'style/notebook.md')) && !fs.existsSync(path.join(wikiDir, 'pages/notebook.md')));
   check('the approved move names its source', git('log', '-1', '--format=%B').includes('Source: chat with Alex') && git('log', '-1', '--format=%an').trim() === 'Kim');
 
-  await chat('Merge first week into onboarding', 'Alex', 'local', 'e2e-chat-merge');
-  const fw = await getPage('team/onboarding/first-week');
+  await chat('Merge the details page into the guide', 'Alex', 'local', 'e2e-chat-merge');
+  const fw = await getPage('docs/basics/details');
   check('a suggested removal waits on the page', fw.ops.length === 1 && fw.ops[0].kind === 'remove');
-  const ob = (await getPage('team/onboarding')).pending;
-  check('the merged text is a normal suggestion on the target', ob.length === 1 && JSON.stringify(ob[0].segments).includes('whole week'));
+  const ob = (await getPage('docs/basics')).pending;
+  check('the merged text is a normal suggestion on the target', ob.length === 1 && JSON.stringify(ob[0].segments).includes('the history of the guide'));
   await api('POST', `/api/proposals/${ob[0].proposalId}/resolve`, { action: 'approve', user: 'Kim' });
   await api('POST', `/api/ops/${fw.ops[0].opId}`, { action: 'approve', user: 'Kim' });
-  check('approving the removal deletes the old page', !fs.existsSync(path.join(wikiDir, 'team/onboarding/first-week.md')) && pageFile('team/onboarding').includes('whole week'));
+  check('approving the removal deletes the old page', !fs.existsSync(path.join(wikiDir, 'docs/basics/details.md')) && pageFile('docs/basics').includes('the history of the guide'));
 
-  await chat('Please tidy the handbook', 'Alex', 'local', 'e2e-chat-stale'); // handbook is gone from team/, so nothing to move
-  await api('PUT', '/api/page', { path: 'team/handbook', content: '# Handbook draft\n\nA draft of the team handbook.\n', user: 'Jordan' });
-  await chat('Please tidy the handbook', 'Alex', 'local', 'e2e-chat-stale2');
-  await api('PUT', '/api/page', { path: 'guides/handbook', content: '# Someone got there first\n\nA page that was here first.\n', user: 'Jordan' });
-  const staleOp = (await getPage('team/handbook')).ops[0];
+  await chat('Please tidy the notebook', 'Alex', 'local', 'e2e-chat-stale'); // notebook is gone from pages/, so nothing to move
+  await api('PUT', '/api/page', { path: 'pages/notebook', content: '# Notebook draft\n\nA draft of the notebook.\n', user: 'Jordan' });
+  await chat('Please tidy the notebook', 'Alex', 'local', 'e2e-chat-stale2');
+  await api('PUT', '/api/page', { path: 'guides/notebook', content: '# Someone got there first\n\nA page that was here first.\n', user: 'Jordan' });
+  const staleOp = (await getPage('pages/notebook')).ops[0];
   check('a move whose target now exists is marked out of date', !!staleOp?.stale, JSON.stringify(staleOp));
   check('an out-of-date move cannot be approved', (await api('POST', `/api/ops/${staleOp.opId}`, { action: 'approve', user: 'Kim' })).status === 400);
-  check('an out-of-date move can be rejected', (await api('POST', `/api/ops/${staleOp.opId}`, { action: 'reject', user: 'Kim' })).status === 200 && (await getPage('team/handbook')).ops.length === 0);
+  check('an out-of-date move can be rejected', (await api('POST', `/api/ops/${staleOp.opId}`, { action: 'reject', user: 'Kim' })).status === 200 && (await getPage('pages/notebook')).ops.length === 0);
 
   // 18. A reply that claims a change without calling a tool is caught
-  const pretend = await chat('Please pretend to move the handbook', 'Alex', 'local', 'e2e-chat-pretend');
-  check('the model is asked to actually make the change', (await getPage('policies/handbook')).ops.some((o) => o.newPath === 'manuals/handbook'), JSON.stringify(pretend));
+  const pretend = await chat('Please pretend to move the notebook', 'Alex', 'local', 'e2e-chat-pretend');
+  check('the model is asked to actually make the change', (await getPage('style/notebook')).ops.some((o) => o.newPath === 'drafts/notebook'), JSON.stringify(pretend));
   const fake = await chat('Please only pretend', 'Alex', 'local', 'e2e-chat-pretend2');
   check('a claim with no suggestion behind it is flagged in the reply', /No change was actually suggested/.test(fake.reply ?? ''), JSON.stringify(fake));
-  const qa = await chat('Who runs payroll?');
+  const qa = await chat('Who wrote the guide?');
   check('ordinary answers are not flagged', !/No change was actually suggested/.test(qa.reply ?? ''));
 
   // 19. Dropped files: documents, photos and scans become suggestions with file sources
   const up = await upload([
-    ['backup.pdf', textPdf(['Backup notes', 'FACT: The backup NAS is in rack 7.']), 'application/pdf'],
-    ['generator.docx', await docx(['Generator', 'FACT: The generator is in the basement.']), 'application/octet-stream'],
-    ['rack.png', photo(), 'image/png'],
+    ['notes.pdf', textPdf(['Sample notes', 'FACT: The export runs nightly at 02:00.']), 'application/pdf'],
+    ['notes.docx', await docx(['Sample notes', 'FACT: Headings keep pages scannable.']), 'application/octet-stream'],
+    ['board.png', photo(), 'image/png'],
     ['scan.pdf', scannedPdf(2), 'application/pdf'],
   ]);
   check('files upload', up.status === 200 && up.data.length === 4, JSON.stringify(up.data));
   check('file kinds are recognised', up.data.map((f) => f.kind).join() === 'pdf,docx,image,pdf');
   const ids = up.data.map((f) => f.id);
-  const filed = await chat('Please file this into onboarding', 'Alex', 'local', 'e2e-chat-files', ids);
-  check('the assistant read every file', ['backup.pdf', 'generator.docx', 'rack.png', 'scan.pdf'].every((n) => filed.trace?.includes(`Read ${n}`)), JSON.stringify(filed));
-  const filedSet = (await getPage('team/onboarding')).pending[0];
+  const filed = await chat('Please file this into the guide', 'Alex', 'local', 'e2e-chat-files', ids);
+  check('the assistant read every file', ['notes.pdf', 'notes.docx', 'board.png', 'scan.pdf'].every((n) => filed.trace?.includes(`Read ${n}`)), JSON.stringify(filed));
+  const filedSet = (await getPage('docs/basics')).pending[0];
   const filedText = JSON.stringify(filedSet?.segments ?? []);
-  check('text from a PDF reaches the suggestion', filedText.includes('backup NAS is in rack 7'), filedText);
-  check('text from a Word file reaches the suggestion', filedText.includes('generator is in the basement'));
-  check('a photo is described by the vision model', filedText.includes('RACK-7'));
+  check('text from a PDF reaches the suggestion', filedText.includes('export runs nightly'), filedText);
+  check('text from a Word file reaches the suggestion', filedText.includes('keep pages scannable'));
+  check('a photo is described by the vision model', filedText.includes('BOARD-7'));
   check('a scanned PDF is read page by page', filedText.includes('Scanned page 1') && filedText.includes('Scanned page 2'));
-  check('each file is a source', filedSet?.source?.kind === 'file' && filedSet.source.filename === 'backup.pdf' && filedSet.alsoSources.length === 3,
+  check('each file is a source', filedSet?.source?.kind === 'file' && filedSet.source.filename === 'notes.pdf' && filedSet.alsoSources.length === 3,
     JSON.stringify({ source: filedSet?.source, also: filedSet?.alsoSources?.map((x) => x.filename) }));
-  check('sources keep the message and a content hash', filedSet?.source?.note === 'Please file this into onboarding' && /^[0-9a-f]{64}$/.test(filedSet?.source?.contentHash ?? ''));
+  check('sources keep the message and a content hash', filedSet?.source?.note === 'Please file this into the guide' && /^[0-9a-f]{64}$/.test(filedSet?.source?.contentHash ?? ''));
   const original = await fetch(`${BASE}/api/sources/${filedSet.source.id}/file`);
   const originalBytes = Buffer.from(await original.arrayBuffer());
   check('the original opens from its source', original.status === 200 && original.headers.get('content-type') === 'application/pdf' && originalBytes.subarray(0, 4).toString() === '%PDF');
@@ -379,44 +379,44 @@ try {
   check('a photo can be shown on a page', img.status === 200 && img.headers.get('content-type') === 'image/png');
   await api('POST', `/api/proposals/${filedSet.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
   const fileCommit = git('log', '-1', '--format=%B');
-  check('approval records every file', ['backup.pdf', 'generator.docx', 'rack.png', 'scan.pdf'].every((n) => fileCommit.includes(n)), fileCommit);
+  check('approval records every file', ['notes.pdf', 'notes.docx', 'board.png', 'scan.pdf'].every((n) => fileCommit.includes(n)), fileCommit);
   check('stored files stay inside the data folder', fs.existsSync(path.join(dataDir, 'assets')) && !JSON.stringify(filedSet).includes(dataDir));
   const exe = await upload([['notes.exe', Buffer.from('MZ binary'), 'application/octet-stream']]);
   check('unsupported files are refused with a reason', exe.status === 400 && /not supported/.test(exe.data.error ?? ''));
-  const again = await upload([['backup-copy.pdf', textPdf(['Backup notes', 'FACT: The backup NAS is in rack 7.']), 'application/pdf']]);
+  const again = await upload([['backup-copy.pdf', textPdf(['Sample notes', 'FACT: The export runs nightly at 02:00.']), 'application/pdf']]);
   check('the same content is stored once', fs.readdirSync(path.join(dataDir, 'assets')).length >= 1 && again.status === 200);
 
   // 20. Page text never cites its own source; that is what the Sources list is for
-  const keys = await upload([['keys.txt', Buffer.from('The spare keys are in the blue cabinet.\n'), 'text/plain']]);
-  const cite = await chat('Note where the keys are', 'Alex', 'local', 'e2e-chat-cite', [keys.data[0].id]);
-  const citeSet = (await getPage('team/onboarding')).pending[0];
+  const keys = await upload([['keys.txt', Buffer.from('The review checklist says approve one change at a time.\n'), 'text/plain']]);
+  const cite = await chat('Note what the checklist says', 'Alex', 'local', 'e2e-chat-cite', [keys.data[0].id]);
+  const citeSet = (await getPage('docs/basics')).pending[0];
   const citeText = JSON.stringify(citeSet?.segments ?? []);
-  check('text that names its source is refused and rewritten', citeText.includes('The spare keys are in the blue cabinet.') && !/Based on|keys\.txt/.test(citeText), JSON.stringify({ cite, citeText }));
+  check('text that names its source is refused and rewritten', citeText.includes('The review checklist says approve one change at a time.') && !/Based on|checklist.txt/.test(citeText), JSON.stringify({ cite, citeText }));
   check('the file is still recorded as the source', citeSet?.source?.filename === 'keys.txt');
   if (citeSet) await api('POST', `/api/proposals/${citeSet.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
   // 21. A re-sent file is recognised, and an updated file is reduced to what changed
-  const ver_v1 = await upload([['parts.docx', await docx(['Parts list', 'FACT: Spare propellers: 8.', 'FACT: Spare batteries: 4.']), 'application/octet-stream']]);
+  const ver_v1 = await upload([['sample.docx', await docx(['Sample list', 'FACT: Guide pages: 8.', 'FACT: Draft pages: 4.']), 'application/octet-stream']]);
   const ver_r1 = await chat('Please file this', 'Alex', 'local', 'e2e-chat-ver_v1', [ver_v1.data[0].id]);
-  check('the first version is read in full', ver_r1.trace?.includes('Read parts.docx'), JSON.stringify(ver_r1.trace));
-  const ver_s1 = (await getPage('team/onboarding')).pending[0];
+  check('the first version is read in full', ver_r1.trace?.includes('Read sample.docx'), JSON.stringify(ver_r1.trace));
+  const ver_s1 = (await getPage('docs/basics')).pending[0];
   await api('POST', `/api/proposals/${ver_s1.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
-  check('the first version is filed', pageFile('team/onboarding').includes('Spare batteries: 4.'));
+  check('the first version is filed', pageFile('docs/basics').includes('Draft pages: 4.'));
   // the same bytes are re-sent later; a rebuilt .docx would differ by its zip timestamp
-  const v2Bytes = await docx(['Parts list', 'FACT: Spare propellers: 8.', 'FACT: Spare batteries: 6.']);
-  const ver_v2 = await upload([['parts.docx', v2Bytes, 'application/octet-stream']]);
+  const v2Bytes = await docx(['Sample list', 'FACT: Guide pages: 8.', 'FACT: Draft pages: 6.']);
+  const ver_v2 = await upload([['sample.docx', v2Bytes, 'application/octet-stream']]);
   const ver_r2 = await chat('Please apply the update', 'Alex', 'local', 'e2e-chat-ver_v2', [ver_v2.data[0].id]);
-  check('a changed file is reduced to its changes', ver_r2.trace?.some((t) => t === 'Read parts.docx (parts.docx has 1 change since version 1)'), JSON.stringify(ver_r2.trace));
-  const ver_s2 = (await getPage('team/onboarding')).pending[0];
+  check('a changed file is reduced to its changes', ver_r2.trace?.some((t) => t === 'Read sample.docx (sample.docx has 1 change since version 1)'), JSON.stringify(ver_r2.trace));
+  const ver_s2 = (await getPage('docs/basics')).pending[0];
   const ver_s2Text = JSON.stringify(ver_s2?.segments ?? []);
-  check('the change updates the existing statement', ver_s2Text.includes('Spare batteries: 6.') && !ver_s2Text.includes('CHANGE-NOT-SEEN') && changes(ver_s2).length === 1, ver_s2Text);
-  check('the source records version 2', ver_s2?.source?.version === 2 && ver_s2.source.filename === 'parts.docx');
+  check('the change updates the existing statement', ver_s2Text.includes('Draft pages: 6.') && !ver_s2Text.includes('CHANGE-NOT-SEEN') && changes(ver_s2).length === 1, ver_s2Text);
+  check('the source records version 2', ver_s2?.source?.version === 2 && ver_s2.source.filename === 'sample.docx');
   await api('POST', `/api/proposals/${ver_s2.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
-  check('unchanged parts are not added again', (pageFile('team/onboarding').match(/Spare propellers: 8\./g) ?? []).length === 1 && !pageFile('team/onboarding').includes('Spare batteries: 4.'));
-  const ver_v3 = await upload([['parts.docx', v2Bytes, 'application/octet-stream']]);
+  check('unchanged parts are not added again', (pageFile('docs/basics').match(/Guide pages: 8\./g) ?? []).length === 1 && !pageFile('docs/basics').includes('Draft pages: 4.'));
+  const ver_v3 = await upload([['sample.docx', v2Bytes, 'application/octet-stream']]);
   const ver_r3 = await chat('What is in this file?', 'Alex', 'local', 'e2e-chat-ver_v3', [ver_v3.data[0].id]);
-  check('the same file sent again is recognised', ver_r3.trace?.some((t) => /parts\.docx is unchanged since/.test(t)), JSON.stringify(ver_r3.trace));
-  const ver_copy = await upload([['parts-ver_copy.docx', await docx(['Parts list', 'FACT: Spare propellers: 8.', 'FACT: Spare batteries: 6.']), 'application/octet-stream']]);
+  check('the same file sent again is recognised', ver_r3.trace?.some((t) => /sample\.docx is unchanged since/.test(t)), JSON.stringify(ver_r3.trace));
+  const ver_copy = await upload([['sample-copy.docx', await docx(['Sample list', 'FACT: Guide pages: 8.', 'FACT: Draft pages: 6.']), 'application/octet-stream']]);
   check('the same content under another name uploads fine', ver_copy.status === 200);
 
   // 22. Background filing: one job per file, skipped when nothing is new, retried after a failure
@@ -428,19 +428,19 @@ try {
     }
     return null;
   };
-  const qf = await upload([['printers.txt', Buffer.from('FACT: The printer is on floor 2.\n'), 'text/plain']]);
+  const qf = await upload([['history.txt', Buffer.from('FACT: The export keeps a page history.\n'), 'text/plain']]);
   const q1 = await api('POST', '/api/ingest', { fileIds: [qf.data[0].id], user: 'Alex' });
   const job1 = await waitJob(q1.data.jobs[0]);
-  check('a background job files the document', job1?.status === 'done' && job1.proposed.includes('team/onboarding'), JSON.stringify(job1));
-  const qSet = (await getPage('team/onboarding')).pending.find((p) => p.source?.filename === 'printers.txt');
-  check('the background suggestion has the file as its source', !!qSet && JSON.stringify(qSet.segments).includes('printer is on floor 2'));
+  check('a background job files the document', job1?.status === 'done' && job1.proposed.includes('docs/basics'), JSON.stringify(job1));
+  const qSet = (await getPage('docs/basics')).pending.find((p) => p.source?.filename === 'history.txt');
+  check('the background suggestion has the file as its source', !!qSet && JSON.stringify(qSet.segments).includes('export keeps a page history'));
   check('a dropped file has no folder location', qSet?.summary === 'Add facts from a document', qSet?.summary);
   if (qSet) await api('POST', `/api/proposals/${qSet.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
-  const qAgain = await upload([['printers.txt', Buffer.from('FACT: The printer is on floor 2.\n'), 'text/plain']]);
+  const qAgain = await upload([['history.txt', Buffer.from('FACT: The export keeps a page history.\n'), 'text/plain']]);
   const job2 = await waitJob((await api('POST', '/api/ingest', { fileIds: [qAgain.data[0].id], user: 'Alex' })).data.jobs[0]);
   check('an unchanged file is skipped without asking the model', job2?.status === 'skipped' && /Unchanged/.test(job2.detail ?? ''), JSON.stringify(job2));
   await api('PUT', '/api/settings', { baseUrl: 'http://127.0.0.1:4599/v1', model: 'mock' });
-  const qDown = await upload([['phones.txt', Buffer.from('FACT: The desk phone extension is 4021.\n'), 'text/plain']]);
+  const qDown = await upload([['queues.txt', Buffer.from('FACT: The review queue keeps its place.\n'), 'text/plain']]);
   const job3id = (await api('POST', '/api/ingest', { fileIds: [qDown.data[0].id], user: 'Alex', provider: 'local' })).data.jobs[0];
   let waitState = null;
   for (let i = 0; i < 160 && !waitState; i++) {
@@ -454,7 +454,7 @@ try {
   check('the model can be tried again at once', (await api('POST', '/api/ingest/control', { action: 'retry-now' })).status === 200);
   const job3b = await waitJob(job3id);
   check('the waiting job succeeds once the model is back', job3b?.status === 'done', JSON.stringify(job3b));
-  for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  for (const p of (await getPage('docs/basics')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
   // 23. Watched folders: existing and changed documents are filed with the folder label and relative path
   const watchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aiwiki-watch-'));
@@ -465,69 +465,69 @@ try {
     const past = new Date(Date.now() - 60_000); // older than the settle time, as if synced a minute ago
     fs.utimesSync(full, past, past);
   };
-  writeOld('Safety/procedures.txt', 'FACT: The fire drill is in March.\n');
+  writeOld('Safety/rules.txt', 'FACT: Page deletions wait for review.\n');
   writeOld('~$procedures.docx', 'lock file');
   writeOld('notes.exe', 'not a document');
-  const added = await api('POST', '/api/folders', { label: 'Ops share', path: watchDir, user: 'Alex', fileExisting: true });
+  const added = await api('POST', '/api/folders', { label: 'Notes share', path: watchDir, user: 'Alex', fileExisting: true });
   check('a folder can be watched', added.status === 200 && added.data.fileCount === 1, JSON.stringify(added.data));
-  const folderJob = await waitJob((await api('GET', '/api/ingest')).data.jobs.find((j) => j.displayName === 'procedures.txt')?.id);
-  check('a document in the folder is filed', folderJob?.status === 'done' && folderJob.folderLabel === 'Ops share' && folderJob.relPath === 'Safety/procedures.txt', JSON.stringify(folderJob));
-  let fSet = (await getPage('team/onboarding')).pending.find((p) => p.source?.filename === 'procedures.txt');
+  const folderJob = await waitJob((await api('GET', '/api/ingest')).data.jobs.find((j) => j.displayName === 'rules.txt')?.id);
+  check('a document in the folder is filed', folderJob?.status === 'done' && folderJob.folderLabel === 'Notes share' && folderJob.relPath === 'Safety/rules.txt', JSON.stringify(folderJob));
+  let fSet = (await getPage('docs/basics')).pending.find((p) => p.source?.filename === 'rules.txt');
   check('the assistant is told where the file sits in the folder', fSet?.summary === 'Add facts from a document (location seen)', fSet?.summary);
-  check('its source names the folder and the path inside it', fSet?.source?.folderLabel === 'Ops share' && fSet.source.relPath === 'Safety/procedures.txt' && fSet.source.version === 1);
-  check('the full server path never appears in sources', !JSON.stringify(await getPage('team/onboarding')).includes(watchDir));
+  check('its source names the folder and the path inside it', fSet?.source?.folderLabel === 'Notes share' && fSet.source.relPath === 'Safety/rules.txt' && fSet.source.version === 1);
+  check('the full server path never appears in sources', !JSON.stringify(await getPage('docs/basics')).includes(watchDir));
   await api('POST', `/api/proposals/${fSet.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
-  check('the approval names the folder file', git('log', '-1', '--format=%B').includes('procedures.txt (Ops share: Safety/procedures.txt, version 1, from Alex'), git('log', '-1', '--format=%B'));
+  check('the approval names the folder file', git('log', '-1', '--format=%B').includes('rules.txt (Notes share: Safety/rules.txt, version 1, from Alex'), git('log', '-1', '--format=%B'));
   const folderId = added.data.id;
   check('an unchanged folder sends nothing', (await api('POST', `/api/folders/${folderId}/scan`)).data.queued === 0);
   const past = new Date(Date.now() - 30_000);
-  fs.utimesSync(path.join(watchDir, 'Safety/procedures.txt'), past, past);
+  fs.utimesSync(path.join(watchDir, 'Safety/rules.txt'), past, past);
   check('a file that was only touched sends nothing', (await api('POST', `/api/folders/${folderId}/scan`)).data.queued === 0);
-  writeOld('Safety/procedures.txt', 'FACT: The fire drill is in April.\n');
+  writeOld('Safety/rules.txt', 'FACT: Page renames wait for review.\n');
   check('a changed file is sent again', (await api('POST', `/api/folders/${folderId}/scan`)).data.queued === 1);
-  const changedJob = await waitJob((await api('GET', '/api/ingest')).data.jobs.find((j) => j.displayName === 'procedures.txt' && j.status !== 'done' && j.status !== 'skipped')?.id
+  const changedJob = await waitJob((await api('GET', '/api/ingest')).data.jobs.find((j) => j.displayName === 'rules.txt' && j.status !== 'done' && j.status !== 'skipped')?.id
     ?? (await api('GET', '/api/ingest')).data.jobs[0].id);
-  fSet = (await getPage('team/onboarding')).pending.find((p) => p.source?.filename === 'procedures.txt');
+  fSet = (await getPage('docs/basics')).pending.find((p) => p.source?.filename === 'rules.txt');
   check('the changed file is filed as version 2', changedJob?.status === 'done' && fSet?.source?.version === 2, JSON.stringify({ changedJob, src: fSet?.source }));
   if (fSet) await api('POST', `/api/proposals/${fSet.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
-  writeOld('Quiet/fresh.txt', 'FACT: First aid kits are by each exit.\n');
+  writeOld('Quiet/fresh.txt', 'FACT: The home page lists every section.\n');
   writeOld('Quiet/old.txt', 'FACT: The old rule.\n');
   const quiet = await api('POST', '/api/folders', { label: 'Quiet share', path: path.join(watchDir, 'Quiet'), user: 'Alex', fileExisting: false });
   check('a folder can start without filing what is already there', quiet.status === 200 && quiet.data.fileCount === 2 && !(await api('GET', '/api/ingest')).data.jobs.some((j) => j.folderLabel === 'Quiet share' && j.kind === 'file'));
-  writeOld('Quiet/new-rule.txt', 'FACT: Visitors sign in at reception.\n');
+  writeOld('Quiet/new-rule.txt', 'FACT: Drafts are marked in the sidebar.\n');
   check('later documents in that folder are filed', (await api('POST', `/api/folders/${quiet.data.id}/scan`)).data.queued === 1);
   check('a missing folder is refused clearly', /cannot find the folder/.test((await api('POST', '/api/folders', { label: 'Nope', path: '/no/such/dir', user: 'Alex' })).data.error ?? ''));
-  check('the same label cannot be used twice', (await api('POST', '/api/folders', { label: 'Ops share', path: watchDir, user: 'Alex' })).status === 400);
+  check('the same label cannot be used twice', (await api('POST', '/api/folders', { label: 'Notes share', path: watchDir, user: 'Alex' })).status === 400);
   await waitJob((await api('GET', '/api/ingest')).data.jobs[0].id);
   for (const f of (await api('GET', '/api/folders')).data) await api('DELETE', `/api/folders/${f.id}`);
   check('folders can stop being watched', (await api('GET', '/api/folders')).data.length === 0);
-  for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  for (const p of (await getPage('docs/basics')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
   fs.rmSync(watchDir, { recursive: true, force: true });
 
   // 24. Moving a pending suggestion: your own moves, someone else's stays put
-  await chat('Please add a canteen section', 'Alex', 'local', 'e2e-chat-canteen');
-  check('the addition is pending on the first page', (await getPage('team/onboarding')).pending.length === 1);
-  const mvSec = await chat('Actually move the canteen section to its own page', 'Alex', 'local', 'e2e-chat-canteen');
-  check('the addition leaves the first page', (await getPage('team/onboarding')).pending.length === 0, JSON.stringify((await getPage('team/onboarding')).pending.map((p) => p.summary)));
-  const canteen = await getPage('facilities/canteen');
-  check('and is suggested at the new place', canteen.pending.length === 1 && canteen.pending[0].isNew && JSON.stringify(canteen.pending[0].segments).includes('11:30'));
-  check('the chat only lists the page still waiting', JSON.stringify(mvSec.proposed) === JSON.stringify([{ path: 'facilities/canteen', isNew: true }]), JSON.stringify(mvSec.proposed));
-  await api('POST', `/api/proposals/${canteen.pending[0].proposalId}/resolve`, { action: 'reject', user: 'Kim' });
-  await chat('Please suggest a gym page', 'Alex', 'local', 'e2e-chat-gym');
-  await chat('Now move the gym page under perks', 'Alex', 'local', 'e2e-chat-gym');
-  const oldGym = await getPage('facilities/gym');
-  const newGym = await getPage('perks/gym');
-  check('a suggested new page can be moved by its chat', oldGym.pending.length === 0 && newGym.pending.length === 1 && newGym.pending[0].isNew && newGym.title === 'Gym',
-    JSON.stringify({ old: oldGym.pending.length, new: newGym.pending.length }));
-  await chat('Please relocate the perks gym page', 'Sam', 'local', 'e2e-chat-other-gym');
-  check('someone else cannot move it', (await getPage('perks/gym')).pending.length === 1 && (await getPage('misc/gym')).pending.length === 0);
-  await api('POST', `/api/proposals/${newGym.pending[0].proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  await chat('Please add a style section', 'Alex', 'local', 'e2e-chat-style');
+  check('the addition is pending on the first page', (await getPage('docs/basics')).pending.length === 1);
+  const mvSec = await chat('Actually move the style section to its own page', 'Alex', 'local', 'e2e-chat-style');
+  check('the addition leaves the first page', (await getPage('docs/basics')).pending.length === 0, JSON.stringify((await getPage('docs/basics')).pending.map((p) => p.summary)));
+  const stylePage = await getPage('guide/style');
+  check('and is suggested at the new place', stylePage.pending.length === 1 && stylePage.pending[0].isNew && JSON.stringify(stylePage.pending[0].segments).includes('lowercase'));
+  check('the chat only lists the page still waiting', JSON.stringify(mvSec.proposed) === JSON.stringify([{ path: 'guide/style', isNew: true }]), JSON.stringify(mvSec.proposed));
+  await api('POST', `/api/proposals/${stylePage.pending[0].proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  await chat('Please suggest a photos page', 'Alex', 'local', 'e2e-chat-photos');
+  await chat('Now move the photos page under archive', 'Alex', 'local', 'e2e-chat-photos');
+  const oldPhotos = await getPage('gallery/photos');
+  const newPhotos = await getPage('archive/photos');
+  check('a suggested new page can be moved by its chat', oldPhotos.pending.length === 0 && newPhotos.pending.length === 1 && newPhotos.pending[0].isNew && newPhotos.title === 'Photos',
+    JSON.stringify({ old: oldPhotos.pending.length, new: newPhotos.pending.length }));
+  await chat('Please relocate the archive photos page', 'Sam', 'local', 'e2e-chat-other-photos');
+  check('someone else cannot move it', (await getPage('archive/photos')).pending.length === 1 && (await getPage('misc/photos')).pending.length === 0);
+  await api('POST', `/api/proposals/${newPhotos.pending[0].proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
   // 25. The chat can stream progress while the assistant works
   const streamed = await fetch(BASE + '/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ stream: true, messages: [{ role: 'user', content: 'Is anything pending on onboarding?' }], provider: 'local', user: 'Alex' }),
+    body: JSON.stringify({ stream: true, messages: [{ role: 'user', content: 'Is anything pending?' }], provider: 'local', user: 'Alex' }),
   });
   const events = (await streamed.text()).trim().split('\n').map((l) => JSON.parse(l));
   check('progress arrives before the result', streamed.headers.get('content-type')?.includes('ndjson') &&
@@ -549,18 +549,18 @@ try {
   };
   const readRun = async (id) => (await (await fetch(`${BASE}/api/chat/runs/${id}`)).text()).trim().split('\n').map((l) => JSON.parse(l));
   const pulseBefore = (await api('GET', '/api/pulse')).data.stamp;
-  const runId = await startStream('Please slowly add a canteen section', 'e2e-chat-run');
+  const runId = await startStream('Please slowly add a style section', 'e2e-chat-run');
   const replay = await readRun(runId);
   check('a request carries on after the browser leaves and can be picked up again',
     replay[0].type === 'run' && replay.some((e) => e.type === 'progress') && replay.at(-1).type === 'done' && replay.at(-1).proposed.length === 1, JSON.stringify(replay));
   check('the change counter moves when a suggestion lands', (await api('GET', '/api/pulse')).data.stamp !== pulseBefore);
-  for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
-  const stopId = await startStream('Please slowly add the dashboard link and badge pickup', 'e2e-chat-stop');
+  for (const p of (await getPage('docs/basics')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  const stopId = await startStream('Please slowly add where facts come from', 'e2e-chat-stop');
   check('a running request can be stopped', (await api('POST', `/api/chat/runs/${stopId}/stop`)).data.stopped === true);
   const stoppedEvents = await readRun(stopId);
   check('a stopped request ends as stopped', stoppedEvents.at(-1).type === 'error' && stoppedEvents.at(-1).error === 'Stopped.', JSON.stringify(stoppedEvents.at(-1)));
   check('an unknown request says so', (await fetch(`${BASE}/api/chat/runs/nope`)).status === 404);
-  for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  for (const p of (await getPage('docs/basics')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
   // 27. Watched folders that are renamed, nested or added twice
   const nest_base = fs.mkdtempSync(path.join(os.tmpdir(), 'aiwiki-nest-'));
@@ -594,20 +594,20 @@ try {
   check('nothing is filed again after pointing it at the new location', afterJobs.every((j) => j?.status === 'skipped'), JSON.stringify({ afterMove, afterJobs }));
   await waitJob((await api('GET', '/api/ingest')).data.jobs[0].id);
   for (const f of (await api('GET', '/api/folders')).data) await api('DELETE', `/api/folders/${f.id}`);
-  for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  for (const p of (await getPage('docs/basics')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
   fs.rmSync(nest_base, { recursive: true, force: true });
 
   // 28. The assistant can look up detail in the original documents
-  const manual = await upload([['manual.txt', Buffer.from('Motor maintenance\n\nTorque the motor screws to 2 Nm with blue threadlocker.\n'), 'text/plain']]);
+  const manual = await upload([['manual.txt', Buffer.from('Wiki export\n\nThe export tool writes one file per page, plus a plain index.\n'), 'text/plain']]);
   await waitJob((await api('POST', '/api/ingest', { fileIds: [manual.data[0].id], user: 'Alex', provider: 'local', note: 'Just keep this on file.' })).data.jobs[0]);
-  const fromDoc = await chat('What does the manual say about torque?', 'Sam');
+  const fromDoc = await chat('What does the notes file say about the export?', 'Sam');
   check('an answer can come from an original document', fromDoc.reply?.startsWith('DOC-SEEN') && fromDoc.trace?.some((t) => t.startsWith('Searched documents')), JSON.stringify(fromDoc));
   check('nothing is suggested just by looking something up', fromDoc.proposed?.length === 0);
-  await chat('Please add the torque spec', 'Sam', 'local', 'e2e-chat-torque');
-  const torque = (await getPage('team/onboarding')).pending.find((p) => JSON.stringify(p.segments).includes('2 Nm'));
-  check('a suggestion based on a document records it as the source', torque?.source?.kind === 'file' && torque.source.filename === 'manual.txt' && torque.source.user === 'Sam',
-    JSON.stringify(torque?.source));
-  if (torque) await api('POST', `/api/proposals/${torque.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  await chat('Please add the export note', 'Sam', 'local', 'e2e-chat-export');
+  const exportNote = (await getPage('docs/basics')).pending.find((p) => JSON.stringify(p.segments).includes('one file per page'));
+  check('a suggestion based on a document records it as the source', exportNote?.source?.kind === 'file' && exportNote.source.filename === 'manual.txt' && exportNote.source.user === 'Sam',
+    JSON.stringify(exportNote?.source));
+  if (exportNote) await api('POST', `/api/proposals/${exportNote.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
   // 29. Folders on the server can be browsed to pick one to watch
   const browseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aiwiki-browse-'));
@@ -642,7 +642,7 @@ try {
   await ctl('resume');
   check('resuming files what was waiting', (await waitJob(pausedJob))?.status === 'done');
 
-  const slowJob = await queueOne('slow.txt', 'FACT: Slow fact.\n', 'Please slowly add a canteen section');
+  const slowJob = await queueOne('slow.txt', 'FACT: Slow fact.\n', 'Please slowly add a style section');
   let live = null;
   for (let i = 0; i < 80 && !live; i++) {
     const st = (await api('GET', '/api/ingest')).data;
@@ -665,72 +665,72 @@ try {
   check('all failed files can be tried again', (await ctl('retry-failed')).data.count >= 1 && (await waitJob(goneJob))?.status === 'done');
   const counts = (await api('GET', '/api/ingest')).data.counts;
   check('counts cover every status', ['queued', 'working', 'done', 'skipped', 'failed', 'cancelled'].every((k) => typeof counts[k] === 'number'), JSON.stringify(counts));
-  for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  for (const p of (await getPage('docs/basics')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
   // 31. Personal folders: searchable by their owner only, never filed into the wiki
   const privDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aiwiki-personal-'));
-  fs.writeFileSync(path.join(privDir, 'notes.txt'), 'Private note: the code word is PINEAPPLE.\n');
+  fs.writeFileSync(path.join(privDir, 'notes.txt'), 'Private note: the PINEAPPLE code is in my planner.\n');
   const privPast = new Date(Date.now() - 60_000);
   fs.utimesSync(path.join(privDir, 'notes.txt'), privPast, privPast);
   check('a personal folder needs an owner', (await api('POST', '/api/folders', { label: 'Nameless', path: privDir, user: '', visibility: 'personal' })).status === 400);
-  const pendingBefore = (await getPage('team/onboarding')).pending.length;
+  const pendingBefore = (await getPage('docs/basics')).pending.length;
   const priv = await api('POST', '/api/folders', { label: 'Alex notes', path: privDir, user: 'Alex', visibility: 'personal', fileExisting: true });
   check('a personal folder can be watched', priv.status === 200 && priv.data.visibility === 'personal', JSON.stringify(priv.data));
   const privJob = await waitJob((await api('GET', '/api/ingest')).data.jobs.find((j) => j.displayName === 'notes.txt')?.id);
   check('its files are kept for searching, not filed', privJob?.status === 'done' && /own searches/.test(privJob.detail ?? '') && privJob.proposed.length === 0, JSON.stringify(privJob));
-  check('nothing from it is suggested', (await getPage('team/onboarding')).pending.length === pendingBefore);
+  check('nothing from it is suggested', (await getPage('docs/basics')).pending.length === pendingBefore);
   check('its owner can search it', (await chat('Please search my notes', 'Alex')).reply === 'PERSONAL-SEEN');
   check('nobody else can', (await chat('Please search my notes', 'Sam')).reply === 'PERSONAL-NOT-SEEN');
   const leak = await chat('Please put my notes in the wiki', 'Alex');
   check('after reading a personal document nothing can be suggested', leak.proposed.length === 0 && leak.trace.some((t) => /did not work/.test(t)) &&
-    !JSON.stringify((await getPage('team/onboarding')).pending).includes('PINEAPPLE'), JSON.stringify(leak.trace));
+    !JSON.stringify((await getPage('docs/basics')).pending).includes('PINEAPPLE'), JSON.stringify(leak.trace));
   const toWiki = await api('PATCH', `/api/folders/${priv.data.id}`, { visibility: 'wiki', fileExisting: true });
   check('a personal folder can start feeding the wiki', toWiki.status === 200 && toWiki.data.queued === 1, JSON.stringify(toWiki.data));
   const wikiJob = await waitJob((await api('GET', '/api/ingest')).data.jobs[0].id);
   check('its documents are then filed', wikiJob?.status === 'done' && wikiJob.proposed.length === 1, JSON.stringify(wikiJob));
   check('and everyone can search them', (await chat('Please search my notes', 'Sam')).reply === 'PERSONAL-SEEN');
   for (const f of (await api('GET', '/api/folders')).data) await api('DELETE', `/api/folders/${f.id}`);
-  for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  for (const p of (await getPage('docs/basics')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
   fs.rmSync(privDir, { recursive: true, force: true });
 
   // 32. The librarian surveys a section and suggests a limited number of tidy-ups
   const putPage = (p, content) => api('PUT', '/api/page', { path: p, content, user: 'Kim' });
-  const printerText = 'The office printer is on floor 2 next to the kitchen. Toner cartridges are kept in the supply cupboard. ' +
-    'To add a printer on Windows open Settings, choose Printers and scanners, and pick the floor 2 printer from the list.';
-  await putPage('kb/printers', `# Printers\n\n${printerText}\n`);
-  await putPage('kb/printing', `# Printing\n\n${printerText}\n\nColour printing needs a code from reception.\n`);
-  await putPage('kb/network/wifi', '# Wifi\n\nThe guest network password is on the board in reception. Printing over wifi is described in [[help/printers]].\n');
-  await putPage('kb/network/vpn', '# VPN\n\nThe VPN client is installed on every laptop.\n');
+  const guideText = 'The guide pages explain how the wiki works. Headings make pages scannable. ' +
+    'To search, type a word in the search box and pick a page from the results.';
+  await putPage('notes/pages', `# Pages\n\n${guideText}\n`);
+  await putPage('notes/writing', `# Writing\n\n${guideText}\n\nRenaming follows the links with the move action.\n`);
+  await putPage('notes/guide/finding', '# Finding\n\nThe search box covers every page. Narrowing results is described in [[help/pages]].\n');
+  await putPage('notes/guide/filters', '# Filters\n\nFilters narrow search results.\n');
   const sections = (await api('GET', '/api/librarian')).data;
-  check('sections are listed for tidying', sections.sections?.some((s) => s.section === 'kb' && s.pages === 4 && !s.run), JSON.stringify(sections));
-  const surveyed = await chat('Please tidy the kb section', 'Alex');
-  check('the chat can survey a section', surveyed.reply === 'SURVEY-SEEN' && surveyed.trace?.includes('Surveyed the kb section'), JSON.stringify(surveyed));
+  check('sections are listed for tidying', sections.sections?.some((s) => s.section === 'notes' && s.pages === 4 && !s.run), JSON.stringify(sections));
+  const surveyed = await chat('Please tidy the notes section', 'Alex');
+  check('the chat can survey a section', surveyed.reply === 'SURVEY-SEEN' && surveyed.trace?.includes('Surveyed the notes section'), JSON.stringify(surveyed));
   check('a missing section cannot be tidied', (await api('POST', '/api/librarian', { section: 'nowhere', user: 'Alex' })).status === 400);
   // a slow file keeps the queue busy so the tidy has to wait, and filing is paused behind it
-  const busyJob = await queueOne('busy.txt', 'FACT: Busy fact.\n', 'Please slowly add a canteen section');
+  const busyJob = await queueOne('busy.txt', 'FACT: Busy fact.\n', 'Please slowly add a style section');
   for (let i = 0; i < 80 && (await api('GET', '/api/ingest')).data.current?.job?.id !== busyJob; i++) await new Promise((r) => setTimeout(r, 100));
   await ctl('pause');
-  const tidyJob = (await api('POST', '/api/librarian', { section: 'kb', user: 'Alex', provider: 'local', limit: 3 })).data.job;
-  check('a section is tidied only once at a time', (await api('POST', '/api/librarian', { section: 'kb', user: 'Alex' })).status === 400);
-  check('a waiting tidy shows on its section', (await api('GET', '/api/librarian')).data.sections.find((s) => s.section === 'kb')?.run === 'queued');
+  const tidyJob = (await api('POST', '/api/librarian', { section: 'notes', user: 'Alex', provider: 'local', limit: 3 })).data.job;
+  check('a section is tidied only once at a time', (await api('POST', '/api/librarian', { section: 'notes', user: 'Alex' })).status === 400);
+  check('a waiting tidy shows on its section', (await api('GET', '/api/librarian')).data.sections.find((s) => s.section === 'notes')?.run === 'queued');
   const tidied = await waitJob(tidyJob);
   check('a tidy runs while filing is paused', (await api('GET', '/api/ingest')).data.paused === true && tidied?.status === 'done');
   await ctl('resume');
   await waitJob(busyJob);
-  for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  for (const p of (await getPage('docs/basics')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
   check('a tidy run suggests changes up to its limit', tidied?.status === 'done' && tidied.kind === 'tidy' &&
-    JSON.stringify([...tidied.proposed].sort()) === JSON.stringify(['kb/network', 'kb/printers', 'kb/printing']) && /over the limit/.test(tidied.detail ?? ''), JSON.stringify(tidied));
-  check('nothing over the limit is suggested', (await getPage('kb/network/wifi')).pending.length === 0);
-  check('the AI did not write any page', pageFile('kb/printing').includes('Colour printing') && !fs.existsSync(path.join(wikiDir, 'kb/network.md')));
-  const merged = (await getPage('kb/printers')).pending[0];
-  check('a tidy suggestion names the librarian and who started it', merged?.source?.kind === 'librarian' && merged.source.user === 'Alex' && /"kb"/.test(merged.source.note ?? ''),
+    JSON.stringify([...tidied.proposed].sort()) === JSON.stringify(['notes/guide', 'notes/pages', 'notes/writing']) && /over the limit/.test(tidied.detail ?? ''), JSON.stringify(tidied));
+  check('nothing over the limit is suggested', (await getPage('notes/guide/finding')).pending.length === 0);
+  check('the AI did not write any page', pageFile('notes/writing').includes('Renaming follows') && !fs.existsSync(path.join(wikiDir, 'notes/guide.md')));
+  const merged = (await getPage('notes/pages')).pending[0];
+  check('a tidy suggestion names the librarian and who started it', merged?.source?.kind === 'librarian' && merged.source.user === 'Alex' && /"notes"/.test(merged.source.note ?? ''),
     JSON.stringify(merged?.source));
-  const removal = (await getPage('kb/printing')).ops[0];
+  const removal = (await getPage('notes/writing')).ops[0];
   check('a merge suggests removing the duplicate on its page', removal?.kind === 'remove' && removal.source?.kind === 'librarian');
-  const overviewSet = (await getPage('kb/network')).pending[0];
+  const overviewSet = (await getPage('notes/guide')).pending[0];
   check('a missing overview page is suggested', overviewSet?.isNew === true);
   await api('POST', `/api/proposals/${overviewSet.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
-  check('approving it records the librarian as the source', git('log', '-1', '--format=%B').includes('Source: librarian (tidy of the "kb" section), started by Alex'), git('log', '-1', '--format=%B'));
+  check('approving it records the librarian as the source', git('log', '-1', '--format=%B').includes('Source: librarian (tidy of the "notes" section), started by Alex'), git('log', '-1', '--format=%B'));
   await api('POST', `/api/proposals/${merged.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
   await api('POST', `/api/ops/${removal.opId}`, { action: 'reject', user: 'Kim' });
 
@@ -738,12 +738,12 @@ try {
   check('the limit per run is checked', (await api('PUT', '/api/librarian', { limit: 500 })).status === 400);
   check('the limit per run can be changed', (await api('PUT', '/api/librarian', { limit: 30 })).data.limit === 30 && (await api('GET', '/api/librarian')).data.settings.limit === 30);
   const libDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aiwiki-lib-'));
-  for (const [rel, text] of [['Manuals/Printers/guide.txt', 'Printer guide\n'], ['Manuals/Network/wifi.txt', 'Wifi notes\n']]) {
+  for (const [rel, text] of [['Guides/Pages/notes.txt', 'Pages notes\n'], ['Guides/Search/words.txt', 'Search words\n']]) {
     fs.mkdirSync(path.dirname(path.join(libDir, rel)), { recursive: true });
     fs.writeFileSync(path.join(libDir, rel), text);
     fs.utimesSync(path.join(libDir, rel), new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
   }
-  await api('POST', '/api/folders', { label: 'Lib share', path: libDir, user: 'Alex', fileExisting: false });
+  await api('POST', '/api/folders', { label: 'Docs share', path: libDir, user: 'Alex', fileExisting: false });
   const due = (await api('POST', '/api/librarian', { action: 'check' })).data;
   check('the librarian starts with the whole wiki on its own', due.started === '*', JSON.stringify(due));
   const wholeJob = await waitJob((await api('GET', '/api/ingest')).data.jobs.find((j) => j.kind === 'tidy' && j.displayName === 'Organise the wiki')?.id);
@@ -759,27 +759,27 @@ try {
   check('the librarian can be told not to run on its own', (await api('POST', '/api/librarian', { action: 'check' })).data.started === null);
   for (const f of (await api('GET', '/api/folders')).data) await api('DELETE', `/api/folders/${f.id}`);
   fs.rmSync(libDir, { recursive: true, force: true });
-  const kbMove = await chat('Please move the kb folder', 'Alex');
-  const kbOp = (await getPage('kb')).ops[0];
-  check('a folder without its own page can be moved', kbMove.proposed?.some((p) => p.path === 'kb') && kbOp?.kind === 'move' && kbOp.newPath === 'help', JSON.stringify({ kbMove, kbOp }));
+  const kbMove = await chat('Please move the notes folder', 'Alex');
+  const kbOp = (await getPage('notes')).ops[0];
+  check('a folder without its own page can be moved', kbMove.proposed?.some((p) => p.path === 'notes') && kbOp?.kind === 'move' && kbOp.newPath === 'help', JSON.stringify({ kbMove, kbOp }));
   await api('POST', `/api/ops/${kbOp.opId}`, { action: 'approve', user: 'Kim' });
-  check('approving it moves every page under it', fs.existsSync(path.join(wikiDir, 'help/printers.md')) && fs.existsSync(path.join(wikiDir, 'help/network/wifi.md')) && !fs.existsSync(path.join(wikiDir, 'kb')));
+  check('approving it moves every page under it', fs.existsSync(path.join(wikiDir, 'help/pages.md')) && fs.existsSync(path.join(wikiDir, 'help/guide/finding.md')) && !fs.existsSync(path.join(wikiDir, 'notes')));
   const putSummary = (p, summary) => api('PUT', '/api/structure', { path: p, summary, user: 'Kim' });
-  check('a person can give a folder of pages a summary', (await putSummary('help', 'Help with everyday office things.')).status === 200 && pageFile('help') === '# Help\n\nHelp with everyday office things.\n');
-  await api('PUT', '/api/page', { path: 'help/network', content: '# Network\n\nWifi and VPN at the office.\n\n## Notes\n\nKeep the router on.\n', user: 'Kim' });
-  const unsummarised = await api('PUT', '/api/page', { path: 'help/network', content: '# Network\n\n## Notes\n\nKeep the router on.\n', user: 'Kim' });
+  check('a person can give a folder of pages a summary', (await putSummary('help', 'Help with everyday reading.')).status === 200 && pageFile('help') === '# Help\n\nHelp with everyday reading.\n');
+  await api('PUT', '/api/page', { path: 'help/guide', content: '# Finding\n\nSearch and filters answer most questions.\n\n## Notes\n\nKeep the index fresh.\n', user: 'Kim' });
+  const unsummarised = await api('PUT', '/api/page', { path: 'help/guide', content: '# Finding\n\n## Notes\n\nKeep the index fresh.\n', user: 'Kim' });
   check('an edit cannot remove the summary', unsummarised.status === 400 && /cannot be removed/.test(unsummarised.data.error ?? ''), JSON.stringify(unsummarised.data));
   const bare = await api('PUT', '/api/page', { path: 'help/bare', content: '# Bare\n\n- just a list\n', user: 'Kim' });
   check('a new page needs a summary', bare.status === 400 && /needs a summary/.test(bare.data.error ?? ''));
-  await putSummary('help/network', 'Wifi, VPN and the router.');
-  check('editing a summary replaces only the summary', pageFile('help/network') === '# Network\n\nWifi, VPN and the router.\n\n## Notes\n\nKeep the router on.\n', pageFile('help/network'));
+  await putSummary('help/guide', 'Search, filters and the index.');
+  check('editing a summary replaces only the summary', pageFile('help/guide') === '# Finding\n\nSearch, filters and the index.\n\n## Notes\n\nKeep the index fresh.\n', pageFile('help/guide'));
   check('a summary must be sentences, not a list', (await putSummary('help', '- one\n- two')).status === 400);
   const helpNode = findNode((await api('GET', '/api/structure')).data.sections, 'help');
-  check('the structure lists every page under a section', helpNode?.summary === 'Help with everyday office things.' && helpNode.children.some((c) => c.path === 'help/network' && c.children.length === 2), JSON.stringify(helpNode, (k, v) => (k === 'summary' ? undefined : v)));
-  check('summary edits are committed under the editor', git('log', '-1', '--format=%an %s').trim() === 'Kim Edit the summary of help/network');
-  const renamed = await api('POST', '/api/page/move', { from: 'help/printers', to: 'help/printer-guide', title: 'Printer guide', user: 'Kim' });
-  check('a move with a new title renames the page too', renamed.status === 200 && pageFile('help/printer-guide').startsWith('# Printer guide\n') &&
-    pageFile('help/network/wifi').includes('[[help/printer-guide]]'), JSON.stringify({ d: renamed.data, wifi: pageFile('help/network/wifi') }));
+  check('the structure lists every page under a section', helpNode?.summary === 'Help with everyday reading.' && helpNode.children.some((c) => c.path === 'help/guide' && c.children.length === 2), JSON.stringify(helpNode, (k, v) => (k === 'summary' ? undefined : v)));
+  check('summary edits are committed under the editor', git('log', '-1', '--format=%an %s').trim() === 'Kim Edit the summary of help/guide');
+  const renamed = await api('POST', '/api/page/move', { from: 'help/pages', to: 'help/page-guide', title: 'Page guide', user: 'Kim' });
+  check('a move with a new title renames the page too', renamed.status === 200 && pageFile('help/page-guide').startsWith('# Page guide\n') &&
+    pageFile('help/guide/finding').includes('[[help/page-guide]]'), JSON.stringify({ d: renamed.data, finding: pageFile('help/guide/finding') }));
 
   // 34. Filing plans: each folder gets a rule, look-alike groups are sampled, raw data is skipped
   const planDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aiwiki-plan-'));
@@ -830,18 +830,18 @@ try {
     planned.files === 12 && !!planned.children.find((c) => c.dir === 'Deep'), JSON.stringify({ files: planned.files, dirs: planned.children.map((c) => c.dir) }));
   for (const f of (await api('GET', '/api/folders')).data) await api('DELETE', `/api/folders/${f.id}`);
   fs.rmSync(planDir, { recursive: true, force: true });
-  for (const p of (await getPage('team/onboarding')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  for (const p of (await getPage('docs/basics')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
   // 35. A long file comes in parts; the assistant reads on only where it chooses to
-  const longText = Array.from({ length: 160 }, (_, i) => `Paragraph ${i} of the long manual describes routine care of the equipment in plain words.`).join('\n\n') + '\n\nPART-TWO-MARKER is near the end.\n';
-  const longFile = await upload([['long-manual.txt', Buffer.from(longText), 'text/plain']]);
+  const longText = Array.from({ length: 160 }, (_, i) => `Paragraph ${i} of the long manual describes care of the wiki in plain words.`).join('\n\n') + '\n\nPART-TWO-MARKER is near the end.\n';
+  const longFile = await upload([['long-notes.txt', Buffer.from(longText), 'text/plain']]);
   const skim = await chat('Please skim this file', 'Alex', 'local', 'e2e-chat-skim', [longFile.data[0].id]);
-  check('a long file is shown a part at a time', skim.reply === 'PARTS-OK' && skim.trace?.some((t) => /long-manual\.txt, part 1 of \d/.test(t)) && skim.trace?.some((t) => t.startsWith('Read part')),
+  check('a long file is shown a part at a time', skim.reply === 'PARTS-OK' && skim.trace?.some((t) => /long-notes\.txt, part 1 of \d/.test(t)) && skim.trace?.some((t) => t.startsWith('Read part')),
     JSON.stringify(skim));
 
   // 36. Search finds approved content
-  const hits = (await api('GET', '/api/search?q=nightly')).data;
-  check('search finds approved content', hits.some((h) => h.path === 'systems/backup-policy'));
+  const hits = (await api('GET', '/api/search?q=naming')).data;
+  check('search finds approved content', hits.some((h) => h.path === 'guide/naming-policy'));
 } catch (e) {
   failures++;
   console.error('FAIL', e.message);

@@ -104,7 +104,7 @@ export default function Sidebar({
     <aside className="sidebar">
       <div className="brand">
         <Link href="/wiki/index" onClick={onNavigate}>
-          Team wiki
+          Wiki
         </Link>
         <button className="btn small" onClick={() => setCreating(true)}>
           New page

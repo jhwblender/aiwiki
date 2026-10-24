@@ -22,7 +22,7 @@ export const toolDefs: ToolDef[] = [
   },
   {
     name: 'read_page',
-    description: 'Read the full markdown of a page by path (for example "systems/onboarding"). Includes any edits you already proposed in this conversation turn.',
+    description: 'Read the full markdown of a page by path (for example "guide/basics"). Includes any edits you already proposed in this conversation turn.',
     parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
   },
   {
@@ -120,7 +120,7 @@ export const toolDefs: ToolDef[] = [
     description:
       'Propose moving or renaming a page. Pages under it move too, and links to it are updated everywhere. ' +
       'Also moves a folder of pages that has no page of its own. ' +
-      'Paths can nest up to 5 levels, for example "systems/networking/vpn". Not done until a human approves.',
+      'Paths can nest up to 5 levels, for example "guide/naming/renames". Not done until a human approves.',
     parameters: {
       type: 'object',
       properties: {

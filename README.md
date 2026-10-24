@@ -1,8 +1,8 @@
 # AI Wiki
 
-**A team wiki that keeps itself up to date, without ever changing a word on its own.**
+**A wiki that keeps itself up to date, without ever changing a word on its own.**
 
-Tell the assistant something new, drop in a manual, or point it at a shared folder. It reads, works out which pages are affected, and suggests the edits. The suggestions appear right on the page, highlighted like tracked changes, and anyone on the team approves or rejects them with one click. Nothing is published until a person says yes.
+Tell the assistant something new, drop in a document, or point it at a shared folder. It reads, works out which pages are affected, and suggests the edits. The suggestions appear right on the page, highlighted like tracked changes, and anyone reviewing approves or rejects them with one click. Nothing is published until a person says yes.
 
 Everything is plain Markdown in a git repository, every change records where it came from, and it runs fully on your own hardware with a local model if you want it to.
 
@@ -23,7 +23,7 @@ AI Wiki splits the job: **the AI does the reading and writing, people make every
 - Suggestions stay correct when the page changes underneath them; if two edits overlap, the older one is flagged instead of silently undoing the newer one
 
 **Feeds itself**
-- **Chat:** "the VPN form moved to the IT portal" becomes a suggested edit on the right page
+- **Chat:** "the review day moved to Tuesday" becomes a suggested edit on the right page
 - **Files:** drop PDFs, Word documents, text files, photos and scanned PDFs into the chat or onto a page. Text is extracted, photos and scans are read by a vision model
 - **Watched folders:** point it at a folder (a OneDrive-synced SharePoint library works) and new or changed documents are filed in the background
 - **Updated documents** are reduced to what changed, so the wiki gets an edit instead of a duplicate; files it has already seen are skipped

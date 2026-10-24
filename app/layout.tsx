@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
-export const metadata: Metadata = { title: 'Wiki', description: 'A team wiki with a built-in assistant' };
+export const metadata: Metadata = { title: 'Wiki', description: 'A wiki with a built-in assistant' };
 export const viewport: Viewport = { width: 'device-width', initialScale: 1 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

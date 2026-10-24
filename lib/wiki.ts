@@ -47,23 +47,21 @@ export function ensureInit(): Promise<void> {
 const SEED: Record<string, string> = {
   index: `# Welcome
 
-This is your team wiki. Edit any page directly, or ask the assistant in the chat panel to add or change things.
+This is your wiki. Edit any page directly, or ask the assistant in the chat panel to add or change things.
 
-Changes the assistant makes are never published straight away. They show up on the page highlighted, and anyone on the team can approve or reject them in place.
+Changes the assistant makes are never published straight away. They show up on the page highlighted, and anyone reviewing can approve or reject them in place.
 
-Start with [[systems/onboarding]].
+Start with [[guide/basics]].
 `,
-  'systems/onboarding': `# Systems team onboarding
+  'guide/basics': `# Wiki guide
 
-New to the systems team? Start here.
+Pages are simple markdown. Sections start with a double hash.
 
-## Access
+Link to another page with double brackets, like [[guide/basics]].
 
-Request VPN access from IT before your first day. Badge access is handled by facilities.
+Drop a file into the chat and the assistant will read it and suggest edits for you to approve.
 
-## Tools
-
-The team uses the shared monitoring dashboard and the on-call rotation calendar. Ask your manager to add you to both.
+This page is only a starting point, so change or delete it as you like.
 `,
 };
 
