@@ -2,6 +2,7 @@ node_modules
 .next
 .next-e2e
 .next-prod
+.aiwiki-port
 data
 .env
 .env.local

@@ -5,7 +5,7 @@
 #   ./start.sh --dev       development version that reloads as code changes
 #   ./start.sh --open      also open the wiki in your browser once it is ready
 #   ./start.sh --shortcut  put a "Start wiki" file on the Windows desktop (WSL only)
-#   PORT=3001 ./start.sh   use another port
+#   PORT=3001 ./start.sh   start from another port (a busy port falls back to the next free one)
 #
 # The first run checks for Node, npm and git, offers to download Node 22 if it
 # is missing, installs the packages, and creates .env.local from .env.example.
@@ -14,6 +14,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 PORT="${PORT:-3000}"
+PORT_FILE=.aiwiki-port
 MODE=prod
 OPEN=no
 SHORTCUT=no
@@ -29,12 +30,16 @@ done
 say() { printf '\n\033[1;36m%s\033[0m\n' "$*"; }
 fail() { printf '\n\033[1;31m%s\033[0m\n' "$*" >&2; exit 1; }
 
-# Is the wiki answering on a path? curl is the obvious tool, but Node is always
+if ! [[ "$PORT" =~ ^[0-9]+$ ]] || (( PORT < 1 || PORT > 65535 )); then
+  fail "PORT must be a number from 1 to 65535 (got \"$PORT\")."
+fi
+
+# Is the wiki answering on a port? curl is the obvious tool, but Node is always
 # here by the time this is used, so a machine without curl still works.
-healthy() {
-  local path="$1"
+healthy_at() {
+  local port="$1" path="$2"
   if command -v curl >/dev/null; then
-    curl -sf -o /dev/null -m 2 "http://localhost:${PORT}${path}"
+    curl -sf -o /dev/null -m 2 "http://localhost:${port}${path}"
   else
     node -e '
       const http = require("http");
@@ -44,8 +49,59 @@ healthy() {
       });
       req.on("error", () => process.exit(1));
       req.on("timeout", () => { req.destroy(); process.exit(1); });
-    ' "$PORT" "$path"
+    ' "$port" "$path"
   fi
+}
+
+healthy() { healthy_at "$PORT" "$1"; }
+
+# The port last used, so a fallback port is found again for "already running?"
+# and by stop.sh. A stale file is ignored once nothing answers there.
+saved_port() {
+  [[ -f "$PORT_FILE" ]] || return 1
+  local saved
+  saved="$(tr -dc '0-9' < "$PORT_FILE" 2>/dev/null || true)"
+  [[ "$saved" =~ ^[0-9]+$ ]] || return 1
+  (( saved >= 1 && saved <= 65535 )) || return 1
+  printf '%s\n' "$saved"
+}
+
+remember_port() { printf '%s\n' "$1" > "$PORT_FILE" 2>/dev/null || true; }
+
+# Can this computer listen on the port, on both IPv4 and IPv6? Testing both
+# catches a program that only listens on one of them.
+port_is_free() {
+  node -e '
+    const net = require("net");
+    const port = Number(process.argv[1]);
+    const free = host => new Promise(resolve => {
+      const server = net.createServer();
+      server.once("error", error => resolve(error.code !== "EADDRINUSE"));
+      server.listen({ port, host }, () => server.close(() => resolve(true)));
+    });
+    (async () => {
+      if (!(await free("0.0.0.0"))) process.exit(1);
+      if (!(await free("::"))) process.exit(1);
+      process.exit(0);
+    })();
+  ' "$1" >/dev/null 2>&1
+}
+
+find_free_port() {
+  local start="$1" last candidate
+  last=$(( start + 19 ))
+  if (( last > 65535 )); then last=65535; fi
+  for (( candidate=start; candidate<=last; candidate++ )); do
+    port_is_free "$candidate" && { printf '%s\n' "$candidate"; return 0; }
+  done
+  return 1
+}
+
+fail_no_free_port() {
+  local start="$1" last
+  last=$(( start + 19 ))
+  if (( last > 65535 )); then last=65535; fi
+  fail "Ports ${start}-${last} are all in use. Choose a different starting port, for example PORT=4000 ./start.sh."
 }
 
 open_browser() {
@@ -239,10 +295,29 @@ NODE_MAJOR="${NODE_VERSION#v}"; NODE_MAJOR="${NODE_MAJOR%%.*}"
 (( NODE_MAJOR >= 22 )) || say "Note: Node $NODE_VERSION works, but Node 22 or newer is recommended (the PDF reader expects it)."
 
 # ---------- already running? ----------
-if healthy /api/config; then
+# Check the port used last time too, so a wiki running on a fallback port is
+# found instead of starting a second copy on the next free one.
+SAVED_PORT="$(saved_port || true)"
+if [[ -n "$SAVED_PORT" ]] && healthy_at "$SAVED_PORT" /api/config; then
+  PORT="$SAVED_PORT"
   say "The wiki is already running at http://localhost:${PORT}"
   [[ "$OPEN" == yes ]] && open_browser "http://localhost:${PORT}"
   exit 0
+fi
+if healthy /api/config; then
+  remember_port "$PORT"
+  say "The wiki is already running at http://localhost:${PORT}"
+  [[ "$OPEN" == yes ]] && open_browser "http://localhost:${PORT}"
+  exit 0
+fi
+
+# ---------- use the next free port if this one is taken ----------
+if ! FREE_PORT="$(find_free_port "$PORT")"; then
+  fail_no_free_port "$PORT"
+fi
+if [[ "$FREE_PORT" != "$PORT" ]]; then
+  say "Port ${PORT} is already in use. Using port ${FREE_PORT} instead."
+  PORT="$FREE_PORT"
 fi
 
 # ---------- packages: install when missing, incomplete, or when the package list changed ----------
@@ -308,12 +383,24 @@ if [[ "$MODE" == prod ]]; then
 fi
 
 # ---------- start ----------
+# Another program may have taken the port while the wiki was installing or building.
+if ! port_is_free "$PORT"; then
+  if ! FREE_PORT="$(find_free_port "$PORT")"; then
+    fail_no_free_port "$PORT"
+  fi
+  say "Port ${PORT} was taken while preparing the wiki. Using port ${FREE_PORT} instead."
+  PORT="$FREE_PORT"
+fi
+
 LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
 say "Starting the wiki"
 echo "  On this computer:  http://localhost:${PORT}"
 [[ -n "$LAN_IP" ]] && echo "  On the network:    http://${LAN_IP}:${PORT}  (if your firewall allows it)"
 echo "  Stop it with Ctrl+C."
 echo
+
+# Remember it for "already running?" on the next start and for ./stop.sh.
+remember_port "$PORT"
 
 # Open the browser once the wiki answers
 if [[ "$OPEN" == yes ]]; then

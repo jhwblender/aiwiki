@@ -54,17 +54,18 @@ cd aiwiki
 ./start.sh
 ```
 
-Open http://localhost:3000, go to **Settings**, and connect a model:
+Open the address `./start.sh` prints (http://localhost:3000, unless that port is taken — then it moves to the next free one), go to **Settings**, and connect a model:
 
 - **Ollama:** click *Ollama* to fill in `http://localhost:11434/v1`, pick a model with tool calling (Qwen 2.5 or newer, Llama 3.1 or newer), then *Test connection*
 - **Claude:** add `ANTHROPIC_API_KEY` to `.env.local` and run `./start.sh` again
 
-`./start.sh` checks for Node, npm and git, offers to download Node 22 if it is missing (into `~/.local/share/aiwiki/node`, no administrator password), installs the packages on the first run (or after the package list changes), builds only when the code changed, and starts the wiki. `./stop.sh` stops it. Other options:
+`./start.sh` checks for Node, npm and git, offers to download Node 22 if it is missing (into `~/.local/share/aiwiki/node`, no administrator password), installs the packages on the first run (or after the package list changes), builds only when the code changed, and starts the wiki. If port 3000 is taken it uses the next free port and says which one; `./stop.sh` follows it. Other options:
 
 ```bash
 ./start.sh --open       # open the browser when ready
 ./start.sh --shortcut   # WSL: put a "Start wiki" launcher on the Windows desktop
 ./start.sh --dev        # development server with live reload
+PORT=4000 ./start.sh    # start from another port (busy ports fall back to the next free one)
 ```
 
 No model handy? `npm run mock-llm` starts a scripted test model on port 4555 so you can click through the whole flow.
