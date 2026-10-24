@@ -25,12 +25,32 @@ function check(label, ok, detail = '') {
   if (!ok) failures++;
 }
 
-async function api(method, url, body) {
-  const r = await fetch(BASE + url, {
-    method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
+// Identities come from real accounts now. Kim sets the wiki up on first run (admins may manage
+// people and settings); Alex, Sam and Jordan are editors created by her.
+const COOKIES = new Map();
+
+async function login(name, passcode) {
+  const r = await fetch(BASE + '/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, passcode, confirm: passcode }),
   });
+  const cookie = (r.headers.get('set-cookie') ?? '').split(';')[0];
+  if (cookie) COOKIES.set(name, cookie);
+  return { status: r.status, data: await r.json().catch(() => ({})) };
+}
+
+// The acting person: named in the call where it matters, otherwise whoever signed in first
+const actor = (url, body) => {
+  const q = url.match(/[?&]user=([^&]*)/);
+  const named = q ? decodeURIComponent(q[1]) : body?.user;
+  return named && COOKIES.has(named) ? named : 'Kim';
+};
+
+async function api(method, url, body) {
+  const headers = { Cookie: COOKIES.get(actor(url, body)) ?? '' };
+  if (body) headers['Content-Type'] = 'application/json';
+  const r = await fetch(BASE + url, { method, headers, body: body ? JSON.stringify(body) : undefined });
   const data = await r.json().catch(() => ({}));
   return { status: r.status, data };
 }
@@ -42,8 +62,7 @@ const chat = (text, user = 'Alex', provider = 'local', chatId = undefined, attac
 async function upload(files, user = 'Alex') {
   const form = new FormData();
   for (const [name, data, type] of files) form.append('file', new Blob([data], { type }), name);
-  form.append('user', user);
-  const r = await fetch(BASE + '/api/files', { method: 'POST', body: form });
+  const r = await fetch(BASE + '/api/files', { method: 'POST', body: form, headers: { Cookie: COOKIES.get(user) ?? '' } });
   return { status: r.status, data: await r.json() };
 }
 const pageFile = (p) => fs.readFileSync(path.join(wikiDir, p + '.md'), 'utf8');
@@ -92,6 +111,33 @@ server.stderr.on('data', (d) => (serverLog += d));
 
 try {
   await waitForServer(server);
+
+  // Accounts: the first one set up owns the place; the rest are editors
+  const setup = await login('Kim', 'kim-pass-1234');
+  check('first account can be set up', setup.status === 200 && setup.data.role === 'admin', JSON.stringify(setup.data));
+  await login('Kim', 'kim-pass-1234');
+  for (const [name, role] of [['Alex', 'editor'], ['Sam', 'editor'], ['Jordan', 'editor']]) {
+    const made = await api('POST', '/api/users', { name, role, passcode: `${name.toLowerCase()}-pass-1234` });
+    check(`an admin can add ${name}`, made.status === 200, JSON.stringify(made.data));
+  }
+  await login('Alex', 'alex-pass-1234');
+  await login('Sam', 'sam-pass-1234');
+  await login('Jordan', 'jordan-pass-1234');
+  check('a setup attempt cannot run twice', (await login('Second', 'second-pass-1234')).status === 401);
+
+  // 0. Sign-in is needed everywhere, and roles decide what each person may do
+  check('nothing answers without signing in', (await fetch(`${BASE}/api/pages`)).status === 401 && (await fetch(`${BASE}/api/settings`)).status === 401);
+  check('a wrong passcode is refused', (await login('Alex', 'nope')).status === 401);
+  check('an admin can add a viewer', (await api('POST', '/api/users', { name: 'Vera', role: 'viewer', passcode: 'vera-pass-1234' })).status === 200);
+  await login('Vera', 'vera-pass-1234');
+  check('a viewer can read pages', (await getPage('index')).exists === true);
+  check('a viewer can chat but proposes nothing', (await chat('Who wrote the guide?', 'Vera')).proposed?.length === 0);
+  check('a viewer cannot edit a page', (await api('PUT', '/api/page', { path: 'index', content: 'x', user: 'Vera' })).status === 403);
+  check('a viewer cannot manage people', (await api('POST', '/api/users', { name: 'Nope', role: 'admin', passcode: 'nope-pass-1234', user: 'Vera' })).status === 403);
+  const veraCookie = COOKIES.get('Vera');
+  await fetch(BASE + '/api/login', { method: 'DELETE', headers: { Cookie: veraCookie } });
+  check('signing out ends the session', (await fetch(`${BASE}/api/me`, { headers: { Cookie: veraCookie } })).status === 401);
+  check('an editor cannot manage people', (await api('POST', '/api/users', { name: 'Nope', role: 'admin', passcode: 'nope-pass-1234', user: 'Alex' })).status === 403);
 
   // Seed wiki
   const index = await getPage('index');
@@ -372,10 +418,10 @@ try {
   check('each file is a source', filedSet?.source?.kind === 'file' && filedSet.source.filename === 'notes.pdf' && filedSet.alsoSources.length === 3,
     JSON.stringify({ source: filedSet?.source, also: filedSet?.alsoSources?.map((x) => x.filename) }));
   check('sources keep the message and a content hash', filedSet?.source?.note === 'Please file this into the guide' && /^[0-9a-f]{64}$/.test(filedSet?.source?.contentHash ?? ''));
-  const original = await fetch(`${BASE}/api/sources/${filedSet.source.id}/file`);
+  const original = await fetch(`${BASE}/api/sources/${filedSet.source.id}/file`, { headers: { Cookie: COOKIES.get('Alex') } });
   const originalBytes = Buffer.from(await original.arrayBuffer());
   check('the original opens from its source', original.status === 200 && original.headers.get('content-type') === 'application/pdf' && originalBytes.subarray(0, 4).toString() === '%PDF');
-  const img = await fetch(`${BASE}/api/files/${ids[2]}`);
+  const img = await fetch(`${BASE}/api/files/${ids[2]}`, { headers: { Cookie: COOKIES.get('Alex') } });
   check('a photo can be shown on a page', img.status === 200 && img.headers.get('content-type') === 'image/png');
   await api('POST', `/api/proposals/${filedSet.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
   const fileCommit = git('log', '-1', '--format=%B');
@@ -526,7 +572,7 @@ try {
   // 25. The chat can stream progress while the assistant works
   const streamed = await fetch(BASE + '/api/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Cookie: COOKIES.get('Alex') },
     body: JSON.stringify({ stream: true, messages: [{ role: 'user', content: 'Is anything pending?' }], provider: 'local', user: 'Alex' }),
   });
   const events = (await streamed.text()).trim().split('\n').map((l) => JSON.parse(l));
@@ -538,7 +584,7 @@ try {
   const startStream = async (text, chatId) => {
     const r = await fetch(BASE + '/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Cookie: COOKIES.get('Alex') },
       body: JSON.stringify({ stream: true, messages: [{ role: 'user', content: text }], provider: 'local', user: 'Alex', chatId }),
     });
     const reader = r.body.getReader();
@@ -547,7 +593,7 @@ try {
     await reader.cancel(); // the browser goes away, e.g. to Settings
     return JSON.parse(buf.split('\n')[0]).id;
   };
-  const readRun = async (id) => (await (await fetch(`${BASE}/api/chat/runs/${id}`)).text()).trim().split('\n').map((l) => JSON.parse(l));
+  const readRun = async (id) => (await (await fetch(`${BASE}/api/chat/runs/${id}`, { headers: { Cookie: COOKIES.get('Alex') } })).text()).trim().split('\n').map((l) => JSON.parse(l));
   const pulseBefore = (await api('GET', '/api/pulse')).data.stamp;
   const runId = await startStream('Please slowly add a style section', 'e2e-chat-run');
   const replay = await readRun(runId);
@@ -559,7 +605,7 @@ try {
   check('a running request can be stopped', (await api('POST', `/api/chat/runs/${stopId}/stop`)).data.stopped === true);
   const stoppedEvents = await readRun(stopId);
   check('a stopped request ends as stopped', stoppedEvents.at(-1).type === 'error' && stoppedEvents.at(-1).error === 'Stopped.', JSON.stringify(stoppedEvents.at(-1)));
-  check('an unknown request says so', (await fetch(`${BASE}/api/chat/runs/nope`)).status === 404);
+  check('an unknown request says so', (await fetch(`${BASE}/api/chat/runs/nope`, { headers: { Cookie: COOKIES.get('Alex') } })).status === 404);
   for (const p of (await getPage('docs/basics')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
   // 27. Watched folders that are renamed, nested or added twice
@@ -672,7 +718,6 @@ try {
   fs.writeFileSync(path.join(privDir, 'notes.txt'), 'Private note: the PINEAPPLE code is in my planner.\n');
   const privPast = new Date(Date.now() - 60_000);
   fs.utimesSync(path.join(privDir, 'notes.txt'), privPast, privPast);
-  check('a personal folder needs an owner', (await api('POST', '/api/folders', { label: 'Nameless', path: privDir, user: '', visibility: 'personal' })).status === 400);
   const pendingBefore = (await getPage('docs/basics')).pending.length;
   const priv = await api('POST', '/api/folders', { label: 'Alex notes', path: privDir, user: 'Alex', visibility: 'personal', fileExisting: true });
   check('a personal folder can be watched', priv.status === 200 && priv.data.visibility === 'personal', JSON.stringify(priv.data));

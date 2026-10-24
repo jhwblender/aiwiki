@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { deletePage, normalizePath, readPage, subPages, titleFor, writePage } from '@/lib/wiki';
 import { pendingForPage, pendingOpsForPage, sourcesForPage } from '@/lib/proposals';
-import { fail, userFrom } from '@/lib/api';
+import { fail, requireUser, isResponse } from '@/lib/api';
 import type { PageData } from '@/lib/types';
 import { summaryProblem } from '@/lib/summary';
 
@@ -10,6 +10,8 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   try {
+    const viewer = requireUser(req);
+    if (isResponse(viewer)) return viewer;
     const p = normalizePath(req.nextUrl.searchParams.get('path') || '');
     const content = await readPage(p);
     const pending = await pendingForPage(p);
@@ -35,13 +37,14 @@ export async function GET(req: NextRequest) {
 // Direct human edit: published immediately, committed to git under the editor's name.
 export async function PUT(req: NextRequest) {
   try {
+    const user = requireUser(req, 'editor');
+    if (isResponse(user)) return user;
     const body = await req.json();
     const p = normalizePath(String(body.path || ''));
-    const user = userFrom(body.user);
     const content = String(body.content ?? '');
     const problem = summaryProblem(await readPage(p), content);
     if (problem) throw new Error(problem);
-    await writePage(p, content, user, `Edit ${p}`);
+    await writePage(p, content, user.name, `Edit ${p}`);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return fail(e);
@@ -50,8 +53,10 @@ export async function PUT(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const user = requireUser(req, 'editor');
+    if (isResponse(user)) return user;
     const p = normalizePath(req.nextUrl.searchParams.get('path') || '');
-    await deletePage(p, userFrom(req.nextUrl.searchParams.get('user')));
+    await deletePage(p, user.name);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return fail(e);

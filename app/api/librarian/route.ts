@@ -4,14 +4,16 @@ import { librarianSettings, listSections, MAX_LIMIT, saveLibrarianSettings, WHOL
 import { checkLibrarian } from '@/lib/librarianAuto';
 import { enqueueTidy } from '@/lib/queue';
 import { normalizePath, readPage } from '@/lib/wiki';
-import { fail, userFrom } from '@/lib/api';
+import { fail, requireUser, isResponse } from '@/lib/api';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 // Sections that can be tidied, with any tidy run already waiting or running for each (and for the
 // whole wiki), and the librarian's settings
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const viewer = requireUser(req);
+  if (isResponse(viewer)) return viewer;
   const active = db()
     .prepare("SELECT doc_key, status FROM ingest_jobs WHERE mode = 'tidy' AND status IN ('queued', 'working')")
     .all() as { doc_key: string; status: string }[];
@@ -24,6 +26,8 @@ export async function GET() {
 // queue. { action: "check" } queues the librarian's next due run of its own now.
 export async function POST(req: NextRequest) {
   try {
+    const editor = requireUser(req, 'editor');
+    if (isResponse(editor)) return editor;
     const b = await req.json();
     if (b.action === 'check') return NextResponse.json({ started: await checkLibrarian() });
     let section = WHOLE;
@@ -35,7 +39,7 @@ export async function POST(req: NextRequest) {
     }
     const job = enqueueTidy({
       section,
-      user: userFrom(b.user),
+      user: editor.name,
       provider: typeof b.provider === 'string' && b.provider ? b.provider : undefined,
       limit: b.limit === undefined ? undefined : Number(b.limit),
     });
@@ -48,6 +52,8 @@ export async function POST(req: NextRequest) {
 // Change the limit per run, or turn the librarian's own runs on or off
 export async function PUT(req: NextRequest) {
   try {
+    const admin = requireUser(req, 'admin');
+    if (isResponse(admin)) return admin;
     const b = await req.json();
     return NextResponse.json(
       saveLibrarianSettings({ limit: b.limit === undefined ? undefined : Number(b.limit), auto: typeof b.auto === 'boolean' ? b.auto : undefined }),

@@ -348,3 +348,19 @@ fieldset.visibility legend { font-size: 13px; font-weight: 500; padding: 0; marg
 .plan-reason { margin-top: 1px; }
 .plan-row select { font: inherit; font-size: 13px; padding: 3px 6px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); color: var(--ink); max-width: 100%; }
 .plan-none { align-self: center; }
+
+/* ---------- sign in ---------- */
+.login { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; background: var(--paper); }
+.login-card { width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--rule); border-radius: 10px; padding: 22px; background: var(--card, var(--paper)); }
+.login-card h1 { font-size: 19px; margin: 0 0 2px; }
+.login-card label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-soft); }
+.login-card input { padding: 8px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); font-size: 15px; color: var(--ink); }
+.login-error { color: #b33; font-size: 13px; margin: 0; }
+.people-table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+.people-table td { padding: 6px 8px; border-top: 1px solid var(--rule); vertical-align: middle; font-size: 14px; }
+.people-table select { font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); color: var(--ink); }
+.people-name { font-weight: 600; }
+.add-person { flex-wrap: wrap; }
+.people-name-input, .people-pass-input { padding: 7px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); font-size: 14px; color: var(--ink); }
+.people-name-input { flex: 1; min-width: 180px; }
+.people-pass-input { flex: 1; min-width: 200px; }

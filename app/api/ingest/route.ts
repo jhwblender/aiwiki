@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getFile } from '@/lib/files';
 import { dropIdentity } from '@/lib/ingest';
 import { enqueue, listJobs, queueState, type JobStatus } from '@/lib/queue';
-import { fail, userFrom } from '@/lib/api';
+import { fail, requireUser, isResponse } from '@/lib/api';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,6 +12,8 @@ const STATUSES = ['queued', 'working', 'done', 'kept', 'skipped', 'failed', 'can
 // The queue's state (paused, waiting for the model, the running job and its steps, counts) and a
 // list of jobs: the running one first, then newest first, or only one status with ?status=
 export async function GET(req: NextRequest) {
+  const viewer = requireUser(req);
+  if (isResponse(viewer)) return viewer;
   const status = req.nextUrl.searchParams.get('status') as JobStatus | null;
   return NextResponse.json({ ...queueState(), jobs: listJobs(status && STATUSES.includes(status) ? status : undefined) });
 }
@@ -19,10 +21,12 @@ export async function GET(req: NextRequest) {
 // File uploaded files in the background, one job per file
 export async function POST(req: NextRequest) {
   try {
+    const editor = requireUser(req, 'editor');
+    if (isResponse(editor)) return editor;
     const b = await req.json();
     const ids: number[] = (Array.isArray(b.fileIds) ? b.fileIds : []).map(Number).filter((n: number) => Number.isInteger(n) && n > 0);
     if (!ids.length) throw new Error('No files to file.');
-    const user = userFrom(b.user);
+    const user = editor.name;
     const jobs = ids.map((id) => {
       const f = getFile(id);
       if (!f) throw new Error(`File ${id} not found.`);

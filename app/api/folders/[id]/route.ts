@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { changeFolderPath, removeFolder, setEnabled, setVisibility } from '@/lib/watcher';
-import { fail } from '@/lib/api';
+import { fail, requireUser, isResponse } from '@/lib/api';
 
 export const runtime = 'nodejs';
 
 // Pause or resume a watched folder, or point it at its new location
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
+    const editor = requireUser(req, 'editor');
+    if (isResponse(editor)) return editor;
     const { id } = await ctx.params;
     const b = await req.json();
     if (typeof b.path === 'string') await changeFolderPath(Number(id), b.path);
@@ -21,8 +23,10 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 }
 
 // Stop watching; nothing already in the wiki changes
-export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
+    const editor = requireUser(req, 'editor');
+    if (isResponse(editor)) return editor;
     const { id } = await ctx.params;
     removeFolder(Number(id));
     return NextResponse.json({ ok: true });

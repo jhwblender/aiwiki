@@ -3,7 +3,7 @@ import { db } from '@/lib/db';
 import { planTree, RULES, setRule, type Rule } from '@/lib/filingPlan';
 import { enqueuePlan } from '@/lib/queue';
 import { refile } from '@/lib/watcher';
-import { fail, userFrom } from '@/lib/api';
+import { fail, requireUser, isResponse } from '@/lib/api';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,8 +15,10 @@ function folderOf(id: string) {
 }
 
 // The folder's tree with each folder's rule and how its files were handled
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
+    const viewer = requireUser(req);
+    if (isResponse(viewer)) return viewer;
     const f = folderOf((await ctx.params).id);
     const planning = !!db().prepare("SELECT 1 FROM ingest_jobs WHERE doc_key = ? AND status IN ('queued', 'working')").get(`plan:${f.label}`);
     return NextResponse.json({ label: f.label, tree: planTree(f.id, f.label), planning });
@@ -30,13 +32,15 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 // skipped back to the queue
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
+    const editor = requireUser(req, 'editor');
+    if (isResponse(editor)) return editor;
     const f = folderOf((await ctx.params).id);
     const b = await req.json();
     if (b.action === 'plan') return NextResponse.json({ job: enqueuePlan(f, typeof b.provider === 'string' && b.provider ? b.provider : undefined) });
     const dir = typeof b.dir === 'string' && b.dir ? b.dir : '.';
     if (b.action === 'refile') return NextResponse.json({ queued: await refile(f.id, dir) });
     if (b.rule !== null && !RULES.includes(b.rule)) throw new Error('Unknown rule.');
-    setRule(f.id, dir, b.rule as Rule | null, userFrom(b.user));
+    setRule(f.id, dir, b.rule as Rule | null, editor.name);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return fail(e);

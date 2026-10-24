@@ -61,9 +61,10 @@ export default function BackgroundJobs() {
   const [folders, setFolders] = useState<{ id: number; label: string; visibility: string }[]>([]);
   const [user, setUser] = useState('');
   useEffect(() => {
-    try {
-      setUser(localStorage.getItem('wiki-user') || '');
-    } catch {}
+    fetch('/api/me', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setUser(d.name))
+      .catch(() => {});
     fetch('/api/folders', { cache: 'no-store' })
       .then((r) => r.json())
       .then((d) => Array.isArray(d) && setFolders(d.filter((f: any) => f.visibility !== 'personal')))

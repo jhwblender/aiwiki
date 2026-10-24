@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runAgent } from '@/lib/ai/agent';
-import { userFrom } from '@/lib/api';
+import { requireUser, isResponse } from '@/lib/api';
 import { runStream, startRun } from '@/lib/runs';
 import type { ChatMsg } from '@/lib/types';
 
@@ -12,6 +12,8 @@ export const maxDuration = 3600;
 // reconnect to (/api/chat/runs/:id), progress events while the assistant works, then one "done"
 // (or "error") event with the full result. Leaving the page does not stop the run.
 export async function POST(req: NextRequest) {
+  const chatter = requireUser(req);
+  if (isResponse(chatter)) return chatter;
   let body: any;
   try {
     body = await req.json();
@@ -28,7 +30,7 @@ export async function POST(req: NextRequest) {
     runAgent({
       history,
       providerId: body.provider,
-      user: userFrom(body.user),
+      user: chatter.name,
       currentPath: typeof body.currentPath === 'string' ? body.currentPath : undefined,
       attachments: Array.isArray(body.attachments)
         ? body.attachments.map(Number).filter((n: number) => Number.isInteger(n) && n > 0).slice(0, 10)

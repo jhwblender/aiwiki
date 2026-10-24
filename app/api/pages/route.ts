@@ -1,14 +1,16 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { listPages } from '@/lib/wiki';
 import { pendingCounts } from '@/lib/proposals';
-import { fail } from '@/lib/api';
+import { fail, requireUser, isResponse } from '@/lib/api';
 import type { PageListItem } from '@/lib/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const viewer = requireUser(req);
+    if (isResponse(viewer)) return viewer;
     const pages = await listPages();
     const pending = pendingCounts();
     const items: PageListItem[] = pages.map((p) => ({

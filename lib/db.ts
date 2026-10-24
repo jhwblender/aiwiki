@@ -239,4 +239,19 @@ function migrate(d: Database.Database) {
   d.exec('CREATE INDEX IF NOT EXISTS idx_ingest_jobs_doc ON ingest_jobs(doc_key, id)');
   const folderCols = d.prepare('PRAGMA table_info(watched_folders)').all() as { name: string }[];
   if (!folderCols.some((c) => c.name === 'visibility')) d.exec("ALTER TABLE watched_folders ADD COLUMN visibility TEXT NOT NULL DEFAULT 'wiki'");
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      name TEXT PRIMARY KEY,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      passcode_hash TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      user_name TEXT NOT NULL REFERENCES users(name),
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_name);
+  `);
 }

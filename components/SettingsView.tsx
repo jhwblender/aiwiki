@@ -25,11 +25,28 @@ export default function SettingsView() {
   const [backTo, setBackTo] = useState('/wiki/index');
 
   useEffect(() => {
+    fetch('/api/me', { cache: 'no-store' })
+      .then((r) => {
+        if (!r.ok) {
+          window.location.href = '/login';
+          return null;
+        }
+        return r.json();
+      })
+      .then((d) => {
+        if (d) {
+          setLoadState(d.role === 'admin' ? 'ready' : 'notAdmin');
+          setMe(d);
+        }
+      })
+      .catch(() => (window.location.href = '/login'));
     try {
       const last = sessionStorage.getItem('wiki-last-path');
       if (last) setBackTo(`/wiki/${last}`);
     } catch {}
   }, []);
+  const [loadState, setLoadState] = useState<'checking' | 'ready' | 'notAdmin'>('checking');
+  const [me, setMe] = useState<{ name: string; role: string } | null>(null);
   const [baseUrl, setBaseUrl] = useState('');
   const [model, setModel] = useState('');
   const [visionModel, setVisionModel] = useState('');
@@ -38,29 +55,6 @@ export default function SettingsView() {
   const [busy, setBusy] = useState<'' | 'test' | 'save'>('');
   const [test, setTest] = useState<TestResult | null>(null);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
-  const [name, setName] = useState('');
-  const [savedName, setSavedName] = useState('');
-  const [nameNote, setNameNote] = useState('');
-
-  useEffect(() => {
-    try {
-      const n = localStorage.getItem('wiki-user') || '';
-      setName(n);
-      setSavedName(n);
-    } catch {}
-  }, []);
-
-  function saveName() {
-    const n = name.trim().slice(0, 60);
-    try {
-      localStorage.setItem('wiki-user', n);
-      setSavedName(n);
-      setName(n);
-      setNameNote(n ? `Saved. Your edits and approvals will show ${n}.` : 'Name removed. Edits and approvals will show anonymous.');
-    } catch {
-      setNameNote('This browser would not save the name.');
-    }
-  }
 
   function load(s: Settings) {
     setSaved(s);
@@ -126,6 +120,36 @@ export default function SettingsView() {
     }
   }
 
+  if (loadState === 'checking') {
+    return (
+      <div className="settings-shell">
+        <main className="page settings">
+          <div className="settings-body">
+            <h1 className="doc-title">Settings</h1>
+            <p className="muted">Loading</p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+  if (loadState === 'notAdmin') {
+    return (
+      <div className="settings-shell">
+        <main className="page settings">
+          <div className="settings-body">
+            <h1 className="doc-title">Settings</h1>
+            <div className="card">
+              <p className="muted">
+                Signed in as {me?.name ?? ''} ({me?.role ?? ''}). The settings here — the model connection, watched folders and people — are managed by
+                admins.
+              </p>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="settings-shell">
       <div className="topbar">
@@ -144,30 +168,7 @@ export default function SettingsView() {
             )
           ) : (
             <>
-              <section className="card" id="your-name">
-                <h2>Your name</h2>
-                <p className="muted small-text">Shown on your edits and approvals. It is saved in this browser only.</p>
-                <label className="field">
-                  <span>Name</span>
-                  <input
-                    value={name}
-                    onChange={(e) => {
-                      setName(e.target.value);
-                      setNameNote('');
-                    }}
-                    onKeyDown={(e) => e.key === 'Enter' && saveName()}
-                    placeholder="For example Sam Taylor"
-                    autoComplete="name"
-                    maxLength={60}
-                  />
-                </label>
-                <div className="editor-bar">
-                  <button className="btn primary" disabled={name.trim() === savedName} onClick={saveName}>
-                    Save name
-                  </button>
-                  {nameNote && <span className="muted small-text">{nameNote}</span>}
-                </div>
-              </section>
+              <People />
 
               <section className="card">
                 <h2>Local AI model</h2>
@@ -331,5 +332,141 @@ export default function SettingsView() {
         </div>
       </main>
     </div>
+  );
+}
+
+const ROLES: { id: 'viewer' | 'editor' | 'admin'; label: string; hint: string }[] = [
+  { id: 'viewer', label: 'Viewer', hint: 'reads pages, searches, asks the assistant' },
+  { id: 'editor', label: 'Editor', hint: 'edits pages, reviews suggestions, drops files, watches folders' },
+  { id: 'admin', label: 'Admin', hint: 'editor, plus Settings, People and everything an editor can do' },
+];
+
+// Accounts and roles. Only admins can see this section — the API refuses anyone else.
+function People() {
+  const [me, setMe] = useState<{ name: string; role: string } | null>(null);
+  const [users, setUsers] = useState<{ name: string; role: string; created: string }[] | null>(null);
+  const [name, setName] = useState('');
+  const [passcode, setPasscode] = useState('');
+  const [role, setRole] = useState<'viewer' | 'editor' | 'admin'>('editor');
+  const [note, setNote] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/me', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && !d.error && setMe(d))
+      .catch(() => {});
+  }, []);
+
+  const isAdmin = me?.role === 'admin';
+
+  function load() {
+    fetch('/api/users', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setUsers(d))
+      .catch(() => setUsers(null));
+  }
+  useEffect(() => {
+    if (isAdmin) load();
+  }, [isAdmin]);
+
+  async function act(method: 'POST' | 'PATCH' | 'DELETE', body?: any, param?: string) {
+    setNote(null);
+    const r = await fetch('/api/users' + (param ?? ''), { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      setNote({ kind: 'error', text: d.error || 'That did not work.' });
+      return false;
+    }
+    return true;
+  }
+
+  if (!isAdmin) {
+    return me ? (
+      <section className="card">
+        <h2>People</h2>
+        <p className="muted small-text">You are signed in as {me.name} ({me.role}). Only admins manage accounts here.</p>
+      </section>
+    ) : null;
+  }
+
+  return (
+    <section className="card">
+      <h2>People</h2>
+      <p className="muted small-text">
+        Viewer: read, search and chat. Editor: also edit pages, review suggestions, drop files and watch folders.
+        Admin: also these settings. New people sign in with the passcode set here and can change it on request.
+      </p>
+      {users && (
+        <table className="people-table">
+          <tbody>
+            {users.map((u) => (
+              <tr key={u.name}>
+                <td className="people-name">{u.name}</td>
+                <td>
+                  <select value={u.role} onChange={async (e) => (await act('PATCH', { name: u.name, role: e.target.value })) && load()}>
+                    {ROLES.map((r) => (
+                      <option key={r.id} value={r.id}>{r.label}</option>
+                    ))}
+                  </select>
+                </td>
+                <td className="muted small-text">{(ROLES.find((r) => r.id === u.role) ?? ROLES[1]).hint}</td>
+                <td>
+                  {u.name !== me?.name && (
+                    <button
+                      className="btn small"
+                      onClick={async () => {
+                        const who = window.prompt(`New passcode for ${u.name} (at least 8 characters)`);
+                        if (who) await act('PATCH', { name: u.name, passcode: who }) && load();
+                      }}
+                    >
+                      Reset passcode
+                    </button>
+                  )}
+                </td>
+                <td>
+                  {u.name !== me?.name && (
+                    <button
+                      className="btn small"
+                      onClick={async () => window.confirm(`Remove the account ${u.name}?`) && (await act('DELETE', undefined, `?name=${encodeURIComponent(u.name)}`)) && load()}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div className="editor-bar add-person">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Name, for example Sam Taylor"
+          maxLength={60}
+          className="people-name-input"
+        />
+        <input
+          type="password"
+          value={passcode}
+          onChange={(e) => setPasscode(e.target.value)}
+          placeholder="Passcode (at least 8 characters)"
+          className="people-pass-input"
+        />
+        <select value={role} onChange={(e) => setRole(e.target.value as 'viewer' | 'editor' | 'admin')}>
+          {ROLES.map((r) => (
+            <option key={r.id} value={r.id}>{r.label}</option>
+          ))}
+        </select>
+        <button
+          className="btn primary"
+          disabled={!name.trim() || passcode.length < 8}
+          onClick={async () => (await act('POST', { name, passcode, role })) && (setName(''), setPasscode(''), load())}
+        >
+          Add person
+        </button>
+      </div>
+      {note && <span className={note.kind === 'ok' ? 'muted small-text' : 'login-error'}>{note.text}</span>}
+    </section>
   );
 }

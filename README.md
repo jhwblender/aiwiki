@@ -108,9 +108,9 @@ Starts a scripted mock model and a throwaway wiki, then drives the whole flow th
 
 ## Status
 
-A working prototype in daily use by one team. It runs on a single machine; there are no real logins yet, so run it only where everyone who can reach it is trusted.
+A working prototype in daily use by one team. It runs on a single machine, with sign-in and roles: the first account set up owns the place and adds everyone else on the Settings page. Viewers read, search and chat; editors also edit pages, review suggestions and drop files; admins also manage Settings and people.
 
-Next up: conflict handling between sources, bulk review, a companion desktop app, and sign-in with roles. The full plan is in [CLAUDE.md](CLAUDE.md).
+Next up: conflict handling between sources, bulk review, a link picker, and a companion desktop app. The full plan is in [CLAUDE.md](CLAUDE.md). Sign-in with roles landed 2026-10-24; an external sign-in (Entra ID SSO) may replace the login page later.
 
 ## License
 

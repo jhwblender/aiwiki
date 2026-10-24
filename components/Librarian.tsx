@@ -40,17 +40,15 @@ export default function Librarian() {
   async function tidy(section: string, name: string) {
     setBusy(section);
     setMessage(null);
-    let user = '';
     let provider = '';
     try {
-      user = localStorage.getItem('wiki-user') || '';
       provider = localStorage.getItem('wiki-provider') || '';
     } catch {}
     try {
       const r = await fetch('/api/librarian', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ section, user, provider: provider || undefined }),
+        body: JSON.stringify({ section, provider: provider || undefined }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'The tidy could not start.');

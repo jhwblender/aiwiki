@@ -58,12 +58,14 @@ export default function Sidebar({
   items,
   pendingTotal,
   user,
+  role,
   onNavigate,
 }: {
   current: string;
   items: PageListItem[];
   pendingTotal: number;
   user: string;
+  role: string;
   onNavigate: () => void;
 }) {
   const router = useRouter();
@@ -144,15 +146,10 @@ export default function Sidebar({
         )}
       </nav>
       <div className="whoami">
-        {user.trim() ? (
-          <span>
-            Approving as <strong>{user.trim()}</strong>
-          </span>
-        ) : (
-          <Link href="/settings#your-name" className="name-missing">
-            Set your name so approvals show who made them
-          </Link>
-        )}
+        <span>
+          Signed in as <strong>{user.trim()}</strong>
+          {role ? <span className="muted"> · {role}</span> : null}
+        </span>
         <div className="side-links">
           <Link href="/wiki/index#contents" className="settings-link">
             Contents
@@ -160,6 +157,17 @@ export default function Sidebar({
           <Link href="/settings" className="settings-link">
             Settings
           </Link>
+          <button
+            className="settings-link"
+            onClick={async () => {
+              try {
+                await fetch('/api/login', { method: 'DELETE' });
+              } catch {}
+              window.location.href = '/login';
+            }}
+          >
+            Sign out
+          </button>
         </div>
       </div>
     </aside>

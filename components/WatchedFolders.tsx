@@ -39,9 +39,10 @@ export default function WatchedFolders() {
   const [me, setMe] = useState('');
 
   useEffect(() => {
-    try {
-      setMe(localStorage.getItem('wiki-user') || '');
-    } catch {}
+    fetch('/api/me', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setMe(d.name))
+      .catch(() => {});
   }, []);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
@@ -79,13 +80,9 @@ export default function WatchedFolders() {
   }
 
   async function add() {
-    let user = '';
-    try {
-      user = localStorage.getItem('wiki-user') || '';
-    } catch {}
     const ok = await call(
       '/api/folders',
-      { method: 'POST', body: JSON.stringify({ label, path: dir, user, fileExisting, visibility }) },
+      { method: 'POST', body: JSON.stringify({ label, path: dir, fileExisting, visibility }) },
       (d) =>
         `Watching "${d.label}" (${d.fileCount} document${d.fileCount === 1 ? '' : 's'} found). ` +
         (fileExisting ? 'They are being filed in the background.' : 'Only new and changed documents will be filed.'),

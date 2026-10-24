@@ -16,8 +16,10 @@ function pathFrom(pathname: string): string {
 
 export default function Shell() {
   const path = pathFrom(usePathname() || '');
-  // The name is set on the Settings page and kept in this browser
+  // Who is signed in comes from the session; without one, the browser goes to the login page
   const [user, setUserState] = useState('');
+  const [role, setRole] = useState('');
+  const [signedIn, setSignedIn] = useState(false);
   const [version, setVersion] = useState(0);
   const [chatOpen, setChatOpen] = useState(false);
   const [sideOpen, setSideOpen] = useState(false);
@@ -26,8 +28,25 @@ export default function Shell() {
   const [incoming, setIncoming] = useState<IncomingFiles | null>(null);
 
   useEffect(() => {
+    fetch('/api/me', { cache: 'no-store' })
+      .then((r) => {
+        if (!r.ok) {
+          window.location.href = '/login';
+          return null;
+        }
+        return r.json();
+      })
+      .then((d) => {
+        if (d) {
+          setUserState(d.name);
+          setRole(d.role);
+          setSignedIn(true);
+        }
+      })
+      .catch(() => {
+        window.location.href = '/login';
+      });
     try {
-      setUserState(localStorage.getItem('wiki-user') || '');
       setChatOpen(!window.matchMedia(NARROW).matches && localStorage.getItem('wiki-chat-open') !== '0');
     } catch {}
   }, []);
@@ -93,6 +112,9 @@ export default function Shell() {
     if (open && window.matchMedia(NARROW).matches) setChatOpen(false);
   }
 
+  // Nothing appears until the session is confirmed; unsigned browsers are on their way to /login
+  if (!signedIn) return <div className="shell" />;
+
   return (
     <PagesContext.Provider value={pages}>
       <div className={`shell${chatOpen ? ' chat-on' : ''}${sideOpen ? ' side-on' : ''}`}>
@@ -111,6 +133,7 @@ export default function Shell() {
           items={items}
           pendingTotal={pendingTotal}
           user={user}
+          role={role}
           onNavigate={() => setSideOpen(false)}
         />
         <PageView

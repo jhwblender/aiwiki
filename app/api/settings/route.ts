@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { localModelSettings, saveLocalModelSettings } from '@/lib/settings';
 import { anthropicModel } from '@/lib/ai/providers';
-import { fail } from '@/lib/api';
+import { fail, requireUser, isResponse } from '@/lib/api';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,12 +15,16 @@ function view() {
   };
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const admin = requireUser(req, 'admin');
+  if (isResponse(admin)) return admin;
   return NextResponse.json(view());
 }
 
 export async function PUT(req: NextRequest) {
   try {
+    const admin = requireUser(req, 'admin');
+    if (isResponse(admin)) return admin;
     const b = await req.json();
     saveLocalModelSettings({
       baseUrl: String(b.baseUrl ?? ''),

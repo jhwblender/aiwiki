@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cancelWaiting, retryFailed, retryNow, setPaused } from '@/lib/queue';
-import { fail } from '@/lib/api';
+import { fail, requireUser, isResponse } from '@/lib/api';
 
 export const runtime = 'nodejs';
 
 // Pause or resume background filing, cancel what is waiting, retry what failed, or try the model again now
 export async function POST(req: NextRequest) {
   try {
+    const editor = requireUser(req, 'editor');
+    if (isResponse(editor)) return editor;
     const b = await req.json();
     switch (b.action) {
       case 'pause':
