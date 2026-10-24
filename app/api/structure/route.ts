@@ -24,7 +24,7 @@ export async function PUT(req: NextRequest) {
     const b = await req.json();
     const p = normalizePath(String(b.path ?? ''));
     const next = withSummary(await readPage(p), String(b.summary ?? ''), p);
-    await writePage(p, next, editor.name, `Edit the summary of ${p}`);
+    await writePage(p, next, editor.displayName, `Edit the summary of ${p}`);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return fail(e);

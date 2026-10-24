@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fail, requireUser, isResponse } from '@/lib/api';
-import { changeOwnPasscode } from '@/lib/auth';
+import { changeOwnPassword } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -9,16 +9,16 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: NextRequest) {
   const user = requireUser(req);
   if (isResponse(user)) return user;
-  return NextResponse.json({ name: user.name, role: user.role });
+  return NextResponse.json({ name: user.name, displayName: user.displayName, role: user.role });
 }
 
-// A person changes their own passcode
+// A person changes their own password
 export async function POST(req: NextRequest) {
   try {
     const user = requireUser(req);
     if (isResponse(user)) return user;
     const b = await req.json();
-    changeOwnPasscode(user.name, String(b.current ?? ''), String(b.next ?? ''));
+    changeOwnPassword(user.name, String(b.current ?? ''), String(b.next ?? ''));
     return NextResponse.json({ ok: true });
   } catch (e) {
     return fail(e);

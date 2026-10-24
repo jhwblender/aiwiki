@@ -344,9 +344,10 @@ const ROLES: { id: 'viewer' | 'editor' | 'admin'; label: string; hint: string }[
 // Accounts and roles. Only admins can see this section — the API refuses anyone else.
 function People() {
   const [me, setMe] = useState<{ name: string; role: string } | null>(null);
-  const [users, setUsers] = useState<{ name: string; role: string; created: string }[] | null>(null);
+  const [users, setUsers] = useState<{ name: string; display: string; role: string; created: string }[] | null>(null);
   const [name, setName] = useState('');
-  const [passcode, setPasscode] = useState('');
+  const [display, setDisplay] = useState('');
+  const [password, setPassword] = useState('');
   const [role, setRole] = useState<'viewer' | 'editor' | 'admin'>('editor');
   const [note, setNote] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
@@ -394,14 +395,17 @@ function People() {
       <h2>People</h2>
       <p className="muted small-text">
         Viewer: read, search and chat. Editor: also edit pages, review suggestions, drop files and watch folders.
-        Admin: also these settings. New people sign in with the passcode set here and can change it on request.
+        Admin: also these settings. New people sign in with the password set here and can change it on request.
       </p>
       {users && (
         <table className="people-table">
           <tbody>
             {users.map((u) => (
               <tr key={u.name}>
-                <td className="people-name">{u.name}</td>
+                <td className="people-name">
+                  {u.display}
+                  {u.display !== u.name && <span className="muted small-text"> · {u.name}</span>}
+                </td>
                 <td>
                   <select value={u.role} onChange={async (e) => (await act('PATCH', { name: u.name, role: e.target.value })) && load()}>
                     {ROLES.map((r) => (
@@ -415,11 +419,24 @@ function People() {
                     <button
                       className="btn small"
                       onClick={async () => {
-                        const who = window.prompt(`New passcode for ${u.name} (at least 8 characters)`);
-                        if (who) await act('PATCH', { name: u.name, passcode: who }) && load();
+                        const who = window.prompt(`New password for ${u.name} (at least 8 characters)`);
+                        if (who) await act('PATCH', { name: u.name, password: who }) && load();
                       }}
                     >
-                      Reset passcode
+                      Reset password
+                    </button>
+                  )}
+                </td>
+                <td>
+                  {u.name !== me?.name && (
+                    <button
+                      className="btn small"
+                      onClick={async () => {
+                        const shown = window.prompt(`The name shown on ${u.name}'s edits and approvals`, u.display);
+                        if (shown) await act('PATCH', { name: u.name, display: shown }) && load();
+                      }}
+                    >
+                      Rename
                     </button>
                   )}
                 </td>
@@ -442,15 +459,22 @@ function People() {
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Name, for example Sam Taylor"
+          placeholder="Username — what they sign in with"
           maxLength={60}
           className="people-name-input"
         />
         <input
+          value={display}
+          onChange={(e) => setDisplay(e.target.value)}
+          placeholder="Shown name, blank for same"
+          maxLength={60}
+          className="people-display-input"
+        />
+        <input
           type="password"
-          value={passcode}
-          onChange={(e) => setPasscode(e.target.value)}
-          placeholder="Passcode (at least 8 characters)"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Password (at least 8 characters)"
           className="people-pass-input"
         />
         <select value={role} onChange={(e) => setRole(e.target.value as 'viewer' | 'editor' | 'admin')}>
@@ -460,8 +484,8 @@ function People() {
         </select>
         <button
           className="btn primary"
-          disabled={!name.trim() || passcode.length < 8}
-          onClick={async () => (await act('POST', { name, passcode, role })) && (setName(''), setPasscode(''), load())}
+          disabled={!name.trim() || password.length < 8}
+          onClick={async () => (await act('POST', { name, display, password, role })) && (setName(''), setDisplay(''), setPassword(''), load())}
         >
           Add person
         </button>

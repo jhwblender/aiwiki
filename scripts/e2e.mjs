@@ -29,11 +29,11 @@ function check(label, ok, detail = '') {
 // people and settings); Alex, Sam and Jordan are editors created by her.
 const COOKIES = new Map();
 
-async function login(name, passcode) {
+async function login(name, password) {
   const r = await fetch(BASE + '/api/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, passcode, confirm: passcode }),
+    body: JSON.stringify({ name, password, confirm: password }),
   });
   const cookie = (r.headers.get('set-cookie') ?? '').split(';')[0];
   if (cookie) COOKIES.set(name, cookie);
@@ -115,9 +115,8 @@ try {
   // Accounts: the first one set up owns the place; the rest are editors
   const setup = await login('Kim', 'kim-pass-1234');
   check('first account can be set up', setup.status === 200 && setup.data.role === 'admin', JSON.stringify(setup.data));
-  await login('Kim', 'kim-pass-1234');
   for (const [name, role] of [['Alex', 'editor'], ['Sam', 'editor'], ['Jordan', 'editor']]) {
-    const made = await api('POST', '/api/users', { name, role, passcode: `${name.toLowerCase()}-pass-1234` });
+    const made = await api('POST', '/api/users', { name, role, password: `${name.toLowerCase()}-pass-1234` });
     check(`an admin can add ${name}`, made.status === 200, JSON.stringify(made.data));
   }
   await login('Alex', 'alex-pass-1234');
@@ -127,17 +126,21 @@ try {
 
   // 0. Sign-in is needed everywhere, and roles decide what each person may do
   check('nothing answers without signing in', (await fetch(`${BASE}/api/pages`)).status === 401 && (await fetch(`${BASE}/api/settings`)).status === 401);
-  check('a wrong passcode is refused', (await login('Alex', 'nope')).status === 401);
-  check('an admin can add a viewer', (await api('POST', '/api/users', { name: 'Vera', role: 'viewer', passcode: 'vera-pass-1234' })).status === 200);
+  check('a wrong password is refused', (await login('Alex', 'nope')).status === 401);
+  const dup = await api('POST', '/api/users', { name: 'Alex', role: 'editor', password: 'dup-pass-12345' });
+  check('a second account cannot take a used username', dup.status === 400 && /already someone named/.test(dup.data.error ?? ''), JSON.stringify(dup.data));
+  check('an admin can add a viewer', (await api('POST', '/api/users', { name: 'Vera', display: 'Vera Blake', role: 'viewer', password: 'vera-pass-1234' })).status === 200);
   await login('Vera', 'vera-pass-1234');
+  check('sign-in ignores letter case in the username', (await login('vera', 'vera-pass-1234')).status === 200);
+  check('the session carries both names', (await (await fetch(`${BASE}/api/me`, { headers: { Cookie: COOKIES.get('Vera') } })).json()).displayName === 'Vera Blake');
   check('a viewer can read pages', (await getPage('index')).exists === true);
   check('a viewer can chat but proposes nothing', (await chat('Who wrote the guide?', 'Vera')).proposed?.length === 0);
   check('a viewer cannot edit a page', (await api('PUT', '/api/page', { path: 'index', content: 'x', user: 'Vera' })).status === 403);
-  check('a viewer cannot manage people', (await api('POST', '/api/users', { name: 'Nope', role: 'admin', passcode: 'nope-pass-1234', user: 'Vera' })).status === 403);
+  check('a viewer cannot manage people', (await api('POST', '/api/users', { name: 'Nope', role: 'admin', password: 'nope-pass-1234', user: 'Vera' })).status === 403);
   const veraCookie = COOKIES.get('Vera');
   await fetch(BASE + '/api/login', { method: 'DELETE', headers: { Cookie: veraCookie } });
   check('signing out ends the session', (await fetch(`${BASE}/api/me`, { headers: { Cookie: veraCookie } })).status === 401);
-  check('an editor cannot manage people', (await api('POST', '/api/users', { name: 'Nope', role: 'admin', passcode: 'nope-pass-1234', user: 'Alex' })).status === 403);
+  check('an editor cannot manage people', (await api('POST', '/api/users', { name: 'Nope', role: 'admin', password: 'nope-pass-1234', user: 'Alex' })).status === 403);
 
   // Seed wiki
   const index = await getPage('index');

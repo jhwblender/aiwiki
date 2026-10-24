@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
     const b = await req.json();
     const from = normalizePath(String(b.from ?? ''));
     const to = normalizePath(String(b.to ?? ''));
-    const user = editor.name;
+    const user = editor.displayName;
     const moves = to === from ? [] : await movePageWithRecords(from, to, user, `Move ${from} to ${to}`);
     const title = typeof b.title === 'string' ? b.title.replace(/\s+/g, ' ').trim().slice(0, 120) : '';
     const md = title ? await readPage(to) : null;

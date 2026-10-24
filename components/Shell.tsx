@@ -38,7 +38,7 @@ export default function Shell() {
       })
       .then((d) => {
         if (d) {
-          setUserState(d.name);
+          setUserState(d.displayName ?? d.name);
           setRole(d.role);
           setSignedIn(true);
         }

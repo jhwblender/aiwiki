@@ -12,7 +12,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const { id } = await ctx.params;
     const b = await req.json();
     if (b.action !== 'approve' && b.action !== 'reject') throw new Error('Invalid action');
-    return NextResponse.json(await decideOp(Number(id), b.action, user.name));
+    return NextResponse.json(await decideOp(Number(id), b.action, user.displayName));
   } catch (e) {
     return fail(e);
   }

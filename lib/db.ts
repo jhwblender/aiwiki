@@ -243,7 +243,8 @@ function migrate(d: Database.Database) {
     CREATE TABLE IF NOT EXISTS users (
       name TEXT PRIMARY KEY,
       role TEXT NOT NULL DEFAULT 'viewer',
-      passcode_hash TEXT,
+      password_hash TEXT,
+      display_name TEXT,
       created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS sessions (
@@ -254,4 +255,16 @@ function migrate(d: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_name);
   `);
+  // Sign-in columns moved since they landed: the password column was first called passcode_hash,
+  // and the display name (what edits and approvals show) came after the username it defaults to.
+  const userCols = d.prepare('PRAGMA table_info(users)').all() as { name: string }[];
+  if (userCols.length) {
+    if (userCols.some((c) => c.name === 'passcode_hash') && !userCols.some((c) => c.name === 'password_hash')) {
+      d.exec('ALTER TABLE users RENAME COLUMN passcode_hash TO password_hash');
+    }
+    if (!userCols.some((c) => c.name === 'display_name')) {
+      d.exec('ALTER TABLE users ADD COLUMN display_name TEXT');
+    }
+    d.exec("UPDATE users SET display_name = name WHERE display_name IS NULL OR display_name = ''");
+  }
 }

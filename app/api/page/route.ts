@@ -44,7 +44,7 @@ export async function PUT(req: NextRequest) {
     const content = String(body.content ?? '');
     const problem = summaryProblem(await readPage(p), content);
     if (problem) throw new Error(problem);
-    await writePage(p, content, user.name, `Edit ${p}`);
+    await writePage(p, content, user.displayName, `Edit ${p}`);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return fail(e);
@@ -56,7 +56,7 @@ export async function DELETE(req: NextRequest) {
     const user = requireUser(req, 'editor');
     if (isResponse(user)) return user;
     const p = normalizePath(req.nextUrl.searchParams.get('path') || '');
-    await deletePage(p, user.name);
+    await deletePage(p, user.displayName);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return fail(e);

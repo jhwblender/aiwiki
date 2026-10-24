@@ -361,6 +361,6 @@ fieldset.visibility legend { font-size: 13px; font-weight: 500; padding: 0; marg
 .people-table select { font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); color: var(--ink); }
 .people-name { font-weight: 600; }
 .add-person { flex-wrap: wrap; }
-.people-name-input, .people-pass-input { padding: 7px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); font-size: 14px; color: var(--ink); }
-.people-name-input { flex: 1; min-width: 180px; }
+.people-name-input, .people-pass-input, .people-display-input { padding: 7px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); font-size: 14px; color: var(--ink); }
+.people-name-input, .people-display-input { flex: 1; min-width: 170px; }
 .people-pass-input { flex: 1; min-width: 200px; }

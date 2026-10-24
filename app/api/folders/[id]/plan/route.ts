@@ -40,7 +40,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const dir = typeof b.dir === 'string' && b.dir ? b.dir : '.';
     if (b.action === 'refile') return NextResponse.json({ queued: await refile(f.id, dir) });
     if (b.rule !== null && !RULES.includes(b.rule)) throw new Error('Unknown rule.');
-    setRule(f.id, dir, b.rule as Rule | null, editor.name);
+    setRule(f.id, dir, b.rule as Rule | null, editor.displayName);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return fail(e);

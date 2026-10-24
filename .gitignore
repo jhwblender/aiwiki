@@ -9,3 +9,4 @@ data
 next-env.d.ts
 tsconfig.tsbuildinfo
 *:Zone.Identifier
+.next-*/

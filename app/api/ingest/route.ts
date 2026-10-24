@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     const b = await req.json();
     const ids: number[] = (Array.isArray(b.fileIds) ? b.fileIds : []).map(Number).filter((n: number) => Number.isInteger(n) && n > 0);
     if (!ids.length) throw new Error('No files to file.');
-    const user = editor.name;
+    const user = editor.displayName;
     const jobs = ids.map((id) => {
       const f = getFile(id);
       if (!f) throw new Error(`File ${id} not found.`);

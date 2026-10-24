@@ -11,7 +11,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const { id } = await ctx.params;
     const b = await req.json();
     if (b.action !== 'approve' && b.action !== 'reject') throw new Error('Invalid action');
-    await decideAll(Number(id), b.action, user.name);
+    await decideAll(Number(id), b.action, user.displayName);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return fail(e);

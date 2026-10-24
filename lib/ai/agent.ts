@@ -76,6 +76,9 @@ export async function runAgent(opts: {
   history: ChatMsg[];
   providerId?: string;
   user: string;
+  // The signed-in username for the same run, so personal documents follow it even when the
+  // display name is what shows on the pages. Defaults to user when the caller leaves it out.
+  username?: string;
   currentPath?: string;
   chatId?: string;
   // Called as the assistant works, so the chat can show progress live
@@ -93,6 +96,7 @@ export async function runAgent(opts: {
   const last = [...opts.history].reverse().find((m) => m.role === 'user');
   const ctx: ToolContext = {
     user: opts.user,
+    username: opts.username ?? opts.user,
     providerId: provider.id,
     note: last?.content ?? '',
     chatId: opts.chatId,

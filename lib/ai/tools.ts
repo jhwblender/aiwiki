@@ -145,7 +145,8 @@ export const toolDefs: ToolDef[] = [
 ];
 
 export type ToolContext = {
-  user: string;
+  user: string; // what edits and suggestions here are shown as (the display name)
+  username: string; // who the run belongs to; personal documents belong to this name
   providerId: string;
   note: string; // the user message that triggered this run
   chatId?: string; // the chat conversation, so a follow-up message can revise its earlier suggestion
@@ -517,7 +518,7 @@ export async function runTool(name: string, args: Record<string, any>, ctx: Tool
       }
       case 'search_documents': {
         // A tidy run works for the whole wiki, so personal documents are out of its sight
-        const hits = searchDocuments(String(args.query ?? ''), ctx.librarian ? '' : ctx.user);
+        const hits = searchDocuments(String(args.query ?? ''), ctx.librarian ? '' : ctx.username);
         if (!hits.length) return 'No document mentions that.';
         return hits
           .map((h) => {
@@ -529,7 +530,7 @@ export async function runTool(name: string, args: Record<string, any>, ctx: Tool
       }
       case 'read_document': {
         const ref = String(args.document ?? '').trim();
-        const viewer = ctx.librarian ? '' : ctx.user;
+        const viewer = ctx.librarian ? '' : ctx.username;
         const id = /^\d+$/.test(ref) ? Number(ref) : findDocumentByName(ref.replace(/^document\s+/i, ''), viewer);
         const found = id ? documentInfo(id) : null;
         // Someone else's personal document does not exist as far as this person is concerned

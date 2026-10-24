@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     }
     const job = enqueueTidy({
       section,
-      user: editor.name,
+      user: editor.displayName,
       provider: typeof b.provider === 'string' && b.provider ? b.provider : undefined,
       limit: b.limit === undefined ? undefined : Number(b.limit),
     });

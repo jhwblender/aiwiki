@@ -8,7 +8,8 @@ export default function LoginPage() {
   const [checking, setChecking] = useState(true);
   const [setup, setSetup] = useState(false);
   const [name, setName] = useState('');
-  const [passcode, setPasscode] = useState('');
+  const [display, setDisplay] = useState('');
+  const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -31,7 +32,7 @@ export default function LoginPage() {
       const r = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(setup ? { name, passcode, confirm } : { name, passcode }),
+        body: JSON.stringify(setup ? { name, display, password, confirm } : { name, password }),
       });
       const d = await r.json();
       if (!r.ok) {
@@ -63,32 +64,36 @@ export default function LoginPage() {
               This wiki has no accounts yet. Create the first one — it owns the settings and can add other people later.
             </p>
             <label>
-              Your name
+              Username
               <input value={name} onChange={(e) => setName(e.target.value)} autoFocus maxLength={60} />
             </label>
             <label>
-              Passcode
-              <input type="password" value={passcode} onChange={(e) => setPasscode(e.target.value)} />
+              Your name — shown on your edits
+              <input value={display} onChange={(e) => setDisplay(e.target.value)} maxLength={60} placeholder="Blank: same as the username" />
             </label>
             <label>
-              Repeat the passcode
+              Password
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" />
+            </label>
+            <label>
+              Repeat the password
               <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
             </label>
           </>
         ) : (
           <>
             <label>
-              Name
+              Username
               <input value={name} onChange={(e) => setName(e.target.value)} autoFocus maxLength={60} />
             </label>
             <label>
-              Passcode
-              <input type="password" value={passcode} onChange={(e) => setPasscode(e.target.value)} />
+              Password
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
             </label>
           </>
         )}
         {error && <p className="login-error">{error}</p>}
-        <button className="btn" disabled={busy || !name.trim() || !passcode}>
+        <button className="btn" disabled={busy || !name.trim() || !password}>
           {busy ? 'One moment…' : setup ? 'Create the account' : 'Sign in'}
         </button>
       </form>

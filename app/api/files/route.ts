@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     if (files.length > MAX_FILES_PER_MESSAGE) throw new Error(`Attach at most ${MAX_FILES_PER_MESSAGE} files at a time.`);
     const out = [];
     for (const f of files) {
-      const saved = await saveUpload(f.name, Buffer.from(await f.arrayBuffer()), user.name);
+      const saved = await saveUpload(f.name, Buffer.from(await f.arrayBuffer()), user.displayName);
       out.push({ id: saved.id, name: saved.filename, mime: saved.mime, size: saved.size, kind: saved.kind });
     }
     return NextResponse.json(out);
