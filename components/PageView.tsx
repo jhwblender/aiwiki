@@ -1,10 +1,11 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import type { PageData, PendingOp, PendingSet, Segment } from '@/lib/types';
 import Md from './Md';
 import PlaceDialog, { titleOf } from './PlaceDialog';
+import LinkDialog from './LinkDialog';
 import Contents from './Contents';
 import { usePages } from './WikiContext';
 import { joinSummary, splitSummary } from '@/lib/summary';
@@ -167,6 +168,9 @@ export default function PageView({
   const [summaryDraft, setSummaryDraft] = useState('');
   const [hadSummary, setHadSummary] = useState(false);
   const [moving, setMoving] = useState(false);
+  // Picking a page to link: where the selection sits in the page box while the picker is open
+  const bodyArea = useRef<HTMLTextAreaElement>(null);
+  const [pickingLink, setPickingLink] = useState(false);
   const pages = usePages();
   const [setIdx, setSetIdx] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -216,6 +220,24 @@ export default function PageView({
     setSummaryDraft(split.summary ?? '');
     setHadSummary(!!split.summary);
     setEditing(true);
+  }
+
+  // The selected text becomes the link's label; an empty selection inserts a link at the caret.
+  function linkPicked(picked: string) {
+    setPickingLink(false);
+    const area = bodyArea.current;
+    const start = area ? area.selectionStart : draft.length;
+    const end = area ? area.selectionEnd : start;
+    const label = draft.slice(start, end).replace(/\s+/g, ' ').trim();
+    const link = label ? `[[${picked}|${label}]]` : `[[${picked}]]`;
+    setDraft(draft.slice(0, start) + link + draft.slice(end));
+    // Put the caret after the link, ready to carry on typing
+    requestAnimationFrame(() => {
+      if (!bodyArea.current) return;
+      const at = start + link.length;
+      bodyArea.current.focus();
+      bodyArea.current.setSelectionRange(at, at);
+    });
   }
 
   // A page just named in New page opens straight in the editor with its title
@@ -309,6 +331,7 @@ export default function PageView({
           onDone={move}
         />
       )}
+      {pickingLink && <LinkDialog self={path} onCancel={() => setPickingLink(false)} onPick={linkPicked} />}
       <div className="title-row">
         <h1 className="doc-title">{data.title}</h1>
         {!editing && data.exists && (
@@ -345,10 +368,15 @@ export default function PageView({
             />
             {summaryNote && <span className="small-text field-note">{summaryNote}</span>}
           </label>
-          <label className="field">
-            <span>Page</span>
-            <textarea value={draft} onChange={(e) => setDraft(e.target.value)} spellCheck autoFocus />
-          </label>
+          <div className="field">
+            <div className="field-head">
+              <span>Page</span>
+              <button type="button" className="btn small quiet" onClick={() => setPickingLink(true)}>
+                Insert link
+              </button>
+            </div>
+            <textarea value={draft} onChange={(e) => setDraft(e.target.value)} spellCheck autoFocus ref={bodyArea} />
+          </div>
           <div className="editor-bar">
             <button className="btn primary" disabled={busy || !!summaryNote} onClick={save}>
               Save page
@@ -357,7 +385,7 @@ export default function PageView({
               Cancel
             </button>
             <span className="muted small-text">
-              Saved edits publish right away under {user}. Use # for headings, - for lists and [[page/path]] to link a page.
+              Saved edits publish right away under {user}. Use # for headings, - for lists, and Insert link (or [[page/path]]) to link a page.
             </span>
           </div>
         </div>

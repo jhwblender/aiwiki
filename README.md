@@ -33,6 +33,9 @@ AI Wiki splits the job: **the AI does the reading and writing, people make every
 - Each page lists its sources; the original file opens with one click
 - Approvals are recorded in git under the approver's name, with the sources in the commit message
 
+**Written by people too**
+- Editing is plain markdown with a plain-language hint, and an "Insert link" button picks the page from a tree instead of typing a path (links survive moves)
+
 **Helps, not just files**
 - Answers questions from the wiki, and from the original documents when the wiki does not cover something yet (and says so)
 - Sees pending suggestions, so it does not suggest the same thing twice; a follow-up message revises its own earlier suggestion

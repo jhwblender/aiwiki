@@ -34,8 +34,7 @@
     ".next-e2e/types/**/*.ts",
     ".next-prod/types/**/*.ts",
     ".next/types/**/*.ts",
-    "next-env.d.ts",
-    ".next-mig/types/**/*.ts"
+    "next-env.d.ts"
   ],
   "exclude": [
     "node_modules"
