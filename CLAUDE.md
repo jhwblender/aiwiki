@@ -6,7 +6,7 @@ Audience: starts with the systems team, eventually the whole company. Most revie
 
 ## Commands
 
-- `./start.sh` is the one-command start for people running the wiki: installs packages when needed, creates `.env.local`, rebuilds into `.next-prod` only when code changed, and starts the optimised server (`--dev`, `--open`, `--shortcut` for a Windows desktop launcher)
+- `./start.sh` is the one-command start for people running the wiki: checks Node/npm/git, installs packages when they are missing or the package list changed (with plain-language fixes when an install fails), creates `.env.local`, rebuilds into `.next-prod` only when code changed, and starts the optimised server (`--dev`, `--open`, `--shortcut` for a Windows desktop launcher)
 - `./stop.sh` stops the wiki on `PORT` (default 3000), only if a Next.js server is what listens there
 - `npm run dev` starts the development server on http://localhost:3000
 - `npm run build` type checks and builds; run it before calling any change done (while `npm run dev` is running, use `NEXT_DIST_DIR=.next-e2e npx next build` so the two do not share `.next`)
