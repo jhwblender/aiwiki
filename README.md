@@ -59,7 +59,7 @@ Open the address `./start.sh` prints (http://localhost:3000, unless that port is
 - **Ollama:** click *Ollama* to fill in `http://localhost:11434/v1`, pick a model with tool calling (Qwen 2.5 or newer, Llama 3.1 or newer), then *Test connection*
 - **Claude:** add `ANTHROPIC_API_KEY` to `.env.local` and run `./start.sh` again
 
-`./start.sh` checks for Node, npm and git, offers to download Node 22 if it is missing (into `~/.local/share/aiwiki/node`, no administrator password), installs the packages on the first run (or after the package list changes), builds only when the code changed, and starts the wiki. If port 3000 is taken it uses the next free port and says which one; `./stop.sh` follows it. Other options:
+`./start.sh` checks for Node, npm and git, offers to download Node 22 if it is missing (into `~/.local/share/aiwiki/node`, no administrator password), installs the packages on the first run (or after the package list changes), builds only when the code changed, and starts the wiki. If port 3000 is taken it uses the next free port and says which one; `./stop.sh` finds the wiki wherever it ended up. Other options:
 
 ```bash
 ./start.sh --open       # open the browser when ready

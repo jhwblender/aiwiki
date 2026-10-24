@@ -7,7 +7,7 @@ Audience: a small group first, then wider use. Most reviewers are not programmer
 ## Commands
 
 - `./start.sh` is the one-command start for people running the wiki: checks Node/npm/git (offering to download Node 22 into `~/.local/share/aiwiki/node` when it is missing), installs packages when they are missing or the package list changed (with plain-language fixes when an install fails), creates `.env.local`, rebuilds into `.next-prod` only when code changed, and starts the optimised server (`--dev`, `--open`, `--shortcut` for a Windows desktop launcher). It starts at `PORT` (default 3000) and moves to the next free port when that one is taken, remembering it in `.aiwiki-port`
-- `./stop.sh` stops the wiki started by `./start.sh`, following `.aiwiki-port`; `PORT=3001 ./stop.sh` stops one on a chosen port, and it only stops a Next.js server
+- `./stop.sh` stops the wiki started by `./start.sh`: it follows `.aiwiki-port`, and when that file is stale or gone it looks for the Next.js server listening in the usual range (3000-3019). Several servers and no remembered port means it lists each rather than guessing; `PORT=3001 ./stop.sh` stops one on a chosen port, and only a Next.js process is ever stopped
 - `npm run dev` starts the development server on http://localhost:3000
 - `npm run build` type checks and builds; run it before calling any change done (while `npm run dev` is running, use `NEXT_DIST_DIR=.next-e2e npx next build` so the two do not share `.next`)
 - `npm run e2e` runs the end-to-end check (needs nothing running; uses ports 3100 and 4556)
