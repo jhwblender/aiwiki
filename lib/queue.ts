@@ -32,8 +32,11 @@ export type Job = {
 };
 
 const DEFAULT_NOTE =
-  'File the information from the attached document into the wiki. Put each fact on the page where it belongs, ' +
-  'create a page only when nothing fits, and keep edits short. If there is nothing worth adding, say so.';
+  'File the information from the attached document into the wiki, written as wiki content: give the knowledge itself - the ' +
+  'facts, steps, values, names and reasons - so a reader who has never seen the file still learns it. Never write about the ' +
+  'file instead of the subject: "this file contains", "this document describes", "these are the test files for" say nothing ' +
+  'and are not wanted. Put each fact on the page where it belongs, create a page only when nothing fits, and keep edits short. ' +
+  'If there is nothing worth adding, say so.';
 
 const now = () => new Date().toISOString();
 

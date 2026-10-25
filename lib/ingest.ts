@@ -174,6 +174,7 @@ export async function prepareFile(
         section:
           `${head}\nThis is an updated version of a document first added earlier (previous version ${info.previous!.version}, ${day(info.previous!.at)}). ` +
           'Only the changes below are new. Update the wiki for these changes only: edit existing statements in place and remove what the document no longer says. ' +
+          'Write the changes as wiki content about the subject itself, never as comments about a file ("this file now contains"). ' +
           'Do not add the unchanged parts again.\n' +
           `${listed}\n${end}`,
       };
