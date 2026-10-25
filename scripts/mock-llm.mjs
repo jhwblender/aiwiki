@@ -552,9 +552,20 @@ export function startMock(port = 4555) {
       const send = (status, out) => res.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(out));
       if (req.method === 'POST' && req.url?.startsWith('/v1/messages')) {
         const body = JSON.parse(raw || '{}');
-        const out = respondAnthropic(body);
-        anthropicRequests.push({ beta: req.headers['anthropic-beta'], body, status: out.status });
-        send(out.status, out.body);
+        // a plan request (the Anthropic system string says so) takes a moment too, so stopping a
+        // plan is testable on this provider as well
+        const isPlan =
+          (typeof body.system === 'string' && body.system.includes('You plan how')) ||
+          (Array.isArray(body.system) && body.system.some((b) => typeof b?.text === 'string' && b.text.includes('You plan how')));
+        setTimeout(() => {
+          try {
+            const out = respondAnthropic(body);
+            anthropicRequests.push({ beta: req.headers['anthropic-beta'], body, status: out.status });
+            send(out.status, out.body);
+          } catch {
+            send(500, { error: 'mock failure' });
+          }
+        }, isPlan ? 4000 : 0);
         return;
       }
       if (req.method === 'GET' && req.url?.endsWith('/models')) {

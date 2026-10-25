@@ -86,7 +86,9 @@ export function enqueuePlan(folder: { id: number; label: string; user: string },
   return Number(r.lastInsertRowid);
 }
 
-async function runPlan(row: any, onProgress: (text: string) => void) {
+async function runPlan(row: any, signal: AbortSignal, onProgress: (text: string) => void) {
+  const planStart = Date.now();
+  console.log(`[plan] ${row.folder_label} starts`);
   const folder = db().prepare('SELECT id, label FROM watched_folders WHERE label = ?').get(row.folder_label) as { id: number; label: string } | undefined;
   if (!folder) return finish(row.id, 'skipped', 'The folder is no longer watched.');
   applyPatternRules(folder.id);
@@ -98,10 +100,14 @@ async function runPlan(row: any, onProgress: (text: string) => void) {
       system: PLAN_SYSTEM,
       messages: [{ role: 'user', content: `Watched folder "${folder.label}":\n${planOutline(folder.id)}` }],
       tools: [],
+      signal,
     });
     text = res.text;
+    console.log(`[plan] ${row.folder_label} provider answered in ${Date.now() - planStart} ms`);
   } catch (e: any) {
     const msg = e?.message ?? String(e);
+    // Stopped: the model call was cut with the signal, so end as cancelled at once
+    if (signal.aborted) return finish(row.id, 'cancelled', 'Stopped while it was planning. Rules and files are as they were.');
     if (MODEL_DOWN.test(msg)) throw new ModelDown(msg);
     throw e;
   }
@@ -223,11 +229,13 @@ export function retryFailed(): number {
   return n;
 }
 
-// A waiting job is cancelled at once; the running one stops after its current step
+// A waiting job is cancelled at once; the running one's model call is cut the same way
 export function cancelJob(id: number) {
   if (worker.current?.jobId === id) {
+    // The in-flight model call is cut with the signal, so this ends at once; the run marks the
+    // job cancelled as it unwinds
     worker.current.controller.abort();
-    worker.current.status = 'Stopping after this step';
+    worker.current.status = 'Stopping';
     return;
   }
   const r = db()
@@ -306,7 +314,7 @@ async function runTidy(row: any, signal: AbortSignal, onProgress: (text: string)
 
 async function runJob(row: any, signal: AbortSignal, onProgress: (text: string) => void) {
   if (row.mode === 'tidy') return runTidy(row, signal, onProgress);
-  if (row.mode === 'plan') return runPlan(row, onProgress);
+  if (row.mode === 'plan') return runPlan(row, signal, onProgress);
   // A file from a watched folder follows its folder's rule, decided when it comes up so waiting
   // files follow rules set after they were queued
   const rule = row.mode === 'file' && row.folder_label && row.rel_path ? decide(row.folder_label, row.rel_path) : null;
@@ -329,7 +337,7 @@ async function runJob(row: any, signal: AbortSignal, onProgress: (text: string) 
     // Personal folder: make it searchable for its owner, and nothing else
     try {
       const provider = getProvider(row.provider ?? undefined);
-      await extractText(f, (image, prompt) => provider.describeImage(image, prompt));
+      await extractText(f, (image, prompt) => provider.describeImage(image, prompt, signal));
     } catch (e: any) {
       const msg = e?.message ?? String(e);
       if (MODEL_DOWN.test(msg)) throw new ModelDown(msg);

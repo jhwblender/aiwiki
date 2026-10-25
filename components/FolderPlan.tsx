@@ -116,7 +116,7 @@ export default function FolderPlan({ folderId, user }: { folderId: number; user:
       {error && <div className="error">{error}</div>}
       {note && <div className="notice">{note}</div>}
       <ul className="plan-tree">
-        <Branch node={tree} parentRule="file" depth={0} busy={busy} post={post} onNote={setNote} />
+        <Branch node={tree} parentRule="file" depth={0} busy={busy} planning={planning} post={post} onNote={setNote} />
       </ul>
     </div>
   );
@@ -127,6 +127,7 @@ function Branch({
   parentRule,
   depth,
   busy,
+  planning,
   post,
   onNote,
 }: {
@@ -134,15 +135,20 @@ function Branch({
   parentRule: Rule;
   depth: number;
   busy: boolean;
+  planning: boolean;
   post: (body: object) => Promise<any>;
   onNote: (text: string) => void;
 }) {
   const [open, setOpen] = useState(depth < 1);
-  const outcomes = OUTCOMES.filter(([k]) => node.counts[k]).map(([k, label]) => `${node.counts[k]} ${label}`);
+  // While the folder is being planned again, the older outcomes are about to be reconsidered, so
+  // they read as being re-assessed instead of as the current verdict
+  const outcomes = planning
+    ? 'being re-assessed'
+    : OUTCOMES.filter(([k]) => node.counts[k]).map(([k, label]) => `${node.counts[k]} ${label}`).join(', ');
   // After a folder's own rule was set to file or sample, what it skipped, kept searchable or never
   // filed can be sent to be filed
   const notFiled = (node.counts.skipped ?? 0) + (node.counts.kept ?? 0) + (node.counts.unfiled ?? 0);
-  const canFile = notFiled > 0 && !!node.rule && (node.rule.rule === 'file' || node.rule.rule === 'sample');
+  const canFile = !planning && notFiled > 0 && !!node.rule && (node.rule.rule === 'file' || node.rule.rule === 'sample');
 
   async function change(value: string) {
     const rule = value === 'inherit' ? null : value;
@@ -170,7 +176,7 @@ function Branch({
           <span className="muted small-text">
             {' '}
             {node.files.toLocaleString()} file{node.files === 1 ? '' : 's'}
-            {outcomes.length > 0 && `: ${outcomes.join(', ')}`}
+            {outcomes && `: ${outcomes}`}
           </span>
           {node.rule && node.rule.reason && (
             <div className="muted small-text plan-reason">
@@ -205,7 +211,7 @@ function Branch({
       {open && node.children.length > 0 && (
         <ul className="plan-tree">
           {node.children.map((c) => (
-            <Branch key={c.dir} node={c} parentRule={node.effective} depth={depth + 1} busy={busy} post={post} onNote={onNote} />
+            <Branch key={c.dir} node={c} parentRule={node.effective} depth={depth + 1} busy={busy} planning={planning} post={post} onNote={onNote} />
           ))}
         </ul>
       )}

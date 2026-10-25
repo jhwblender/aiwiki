@@ -100,8 +100,13 @@ export async function changeFolderPath(id: number, newPath: string): Promise<{ l
   if (same) throw new Error(`That folder is already watched as "${same.label}".`);
   // A job being worked on files under the identity it was queued with; renaming the folder under
   // it would leave one document behind the others, so the change waits.
-  if (d.prepare("SELECT 1 FROM ingest_jobs WHERE folder_label = ? AND status = 'working' AND mode != 'tidy' LIMIT 1").get(folder.label)) {
-    throw new Error(`The wiki is still filing from "${folder.label}". Wait for that to finish (or cancel it), then change the folder.`);
+  const busyJob = d
+    .prepare("SELECT display_name FROM ingest_jobs WHERE folder_label = ? AND status = 'working' AND mode != 'tidy' LIMIT 1")
+    .get(folder.label) as { display_name: string } | undefined;
+  if (busyJob) {
+    throw new Error(
+      `The wiki is still filing from "${folder.label}" (working on: ${busyJob.display_name}). Wait for that to finish (or cancel it), then change the folder.`,
+    );
   }
   const sameDir = dir === folder.path;
   // The top level folder's own name is the label, so the label follows the move.

@@ -287,7 +287,7 @@ export default function ChatPanel({
   function stop() {
     const id = runIdRef.current;
     if (id) void fetch(`/api/chat/runs/${id}/stop`, { method: 'POST' });
-    setLive((l) => (l ? { ...l, status: 'Stopping after this step' } : l));
+    setLive((l) => (l ? { ...l, status: 'Stopping' } : l));
   }
 
   async function send() {

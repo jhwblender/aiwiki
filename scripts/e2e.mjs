@@ -639,6 +639,11 @@ try {
   await api('POST', `/api/folders/${nest_outer.data.id}/scan`);
   const nest_lost = (await api('GET', '/api/folders')).data.find((f) => f.label === 'Outer');
   check('a renamed folder is reported, not treated as empty', /can no longer be found/.test(nest_lost?.lastError ?? ''), JSON.stringify(nest_lost));
+  const nest_repoint_waits = [
+    await waitJob(((await api('GET', '/api/ingest')).data.jobs.find((j) => j.kind === 'plan' && j.folderLabel === 'Outer'))?.id),
+    await waitJob(((await api('GET', '/api/ingest')).data.jobs.find((j) => j.kind === 'plan' && j.folderLabel === 'Inner'))?.id),
+  ];
+  check('both watched folders are planned', nest_repoint_waits.every((j) => j?.status === 'done'), JSON.stringify(nest_repoint_waits.map((j) => j?.status)));
   const nest_repoint = await api('PATCH', `/api/folders/${nest_outer.data.id}`, { path: path.join(nest_base, 'renamed') });
   check('pointing it at the new location renames the folder to the new top level name',
     nest_repoint.status === 200 && nest_repoint.data.label === 'renamed', JSON.stringify(nest_repoint.data));
@@ -648,7 +653,7 @@ try {
   const afterMove = (await api('POST', `/api/folders/${nest_outer.data.id}/scan`)).data.queued;
   const afterJobs = afterMove ? [await waitJob((await api('GET', '/api/ingest')).data.jobs[0].id)] : [];
   check('nothing is filed again after pointing it at the new location', afterJobs.every((j) => j?.status === 'skipped'), JSON.stringify({ afterMove, afterJobs }));
-  check("the moved folder's jobs all carry its new name", (await api('GET', '/api/ingest')).data.jobs.every((j) => j.folderLabel !== 'Outer'));
+  check("the moved folder's file jobs all carry its new name", (await api('GET', '/api/ingest')).data.jobs.every((j) => j.kind !== 'file' || j.folderLabel !== 'Outer'));
   await waitJob((await api('GET', '/api/ingest')).data.jobs[0].id);
   for (const f of (await api('GET', '/api/folders')).data) await api('DELETE', `/api/folders/${f.id}`);
   for (const p of (await getPage('docs/basics')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
@@ -856,7 +861,8 @@ try {
     !JSON.stringify((await getPage('docs/basics')).pending).includes('PINEAPPLE'), JSON.stringify(leak.trace));
   const toWiki = await api('PATCH', `/api/folders/${priv.data.id}`, { visibility: 'wiki', fileExisting: true });
   check('a personal folder can start feeding the wiki', toWiki.status === 200 && toWiki.data.queued === 1, JSON.stringify(toWiki.data));
-  const wikiJob = await waitJob((await api('GET', '/api/ingest')).data.jobs[0].id);
+  // the switch also queues a (plan-first) fresh plan when the folder has none; watch its file job
+  const wikiJob = await waitJob(((await api('GET', '/api/ingest')).data.jobs.find((x) => x.kind === 'file' && x.folderLabel === 'Alex notes'))?.id);
   check('its documents are then filed', wikiJob?.status === 'done' && wikiJob.proposed.length === 1, JSON.stringify(wikiJob));
   check('and everyone can search them', (await chat('Please search my notes', 'Sam')).reply === 'PERSONAL-SEEN');
   for (const f of (await api('GET', '/api/folders')).data) await api('DELETE', `/api/folders/${f.id}`);
@@ -914,6 +920,8 @@ try {
     fs.utimesSync(path.join(libDir, rel), new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
   }
   await api('POST', '/api/folders', { label: 'Docs share', path: libDir, user: 'Alex', fileExisting: false });
+  // let the folder's plan finish; the librarian rightly waits while filing is under way
+  await waitJob(((await api('GET', '/api/ingest')).data.jobs.find((j) => j.kind === 'plan' && j.folderLabel === 'Docs share'))?.id);
   const due = (await api('POST', '/api/librarian', { action: 'check' })).data;
   check('the librarian starts with the whole wiki on its own', due.started === '*', JSON.stringify(due));
   const wholeJob = await waitJob((await api('GET', '/api/ingest')).data.jobs.find((j) => j.kind === 'tidy' && j.displayName === 'Organise the wiki')?.id);
@@ -1005,6 +1013,36 @@ try {
   fs.rmSync(planDir, { recursive: true, force: true });
   for (const p of (await getPage('docs/basics')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
+  // 34b. A plan being worked out stops at once, not after its model call finishes
+  const stopDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aiwiki-planstop-'));
+  fs.mkdirSync(path.join(stopDir, 'Papers'), { recursive: true });
+  fs.writeFileSync(path.join(stopDir, 'Papers/a.txt'), 'FACT: Stop share fact.\n');
+  fs.utimesSync(path.join(stopDir, 'Papers/a.txt'), new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
+  const stopFolder = await api('POST', '/api/folders', { label: 'Stop share', path: stopDir, fileExisting: false });
+  // the folder's own first plan is enqueued as part of watching it; take that job (a second
+  // "plan again" just returns null while it is queued or working)
+  let stopPlanJob = null;
+  for (let i = 0; i < 40 && !stopPlanJob; i++) {
+    const j = (await api('GET', '/api/ingest')).data.jobs.find((x) => x.kind === 'plan' && x.folderLabel === 'Stop share');
+    if (j) stopPlanJob = j.id;
+    else await new Promise((r) => setTimeout(r, 250));
+  }
+  let stopWorking = null;
+  for (let i = 0; i < 40 && !stopWorking; i++) {
+    const j = (await api('GET', '/api/ingest')).data.jobs.find((x) => x.id === stopPlanJob);
+    if (j?.status === 'working') stopWorking = true;
+    else await new Promise((r) => setTimeout(r, 250));
+  }
+  check('a replan can be stopped while it is deciding', !!stopWorking);
+  const stopPlanAt = Date.now();
+  await api('POST', `/api/ingest/${stopPlanJob}/cancel`);
+  const stoppedPlan = await waitJob(stopPlanJob);
+  const stopPlanDelay = Date.now() - stopPlanAt;
+  check('stopping a replan cuts its model call right away', stoppedPlan?.status === 'cancelled' && stopPlanDelay < 2500 && /Stopped while it was planning/.test(stoppedPlan.detail ?? ''), JSON.stringify({ stoppedPlan, stopPlanDelay }));
+  check('nothing was re-queued or filed by the stopped plan', (await api('GET', '/api/ingest')).data.jobs.every((j) => j.folderLabel !== 'Stop share' || ['plan', 'cancelled'].includes(j.kind) || j.relPath !== 'Papers/a.txt'));
+  for (const f of (await api('GET', '/api/folders')).data) await api('DELETE', `/api/folders/${f.id}`);
+  fs.rmSync(stopDir, { recursive: true, force: true });
+
   // 35. A long file comes in parts; the assistant reads on only where it chooses to
   const longText = Array.from({ length: 160 }, (_, i) => `Paragraph ${i} of the long manual describes care of the wiki in plain words.`).join('\n\n') + '\n\nPART-TWO-MARKER is near the end.\n';
   const longFile = await upload([['long-notes.txt', Buffer.from(longText), 'text/plain']]);
@@ -1026,4 +1064,5 @@ try {
 }
 
 console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
+if (process.env.E2E_SERVER_TAIL) console.error('--- server tail ---\n' + serverLog.slice(-Number(process.env.E2E_SERVER_TAIL)));
 process.exit(failures ? 1 : 0);
