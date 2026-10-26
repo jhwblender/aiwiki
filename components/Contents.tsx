@@ -32,8 +32,8 @@ export default function Contents({ user, version, onChanged }: { user: string; v
   }, [loaded]);
 
   return (
-    <section className="contents" id="contents" aria-label="Contents">
-      <h2>Contents</h2>
+    <section className="contents" id="contents" aria-label="Table of Contents">
+      <h2>Table of Contents</h2>
       <p className="muted small-text">
         Every section and page, as they are arranged in the wiki; this list keeps itself up to date. Each section&apos;s summary says what
         belongs in it, and the librarian and filing use the summaries to decide where new information goes.
