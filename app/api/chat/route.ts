@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runAgent } from '@/lib/ai/agent';
 import { requireUser, isResponse } from '@/lib/api';
+import { beginChat, endChat } from '@/lib/queue';
 import { runStream, startRun } from '@/lib/runs';
 import type { ChatMsg } from '@/lib/types';
 
@@ -41,15 +42,19 @@ export async function POST(req: NextRequest) {
       signal,
     });
 
+  // A person waiting on the chat goes first: the background queue steps aside while this runs
+  beginChat();
   if (!body.stream) {
     try {
       return NextResponse.json(await run());
     } catch (e: any) {
       return NextResponse.json({ reply: '', trace: [], proposed: [], error: e?.message ?? String(e) }, { status: 500 });
+    } finally {
+      endChat();
     }
   }
 
   // Streamed: the work runs on the server whether or not this browser stays connected
-  const id = startRun((onProgress, signal) => run(onProgress, signal));
+  const id = startRun((onProgress, signal) => run(onProgress, signal).finally(endChat));
   return runStream(id)!;
 }

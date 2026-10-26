@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { changeFolderPath, removeFolder, scanFolder, setEnabled, setVisibility } from '@/lib/watcher';
+import { stopFolderJobs } from '@/lib/queue';
+import { changeFolderPath, folderLabel, removeFolder, scanFolder, setEnabled, setVisibility } from '@/lib/watcher';
 import { fail, requireUser, isResponse } from '@/lib/api';
 
 export const runtime = 'nodejs';
@@ -40,8 +41,10 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
     const editor = requireUser(req, 'editor');
     if (isResponse(editor)) return editor;
     const { id } = await ctx.params;
+    const label = folderLabel(Number(id));
+    const cancelled = label ? stopFolderJobs(label) : 0;
     removeFolder(Number(id));
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, cancelled });
   } catch (e) {
     return fail(e);
   }

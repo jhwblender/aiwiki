@@ -192,7 +192,7 @@ export default function WatchedFolders() {
                   className="btn small quiet"
                   disabled={busy}
                   onClick={() => {
-                    if (window.confirm(`Stop watching "${f.label}"? Nothing already in the wiki changes.`)) {
+                    if (window.confirm(`Stop watching "${f.label}"? Its waiting files are cancelled, and nothing already in the wiki changes.`)) {
                       call(`/api/folders/${f.id}`, { method: 'DELETE' });
                     }
                   }}

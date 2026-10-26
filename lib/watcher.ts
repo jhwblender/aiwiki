@@ -242,6 +242,11 @@ export function setEnabled(id: number, enabled: boolean) {
   db().prepare('UPDATE watched_folders SET enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id);
 }
 
+export function folderLabel(id: number): string | undefined {
+  const f = db().prepare('SELECT label FROM watched_folders WHERE id = ?').get(id) as { label: string } | undefined;
+  return f?.label;
+}
+
 export function removeFolder(id: number) {
   const d = db();
   d.prepare('DELETE FROM watched_files WHERE folder_id = ?').run(id);

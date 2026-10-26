@@ -109,8 +109,12 @@ async function runPlan(row: any, signal: AbortSignal, onProgress: (text: string)
     console.log(`[plan] ${row.folder_label} provider answered in ${Date.now() - planStart} ms`);
   } catch (e: any) {
     const msg = e?.message ?? String(e);
-    // Stopped: the model call was cut with the signal, so end as cancelled at once
-    if (signal.aborted) return finish(row.id, 'cancelled', 'Stopped while it was planning. Rules and files are as they were.');
+    // Stopped: the model call was cut with the signal, so end as cancelled at once - unless a chat
+    // took the model, in which case kick() puts the plan back in line
+    if (signal.aborted) {
+      if (preempted(signal)) throw new Error('Preempted for a chat.');
+      return finish(row.id, 'cancelled', 'Stopped while it was planning. Rules and files are as they were.');
+    }
     if (MODEL_DOWN.test(msg)) throw new ModelDown(msg);
     throw e;
   }
@@ -261,6 +265,49 @@ export function cancelWaiting(folder?: string | null): number {
   return r.changes;
 }
 
+// Stopping watching a folder: everything still waiting for it is cancelled, and a job being worked
+// on is cut the way Stop does (what was already filed stays filed)
+export function stopFolderJobs(label: string): number {
+  const cut = cancelWaiting(label);
+  const w = worker.current;
+  if (w) {
+    const job = db().prepare('SELECT folder_label FROM ingest_jobs WHERE id = ?').get(w.jobId) as { folder_label: string | null } | undefined;
+    if (job?.folder_label === label) {
+      w.controller.abort();
+      w.status = 'Stopping';
+    }
+  }
+  return cut;
+}
+
+// Send failed or cancelled background work back to the queue in one go.
+// folder: a label, null for files not from a folder, undefined for all.
+export function retryStopped(status: 'failed' | 'cancelled', folder?: string | null): number {
+  const sql = `UPDATE ingest_jobs SET status = 'queued', detail = NULL, finished_at = NULL WHERE mode != 'tidy' AND status = '${status}'`;
+  const r =
+    folder === undefined
+      ? db().prepare(sql).run()
+      : folder === null
+        ? db().prepare(`${sql} AND folder_label IS NULL`).run()
+        : db().prepare(`${sql} AND folder_label = ?`).run(folder);
+  changed();
+  kick();
+  return r.changes;
+}
+
+// Clear the rows of finished work so the list is readable again; what was filed stays filed
+export function clearFinished(folder?: string | null): number {
+  const sql = "DELETE FROM ingest_jobs WHERE mode != 'tidy' AND status IN ('done', 'kept', 'skipped')";
+  const r =
+    folder === undefined
+      ? db().prepare(sql).run()
+      : folder === null
+        ? db().prepare(`${sql} AND folder_label IS NULL`).run()
+        : db().prepare(`${sql} AND folder_label = ?`).run(folder);
+  changed();
+  return r.changes;
+}
+
 function finish(id: number, status: JobStatus, detail: string, proposed: string[] = []) {
   db()
     .prepare('UPDATE ingest_jobs SET status = ?, detail = ?, proposed = ?, finished_at = ? WHERE id = ?')
@@ -281,6 +328,8 @@ async function agentFor(row: any, signal: AbortSignal, run: () => ReturnType<typ
   } catch (e: any) {
     const msg = e?.message ?? String(e);
     if (signal.aborted) {
+      // A chat took the model: kick() puts the job back in line instead of cancelling it
+      if (preempted(signal)) throw new Error('Preempted for a chat.');
       finish(row.id, 'cancelled', 'Stopped while it was running. Anything already suggested stays for review.');
       return null;
     }
@@ -440,6 +489,36 @@ export function retryNow() {
   kick();
 }
 
+// --- chat priority -----------------------------------------------------------
+// A person waiting in the chat should not stand behind the background queue when both share one
+// model: while a chat is under way, the working job is cut and put back in line, and no new job
+// is claimed until the chat is over.
+let chatsActive = 0;
+const PREEMPT = { name: 'chat-preempt' };
+function preempted(signal: AbortSignal): boolean {
+  return (signal.reason as { name?: string } | undefined)?.name === 'chat-preempt';
+}
+
+// Returns the job to the queue; used instead of finishing it as cancelled
+function requeue(rowId: number) {
+  db().prepare("UPDATE ingest_jobs SET status = 'queued', started_at = NULL WHERE id = ?").run(rowId);
+  changed();
+}
+
+export function beginChat() {
+  chatsActive += 1;
+  if (worker.current) {
+    // The in-flight model call is destroyed, so the model is free for the chat right away
+    worker.current.controller.abort(PREEMPT as unknown as Error);
+    worker.current.status = 'Paused for the chat';
+  }
+}
+
+export function endChat() {
+  chatsActive = Math.max(0, chatsActive - 1);
+  if (!chatsActive) kick();
+}
+
 function sleep(ms: number) {
   return new Promise<void>((resolve) => {
     const t = setTimeout(done, ms);
@@ -463,6 +542,11 @@ export function kick() {
         worker.recovered = true;
       }
       for (;;) {
+        // A person waiting in the chat goes first: hold off claiming work while a chat is active
+        if (chatsActive) {
+          await sleep(600);
+          continue;
+        }
         // A tidy run was asked for by someone waiting on it, so it goes before a backlog of files,
         // and pausing (which holds back files) does not hold it
         const onlyTidy = isPaused() ? "AND mode IN ('tidy', 'plan')" : '';
@@ -494,6 +578,12 @@ export function kick() {
             changed();
             await sleep(worker.delay);
             worker.waitUntil = 0;
+            continue;
+          }
+          // A chat took the model: back in line, no waiting, no failure
+          if (current.controller.signal.aborted && preempted(current.controller.signal)) {
+            worker.delay = 0;
+            requeue(row.id);
             continue;
           }
           finish(row.id, 'failed', e?.message ?? String(e));

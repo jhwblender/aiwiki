@@ -275,6 +275,28 @@ export default function BackgroundJobs() {
               </button>
             </div>
           )}
+          {filter === 'cancelled' && c!.cancelled > 0 && (
+            <div className="queue-actions">
+              <button className="btn small" disabled={busy} onClick={() => control('retry-cancelled')}>
+                Send all {c!.cancelled} back to the queue
+              </button>
+            </div>
+          )}
+          {(c!.done ?? 0) + (c!.kept ?? 0) + (c!.skipped ?? 0) > 0 && (
+            <div className="queue-actions">
+              <button
+                className="btn small quiet"
+                disabled={busy}
+                onClick={() =>
+                  window.confirm(
+                    `Clear the ${(c!.done ?? 0) + (c!.kept ?? 0) + (c!.skipped ?? 0)} finished entries from the list? What was filed stays filed.`,
+                  ) && control('clear-finished')
+                }
+              >
+                Clear finished ({(c!.done ?? 0) + (c!.kept ?? 0) + (c!.skipped ?? 0)})
+              </button>
+            </div>
+          )}
 
           {state.jobs.length === 0 ? (
             <p className="muted small-text">

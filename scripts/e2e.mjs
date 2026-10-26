@@ -1044,8 +1044,66 @@ try {
   const stopPlanDelay = Date.now() - stopPlanAt;
   check('stopping a replan cuts its model call right away', stoppedPlan?.status === 'cancelled' && stopPlanDelay < 2500 && /Stopped while it was planning/.test(stoppedPlan.detail ?? ''), JSON.stringify({ stoppedPlan, stopPlanDelay }));
   check('nothing was re-queued or filed by the stopped plan', (await api('GET', '/api/ingest')).data.jobs.every((j) => j.folderLabel !== 'Stop share' || ['plan', 'cancelled'].includes(j.kind) || j.relPath !== 'Papers/a.txt'));
+
+  // 34c. The chat goes first: a job being worked on steps aside while someone waits in the chat
+  const prioJob = (await api('POST', `/api/folders/${stopFolder.data.id}/plan`, { action: 'plan' })).data.job;
+  let prioWorking = false;
+  for (let i = 0; i < 40 && !prioWorking; i++) {
+    const j = (await api('GET', '/api/ingest')).data.jobs.find((x) => x.id === prioJob);
+    if (j?.status === 'working') prioWorking = true;
+    else await new Promise((r) => setTimeout(r, 250));
+  }
+  check('a second plan can be started', !!prioJob && prioWorking);
+  const chatAt = Date.now();
+  const prioReply = (await chat('What day is it today?', 'Kim')).reply;
+  const chatDelay = Date.now() - chatAt;
+  const prioNow = (await api('GET', '/api/ingest')).data.jobs.find((x) => x.id === prioJob);
+  check('a chat goes first while the queue is working', prioReply === 'DATE-OK' && chatDelay < 2500 && prioNow?.status === 'queued', JSON.stringify({ prioReply, chatDelay, prioNow }));
+  const prioDone = await waitJob(prioJob);
+  check('the set-aside job finishes once the chat is over', prioDone?.status === 'done', JSON.stringify(prioDone));
+
+  // 34d. Stopping watching cancels what is still waiting for that folder
+  await api('POST', '/api/ingest/control', { action: 'pause' });
+  fs.writeFileSync(path.join(stopDir, 'Papers/a.txt'), 'FACT: Stop share fact, amended for the unwatch test.\n');
+  fs.utimesSync(path.join(stopDir, 'Papers/a.txt'), new Date(Date.now() - 30_000), new Date(Date.now() - 30_000));
+  await api('POST', `/api/folders/${stopFolder.data.id}/scan`);
+  let unwatchWaiting = 0;
+  for (let i = 0; i < 40 && !unwatchWaiting; i++) {
+    unwatchWaiting = (await api('GET', '/api/ingest')).data.jobs.filter((x) => x.folderLabel === 'Stop share' && x.status === 'queued').length;
+    if (!unwatchWaiting) await new Promise((r) => setTimeout(r, 250));
+  }
+  const unwatchDelete = await api('DELETE', `/api/folders/${stopFolder.data.id}`);
+  const afterUnwatch = (await api('GET', '/api/ingest')).data.jobs.filter((x) => x.folderLabel === 'Stop share' && x.kind !== 'plan');
+  check('stopping watching cancels the waiting work', unwatchDelete.status === 200 && unwatchWaiting > 0 && unwatchDelete.data.cancelled >= unwatchWaiting && afterUnwatch.every((x) => x.status === 'cancelled'), JSON.stringify({ unwatchWaiting, unwatchDelete: unwatchDelete.data, afterUnwatch: afterUnwatch.map((x) => [x.kind, x.status]) }));
+  await api('POST', '/api/ingest/control', { action: 'resume' });
   for (const f of (await api('GET', '/api/folders')).data) await api('DELETE', `/api/folders/${f.id}`);
   fs.rmSync(stopDir, { recursive: true, force: true });
+
+  // 34e. Bulk: cancelled work goes back in one go, and finished history can be cleared
+  await api('POST', '/api/ingest/control', { action: 'pause' });
+  const bulkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aiwiki-bulk-'));
+  for (const name of ['b1.txt', 'b2.txt']) {
+    fs.writeFileSync(path.join(bulkDir, name), `FACT: Bulk ${name}.\n`);
+    fs.utimesSync(path.join(bulkDir, name), new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
+  }
+  await api('POST', '/api/folders', { label: 'Bulk share', path: bulkDir, fileExisting: true });
+  let bulkQueued = 0;
+  for (let i = 0; i < 40 && bulkQueued < 2; i++) {
+    bulkQueued = (await api('GET', '/api/ingest')).data.jobs.filter((x) => x.folderLabel === 'Bulk share' && x.status === 'queued').length;
+    if (bulkQueued < 2) await new Promise((r) => setTimeout(r, 250));
+  }
+  const cancelledBulk = (await ctl('cancel-waiting', { folder: 'Bulk share' })).data.count;
+  const backAgain = (await ctl('retry-cancelled', { folder: 'Bulk share' })).data.count;
+  const backNow = (await api('GET', '/api/ingest')).data.jobs.filter((x) => x.folderLabel === 'Bulk share' && x.status === 'queued').length;
+  check('cancelled work goes back in the queue in bulk', cancelledBulk === 2 && backAgain === 2 && backNow === 2, JSON.stringify({ cancelledBulk, backAgain, backNow }));
+  await api('POST', '/api/ingest/control', { action: 'resume' });
+  const bulkJobs = (await api('GET', '/api/ingest')).data.jobs.filter((x) => x.folderLabel === 'Bulk share');
+  for (const j of bulkJobs) await waitJob(j.id);
+  const clearedBulk = (await ctl('clear-finished', { folder: 'Bulk share' })).data.count;
+  const leftBulk = (await api('GET', '/api/ingest')).data.jobs.filter((x) => x.folderLabel === 'Bulk share').length;
+  check('finished entries can be cleared in bulk', clearedBulk >= 2 && leftBulk === 0, JSON.stringify({ clearedBulk, leftBulk }));
+  for (const f of (await api('GET', '/api/folders')).data) await api('DELETE', `/api/folders/${f.id}`);
+  fs.rmSync(bulkDir, { recursive: true, force: true });
 
   // 35. A long file comes in parts; the assistant reads on only where it chooses to
   const longText = Array.from({ length: 160 }, (_, i) => `Paragraph ${i} of the long manual describes care of the wiki in plain words.`).join('\n\n') + '\n\nPART-TWO-MARKER is near the end.\n';
