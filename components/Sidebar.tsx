@@ -23,11 +23,10 @@ function buildTree(items: PageListItem[]): Node {
 }
 
 function Branch({ node, current, depth }: { node: Node; current: string; depth: number }) {
-  const kids = [...node.children.values()].sort((a, b) => {
-    const af = a.children.size > 0 && !a.page ? 0 : 1;
-    const bf = b.children.size > 0 && !b.page ? 0 : 1;
-    return af - bf || a.name.localeCompare(b.name);
-  });
+  // The home page is the wiki's front door, so it comes first; then folders that only group pages,
+  // then everything else, each alphabetically
+  const rank = (n: Node) => (n.path === 'index' ? 0 : n.children.size > 0 && !n.page ? 1 : 2);
+  const kids = [...node.children.values()].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
   return (
     <ul className="tree" style={{ paddingLeft: depth ? 12 : 0 }}>
       {kids.map((k) => (
