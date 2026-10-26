@@ -258,10 +258,22 @@ export default function ChatPanel({
       onChanged();
     } else if (d.error) {
       setMsgs((m) => [...m, { role: 'assistant', content: d.error!, error: true }]);
+      onChanged();
     } else {
       setMsgs((m) => [...m, { role: 'assistant', content: d.reply, trace: d.trace, proposed: d.proposed }]);
       if (d.proposed.length) onChanged();
     }
+  }
+
+  // Send the last message again after an error - the network blip is often gone by now
+  async function retryLast() {
+    if (busy) return;
+    const last = msgs[msgs.length - 1];
+    if (!last?.error) return;
+    const next: UiMsg[] = msgs.slice(0, -1);
+    setMsgs(next);
+    const lastUser = [...next].reverse().find((m) => m.role === 'user' && m.content);
+    dispatch(next, lastUser?.attachments?.map((a) => a.id) ?? []);
   }
 
   // Follow a run until it ends. Returns quietly if the panel closed meanwhile; the run carries on
@@ -479,6 +491,11 @@ export default function ChatPanel({
               <p className="small-text">
                 <Link href="/settings">Check the model settings</Link>
               </p>
+            )}
+            {m.error && i === msgs.length - 1 && !busy && (
+              <button className="btn small" onClick={retryLast}>
+                Try again
+              </button>
             )}
             {m.proposed && m.proposed.length > 0 && (
               <div className="proposed">
