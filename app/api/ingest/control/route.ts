@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { beginChat, cancelWaiting, clearFinished, retryFailed, retryNow, retryStopped, setPaused } from '@/lib/queue';
+import { beginChat, cancelWaiting, clearCancelled, clearFinished, retryFailed, retryNow, retryStopped, setPaused } from '@/lib/queue';
 import { fail, requireUser, isResponse } from '@/lib/api';
 
 export const runtime = 'nodejs';
 
 // Pause or resume background filing, cancel what is waiting, retry what failed or was cancelled,
-// clear what is finished, or try the model again now
+// clear what is finished or what was cancelled, or try the model again now
 export async function POST(req: NextRequest) {
   try {
     const editor = requireUser(req, 'editor');
@@ -25,6 +25,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ count: retryStopped('cancelled', folder) });
       case 'clear-finished':
         return NextResponse.json({ count: clearFinished(folder) });
+      case 'clear-cancelled':
+        return NextResponse.json({ count: clearCancelled(folder) });
       case 'retry-now':
         retryNow();
         return NextResponse.json({ ok: true });

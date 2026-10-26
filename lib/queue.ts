@@ -308,6 +308,20 @@ export function clearFinished(folder?: string | null): number {
   return r.changes;
 }
 
+// Clear the rows of cancelled work in one go; nothing was read, so nothing was filed and nothing
+// needs reviewing
+export function clearCancelled(folder?: string | null): number {
+  const sql = "DELETE FROM ingest_jobs WHERE mode != 'tidy' AND status = 'cancelled'";
+  const r =
+    folder === undefined
+      ? db().prepare(sql).run()
+      : folder === null
+        ? db().prepare(`${sql} AND folder_label IS NULL`).run()
+        : db().prepare(`${sql} AND folder_label = ?`).run(folder);
+  changed();
+  return r.changes;
+}
+
 function finish(id: number, status: JobStatus, detail: string, proposed: string[] = []) {
   db()
     .prepare('UPDATE ingest_jobs SET status = ?, detail = ?, proposed = ?, finished_at = ? WHERE id = ?')

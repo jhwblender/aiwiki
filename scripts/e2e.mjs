@@ -1105,6 +1105,26 @@ try {
   for (const f of (await api('GET', '/api/folders')).data) await api('DELETE', `/api/folders/${f.id}`);
   fs.rmSync(bulkDir, { recursive: true, force: true });
 
+  // 34f. The queue bar's actions: everything waiting cancels in one go, and the cancelled entries
+  // left behind can be cleared from the list in one go too
+  await api('POST', '/api/ingest/control', { action: 'pause' });
+  const barA = await queueOne('bar-a.txt', 'FACT: Bar A.\n', 'Just keep this on file.');
+  const barB = await queueOne('bar-b.txt', 'FACT: Bar B.\n', 'Just keep this on file.');
+  let barWaiting = 0;
+  for (let i = 0; i < 20 && barWaiting < 2; i++) {
+    barWaiting = (await api('GET', '/api/ingest?status=queued')).data.jobs.filter((j) => [barA, barB].includes(j.id)).length;
+    if (barWaiting < 2) await new Promise((r) => setTimeout(r, 250));
+  }
+  const cancelledAll = (await ctl('cancel-waiting')).data.count;
+  const cancelledList = (await api('GET', '/api/ingest?status=cancelled')).data.jobs;
+  check('everything waiting can be cancelled in one go', cancelledAll >= barWaiting && [barA, barB].every((id) => cancelledList.some((j) => j.id === id)),
+    JSON.stringify({ cancelledAll, barWaiting, got: cancelledList.filter((j) => [barA, barB].includes(j.id)).map((j) => j.status) }));
+  const clearedCancelled = (await ctl('clear-cancelled')).data.count;
+  const leftCancelled = (await api('GET', '/api/ingest?status=cancelled')).data;
+  check('cancelled entries can be cleared from the list in one go', clearedCancelled >= 2 && !leftCancelled.jobs.some((j) => j.kind !== 'tidy'),
+    JSON.stringify({ clearedCancelled, left: leftCancelled.jobs.map((j) => [j.kind, j.displayName]) }));
+  await api('POST', '/api/ingest/control', { action: 'resume' });
+
   // 35. A long file comes in parts; the assistant reads on only where it chooses to
   const longText = Array.from({ length: 160 }, (_, i) => `Paragraph ${i} of the long manual describes care of the wiki in plain words.`).join('\n\n') + '\n\nPART-TWO-MARKER is near the end.\n';
   const longFile = await upload([['long-notes.txt', Buffer.from(longText), 'text/plain']]);

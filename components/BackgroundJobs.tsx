@@ -140,6 +140,15 @@ export default function BackgroundJobs() {
               {c!.queued} waiting
             </span>
             <span className="spacer" />
+            {c!.queued > 0 && (
+              <button
+                className="btn small"
+                disabled={busy}
+                onClick={() => window.confirm(`Cancel all ${c!.queued} waiting files? They are not read.`) && control('cancel-waiting')}
+              >
+                Cancel all waiting
+              </button>
+            )}
             {state.paused ? (
               <button className="btn small primary" disabled={busy} onClick={() => control('resume')}>
                 Resume
@@ -259,13 +268,6 @@ export default function BackgroundJobs() {
                     Cancel {w.count} from {w.folder ?? 'dropped files'}
                   </button>
                 ))}
-              <button
-                className="btn small"
-                disabled={busy}
-                onClick={() => window.confirm(`Cancel all ${c!.queued} waiting files? They are not read.`) && control('cancel-waiting')}
-              >
-                Cancel all waiting
-              </button>
             </div>
           )}
           {filter === 'failed' && c!.failed > 0 && (
@@ -294,6 +296,20 @@ export default function BackgroundJobs() {
                 }
               >
                 Clear finished ({(c!.done ?? 0) + (c!.kept ?? 0) + (c!.skipped ?? 0)})
+              </button>
+            </div>
+          )}
+          {c!.cancelled > 0 && (
+            <div className="queue-actions">
+              <button
+                className="btn small quiet"
+                disabled={busy}
+                onClick={() =>
+                  window.confirm(`Clear the ${c!.cancelled} cancelled entries from the list? Nothing was read, so nothing needs review.`) &&
+                  control('clear-cancelled')
+                }
+              >
+                Clear cancelled ({c!.cancelled})
               </button>
             </div>
           )}
