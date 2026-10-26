@@ -41,10 +41,20 @@ export default function Contents({ user, version, onChanged }: { user: string; v
       {error && <div className="error">{error}</div>}
       {!data ? (
         !error && <p className="muted small-text">Loading</p>
-      ) : data.sections.length === 0 ? (
+      ) : data.sections.length === 0 && !data.home ? (
         <p className="muted">The wiki only has its home page so far.</p>
       ) : (
         <ul className="struct">
+          {data.home && (
+            <li className="struct-node">
+              <div className="struct-head">
+                <Link href="/wiki/index" className="struct-title">
+                  {data.home.title}
+                </Link>
+              </div>
+              {data.home.summary && <p className="struct-summary">{data.home.summary}</p>}
+            </li>
+          )}
           {data.sections.map((n) => (
             <Branch key={n.path} node={n} pending={data.pending} user={user} onSaved={() => (load(), onChanged())} />
           ))}

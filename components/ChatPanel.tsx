@@ -19,6 +19,7 @@ type Pending = { key: number; name: string; status: 'uploading' | 'ready' | 'err
 export type IncomingFiles = { files: File[]; note: string; key: number };
 
 const RUN_KEY = 'wiki-chat-run';
+const QUEUE_KEY = 'wiki-chat-queue';
 const ACCEPT = '.pdf,.docx,.txt,.md,.csv,.json,.png,.jpg,.jpeg,.gif,.webp';
 const MAX_FILES = 10;
 let nextKey = 1;
@@ -57,6 +58,8 @@ export default function ChatPanel({
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<Pending[]>([]);
   const [dragging, setDragging] = useState(false);
+  const [queued, setQueued] = useState<string[]>([]);
+  const queueRef = useRef<string[]>([]);
   // Live progress of the message being answered
   const [live, setLive] = useState<{ steps: string[]; status: string; started: number } | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -78,6 +81,20 @@ export default function ChatPanel({
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, [live]);
+  // A follow-up typed while the assistant works: sent the moment the current answer ends
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(QUEUE_KEY);
+      if (saved) setQueued(JSON.parse(saved) ?? []);
+    } catch {}
+  }, []);
+  useEffect(() => {
+    try {
+      if (queued.length) localStorage.setItem(QUEUE_KEY, JSON.stringify(queued));
+      else localStorage.removeItem(QUEUE_KEY);
+    } catch {}
+    queueRef.current = queued;
+  }, [queued]);
   // null until /api/config answers, so the "no model" notice does not flash on load
   const [providerList, setProviders] = useState<{ id: string; label: string }[] | null>(null);
   const providers = providerList ?? [];
@@ -85,6 +102,10 @@ export default function ChatPanel({
   const endRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLInputElement>(null);
   const pages = usePages();
+  const msgsRef = useRef<UiMsg[]>([]);
+  useEffect(() => {
+    msgsRef.current = msgs;
+  }, [msgs]);
 
   useEffect(() => {
     try {
@@ -267,6 +288,8 @@ export default function ChatPanel({
         setBusy(false);
         setLive(null);
         runIdRef.current = null;
+        // A follow-up typed while this was working goes next, without anyone waiting
+        if (queueRef.current.length) void runQueued();
       }
     }
   }
@@ -293,20 +316,47 @@ export default function ChatPanel({
   async function send() {
     const text = input.trim() || (ready.length ? 'Add what is useful from the attached files to the wiki.' : '');
     if (!text || busy || uploading) return;
-    const next: UiMsg[] = [...msgs, { role: 'user', content: text, attachments: ready.length ? ready : undefined }];
+    const entry: UiMsg = { role: 'user', content: text, attachments: ready.length ? ready : undefined };
+    const next: UiMsg[] = [...msgs, entry];
     setMsgs(next);
     setInput('');
     setPending([]);
+    dispatch(next, ready.map((f) => f.id));
+  }
+
+  // When the assistant is already working, a new message queues instead of waiting.
+  function queueFollowup() {
+    const text = input.trim();
+    if (!text || !busy) return;
+    setQueued((q) => [...q, text]);
+    setInput('');
+  }
+
+  // Send one queued follow-up (the next in line); follow()'s completion re-runs this until the
+  // queue is empty, so a follow-up typed while the assistant works is answered right after
+  async function runQueued() {
+    const text = queueRef.current[0];
+    if (!text) return;
+    setQueued((q) => q.slice(1));
+    const next: UiMsg[] = [...msgsRef.current, { role: 'user', content: text }];
+    setMsgs(next);
+    try {
+      await dispatch(next, []);
+    } catch {}
+  }
+
+  // Everything the next request needs, in one place. Earlier attachments are named in their
+  // message; only the latest message's files are read.
+  async function dispatch(next: UiMsg[], attachmentIds: number[]) {
     const body = JSON.stringify({
       stream: true,
-      // Earlier attachments are named in their message; only the latest message's files are read
       messages: next
         .filter((m) => !m.error)
         .map((m, i, all) => ({
           role: m.role,
           content: m.attachments?.length && i < all.length - 1 ? `${m.content}\n\n[Attached: ${m.attachments.map((a) => a.name).join(', ')}]` : m.content,
         })),
-      attachments: ready.map((f) => f.id),
+      attachments: attachmentIds,
       provider: provider || providers[0]?.id,
       user,
       currentPath,
@@ -468,6 +518,21 @@ export default function ChatPanel({
           </div>
         )}
         {busy && !live && <div className="msg assistant muted">Working</div>}
+        {queued.length > 0 && (
+          <div className="msg user queued-up">
+            <p className="plain-text muted">
+              {queued.length === 1 ? 'Queued to send after this answer:' : `Queued to send after this answer (${queued.length}):`}{' '}
+              {queued.join(' · ')}
+            </p>
+            <button
+              className="btn quiet small"
+              onClick={() => setQueued((q) => q.slice(0, -1))}
+              title="Take the last queued message back"
+            >
+              Unqueue
+            </button>
+          </div>
+        )}
         <div ref={endRef} />
       </div>
 
@@ -527,7 +592,8 @@ export default function ChatPanel({
             // Enter sends; Shift+Enter adds a line. On touch screens Enter adds a line and the Send button sends.
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !window.matchMedia('(pointer: coarse)').matches) {
               e.preventDefault();
-              send();
+              if (busy) queueFollowup();
+              else send();
             }
           }}
         />
@@ -539,10 +605,10 @@ export default function ChatPanel({
           )}
           <button
             className="btn primary"
-            disabled={busy || uploading || (!input.trim() && !ready.length) || providers.length === 0}
-            onClick={send}
+            disabled={uploading || (!input.trim() && !ready.length) || providers.length === 0}
+            onClick={busy ? queueFollowup : send}
           >
-            Send
+            {busy ? 'Queue' : 'Send'}
           </button>
         </span>
       </div>

@@ -277,6 +277,18 @@ const SCENARIOS = [
     reply: 'I proposed what the checklist says, from checklist.txt.',
   },
   {
+    // the assistant tries to remove the home page and is refused
+    keyword: 'delete the welcome page',
+    steps: [{ name: 'remove_page', args: { path: 'index', summary: 'Tried to remove the welcome page' } }],
+    reply: (tools) => (/cannot be removed/.test(tools) ? 'HOME-REFUSED' : 'HOME-NOT-REFUSED'),
+  },
+  {
+    // the assistant looks up the date and time instead of guessing
+    keyword: 'what day is it',
+    steps: [{ name: 'current_time', args: {} }],
+    reply: (tools) => (/20\d\d/.test(tools) ? 'DATE-OK' : 'DATE-NOT-SEEN'),
+  },
+  {
     // the background queue's default instruction; files the same way as "file this"
     keyword: 'file the information from the attached document',
     steps: [

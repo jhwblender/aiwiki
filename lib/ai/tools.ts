@@ -12,8 +12,15 @@ import type { ToolDef } from './providers';
 export const toolDefs: ToolDef[] = [
   {
     name: 'search_pages',
-    description: 'Full-text search across all wiki pages. Returns matching page paths with snippets. Use this before reading or editing.',
+    description:
+      'Full-text search across all wiki pages. Use this before reading or editing. Give two or three distinct keywords, not a sentence (as if typing a search box): pages with every keyword come first, and if none has them all, the best partial matches follow. Try fewer or other words when nothing fits.',
     parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] },
+  },
+  {
+    name: 'current_time',
+    description:
+      'The current date and time on the server, in its time zone. Use it for questions about today or now ("what day is it", which is sooner, how dates compare) instead of guessing from what you were trained on.',
+    parameters: { type: 'object', properties: {} },
   },
   {
     name: 'list_pages',
@@ -72,7 +79,8 @@ export const toolDefs: ToolDef[] = [
     name: 'search_documents',
     description:
       'Search the original documents behind the wiki (files people dropped and files in watched folders) for detail that is not in the wiki. ' +
-      'Returns document numbers, part numbers and snippets. Use read_document to read a part.',
+      'Two or three distinct keywords, not a sentence: matches are ranked best first. Returns document numbers, part numbers and snippets; use read_document to read a part. ' +
+      'Try fewer or other words when nothing fits.',
     parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] },
   },
   {
@@ -421,6 +429,13 @@ export async function runTool(name: string, args: Record<string, any>, ctx: Tool
             return `${h.path} | ${h.title} | ${h.snippet}${n ? ` | ${n} pending suggestion${n > 1 ? 's' : ''}, see read_page` : ''}`;
           })
           .join('\n');
+      }
+      case 'current_time': {
+        const t = new Date();
+        return (
+          t.toLocaleString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }) +
+          ` (${Intl.DateTimeFormat().resolvedOptions().timeZone}; ISO ${t.toISOString()})`
+        );
       }
       case 'list_pages': {
         const pages = await listPages();

@@ -80,6 +80,11 @@ async function init() {
     }
     await git.add('.');
     await git.commit('Seed wiki', undefined, { '--author': 'Wiki <wiki@localhost>' });
+  } else if (!(await listPageFiles()).includes('index')) {
+    // The home page holds the table of contents; a wiki without one is only ever an accident.
+    await fs.writeFile(fileFor('index'), SEED.index);
+    await git.add('index.md');
+    await git.commit('Restore the home page', undefined, { '--author': 'Wiki <wiki@localhost>' });
   }
   const d = db();
   d.prepare('DELETE FROM pages_fts').run();
@@ -262,6 +267,7 @@ export async function movePage(from: string, to: string, author: string, message
 
 export async function deletePage(p: string, author: string, message = `Delete ${p}`): Promise<void> {
   await ensureInit();
+  if (p === 'index') throw new Error('The home page cannot be deleted. Edit it instead.');
   await serial(async () => {
     await fs.rm(fileFor(p), { force: true });
     await pruneEmptyDirs(p);
@@ -300,14 +306,19 @@ export async function searchPages(q: string, limit = 8) {
     .map((t) => t.replace(/[^\p{L}\p{N}_-]/gu, ''))
     .filter(Boolean);
   if (!terms.length) return [];
-  const query = terms.map((t) => `"${t}"*`).join(' ');
-  try {
-    return db()
+  const run = (query: string) =>
+    db()
       .prepare(
         `SELECT path, title, snippet(pages_fts, 2, '[', ']', '...', 24) AS snippet
          FROM pages_fts WHERE pages_fts MATCH ? ORDER BY rank LIMIT ?`,
       )
       .all(query, limit) as { path: string; title: string; snippet: string }[];
+  try {
+    // Every word must be there: the precise answer when it exists
+    const rows = run(terms.map((t) => `"${t}"*`).join(' '));
+    if (rows.length || terms.length < 2) return rows;
+    // Nothing has every word: pages with any of them, best matches first
+    return run(terms.map((t) => `"${t}"*`).join(' OR '));
   } catch {
     return [];
   }

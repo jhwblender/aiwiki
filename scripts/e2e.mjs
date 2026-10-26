@@ -383,6 +383,10 @@ try {
   await api('POST', `/api/ops/${fw.ops[0].opId}`, { action: 'approve', user: 'Kim' });
   check('approving the removal deletes the old page', !fs.existsSync(path.join(wikiDir, 'docs/basics/details.md')) && pageFile('docs/basics').includes('the history of the guide'));
 
+  check('the home page cannot be deleted', (await api('DELETE', '/api/page?path=index')).status === 400 && pageFile('index').startsWith('# Welcome'));
+  const homeChat = await chat('Please delete the Welcome page', 'Alex');
+  check('the assistant cannot remove the home page', homeChat.reply === 'HOME-REFUSED', JSON.stringify({ reply: homeChat.reply, trace: (homeChat.trace ?? []).slice(0, 8) }));
+
   await chat('Please tidy the notebook', 'Alex', 'local', 'e2e-chat-stale'); // notebook is gone from pages/, so nothing to move
   await api('PUT', '/api/page', { path: 'pages/notebook', content: '# Notebook draft\n\nA draft of the notebook.\n', user: 'Jordan' });
   await chat('Please tidy the notebook', 'Alex', 'local', 'e2e-chat-stale2');
@@ -1050,9 +1054,14 @@ try {
   check('a long file is shown a part at a time', skim.reply === 'PARTS-OK' && skim.trace?.some((t) => /long-notes\.txt, part 1 of \d/.test(t)) && skim.trace?.some((t) => t.startsWith('Read part')),
     JSON.stringify(skim));
 
-  // 36. Search finds approved content
+  // 36. The assistant can look up the date and time
+  check('the assistant can look up the date and time', (await chat('What day is it today?', 'Alex')).reply === 'DATE-OK');
+
+  // 37. Search finds approved content
   const hits = (await api('GET', '/api/search?q=naming')).data;
   check('search finds approved content', hits.some((h) => h.path === 'guide/naming-policy'));
+  const loose = (await api('GET', '/api/search?q=zzz-nothing naming policy')).data;
+  check('a search whose words are too specific falls back to partial matches', loose.some((h) => h.path === 'guide/naming-policy'), JSON.stringify(loose.map((h) => h.path)));
 } catch (e) {
   failures++;
   console.error('FAIL', e.message);
