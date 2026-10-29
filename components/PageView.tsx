@@ -52,18 +52,19 @@ function tabLabel(p: PendingSet, all: PendingSet[]): string {
 
 // A suggestion to move or remove the whole page
 function OpCard({ op, busy, decide }: { op: PendingOp; busy: boolean; decide: (action: 'approve' | 'reject') => void }) {
+  const removal = op.kind !== 'move';
   return (
-    <div className={'review op-card' + (op.stale ? ' conflict' : '')}>
+    <div className={'review op-card' + (removal ? ' danger' : '') + (op.stale ? ' conflict' : '')}>
       <div className="review-head">
         <div>
           <div className="review-title">{op.summary}</div>
           <div className="small-text">
-            {op.kind === 'move' ? (
+            {removal ? (
+              'Suggested removal of this page. Its text leaves the wiki, and links to it will be left pointing nowhere.'
+            ) : (
               <>
                 Suggested move to <strong>{op.newPath}</strong>. Pages under it move too, and links to it are updated.
               </>
-            ) : (
-              'Suggested removal of this page.'
             )}{' '}
             <SourceChip source={op.source} />
           </div>
@@ -71,8 +72,14 @@ function OpCard({ op, busy, decide }: { op: PendingOp; busy: boolean; decide: (a
         </div>
         <div className="actions">
           {!op.stale && (
-            <button className="btn approve" disabled={busy} onClick={() => decide('approve')}>
-              {op.kind === 'move' ? 'Approve move' : 'Approve removal'}
+            <button
+              className="btn approve"
+              disabled={busy}
+              onClick={() => {
+                if (!removal || window.confirm('Remove this page from the wiki? If it was a mistake, the page can be brought back from this page\u2019s approval history.')) decide('approve');
+              }}
+            >
+              {removal ? 'Approve removal' : 'Approve move'}
             </button>
           )}
           <button className="btn reject" disabled={busy} onClick={() => decide('reject')}>

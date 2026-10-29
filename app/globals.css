@@ -115,6 +115,9 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .review { position: sticky; top: 0; z-index: 10; margin-bottom: 20px; border: 1px solid var(--teal); border-radius: 8px; background: var(--panel); overflow: hidden; box-shadow: 0 4px 14px rgba(23, 33, 43, 0.08); }
 .review.op-card { position: static; }
 .review.conflict { position: static; border-color: var(--rem-ink); }
+/* A suggested removal needs the reviewer to slow down: the card tells them this one deletes */
+.review.danger { border-color: var(--rem-ink); background: var(--rem-bg); box-shadow: 0 4px 14px rgba(155, 58, 58, 0.10); }
+.review.danger.conflict { background: var(--panel); }
 .conflict-preview { padding: 0 14px 4px; border-top: 1px solid var(--rule); }
 .review-head { display: flex; justify-content: space-between; gap: 12px; padding: 12px 14px; align-items: center; flex-wrap: wrap; }
 .review-title { font-weight: 600; }
