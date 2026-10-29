@@ -1058,7 +1058,10 @@ try {
   const prioReply = (await chat('What day is it today?', 'Kim')).reply;
   const chatDelay = Date.now() - chatAt;
   const prioNow = (await api('GET', '/api/ingest')).data.jobs.find((x) => x.id === prioJob);
-  check('a chat goes first while the queue is working', prioReply === 'DATE-OK' && chatDelay < 2500 && prioNow?.status === 'queued', JSON.stringify({ prioReply, chatDelay, prioNow }));
+  // queued, or working again already: the queue picks the set-aside job back up the moment the
+  // chat ends, so the status read races it. What the check wants is that the job was set aside
+  // gently, not failed or cancelled; the chat answering fast is the pre-empt itself
+  check('a chat goes first while the queue is working', prioReply === 'DATE-OK' && chatDelay < 2500 && ['queued', 'working'].includes(prioNow?.status), JSON.stringify({ prioReply, chatDelay, prioNow }));
   const prioDone = await waitJob(prioJob);
   check('the set-aside job finishes once the chat is over', prioDone?.status === 'done', JSON.stringify(prioDone));
 
