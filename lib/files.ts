@@ -102,16 +102,29 @@ const SCAN_PROMPT = (page: number, of: number) =>
   `This is page ${page} of ${of} of a scanned document. Transcribe all of its text exactly, keeping headings, lists and tables. ` +
   'If part of the page is a picture or diagram, describe it briefly in square brackets.';
 
+// pdf.js runs on its loudest level by default and prints a "recovering" note to the console for
+// every real-world slightly malformed PDF it meets (SharePoint and Word exports, older
+// generators); it recovers and reads them fine, so the notes are switched off. 0 keeps errors
+// loud, which is where an unreadable file should fail loudly.
+const PDF_VERBOSE = 0;
+
 async function pdfText(data: Buffer): Promise<{ pages: string[] }> {
   const { extractText, getDocumentProxy } = await import('unpdf');
-  const pdf = await getDocumentProxy(new Uint8Array(data));
+  const pdf = await getDocumentProxy(new Uint8Array(data), { verbosity: PDF_VERBOSE });
   const { text } = await extractText(pdf, { mergePages: false });
   return { pages: (Array.isArray(text) ? text : [text]).map((t) => t.trim()) };
 }
 
 async function renderPdfPage(data: Buffer, page: number): Promise<Buffer> {
   const { renderPageAsImage } = await import('unpdf');
-  const png = await renderPageAsImage(new Uint8Array(data), page, { canvasImport: () => import('@napi-rs/canvas'), scale: 1.6 });
+  // the render options and the document options travel through one object; the render type leaves
+  // no room for verbosity, so it is set through a variable, where extra keys are allowed
+  const params: { canvasImport: () => Promise<typeof import('@napi-rs/canvas')>; scale: number; verbosity: number } = {
+    canvasImport: () => import('@napi-rs/canvas'),
+    scale: 1.6,
+    verbosity: PDF_VERBOSE,
+  };
+  const png = await renderPageAsImage(new Uint8Array(data), page, params);
   return Buffer.from(png);
 }
 
@@ -127,7 +140,16 @@ async function extractFresh(f: StoredFile, data: Buffer, describe: DescribeImage
     return { text: await describe({ data, mime: f.mime }, PHOTO_PROMPT), method: 'vision' };
   }
   // PDF: use its text layer; a page with almost no text is probably a scan
-  const { pages } = await pdfText(data);
+  const { pages } = await pdfText(data).catch((e: any) => {
+    // A PDF that was stored before its download finished stops mid-content and has no %%EOF at
+    // the end; say what to do about it instead of the parser's bare complaint
+    if (e?.name === 'InvalidPDFException' && !data.subarray(Math.max(0, data.length - 2048)).toString('latin1').includes('%%EOF'))
+      throw new Error(
+        'The PDF is incomplete: it stops mid-content, most likely because it was read while the library was still syncing. ' +
+          'Wait until the file has finished syncing, then check its folder again.',
+      );
+    throw e;
+  });
   const textChars = pages.reduce((n, p) => n + p.length, 0);
   if (textChars >= 40 * pages.length) {
     return { text: pages.map((p, i) => `--- Page ${i + 1} ---\n${p}`).join('\n\n'), method: 'pdf-text' };
