@@ -140,6 +140,7 @@ function Branch({ node, pending, user, onSaved }: { node: Node; pending: Record<
       )}
       {leaves.length > 0 && (
         <div className="struct-pages small-text">
+          Pages:{' '}
           {leaves.map((l, i) => (
             <span key={l.path}>
               {i > 0 && ', '}

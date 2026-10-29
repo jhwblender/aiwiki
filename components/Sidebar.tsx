@@ -22,13 +22,13 @@ function buildTree(items: PageListItem[]): Node {
   return root;
 }
 
-function Branch({ node, current, depth }: { node: Node; current: string; depth: number }) {
+function Branch({ node, current }: { node: Node; current: string }) {
   // The home page is the wiki's front door, so it comes first; then folders that only group pages,
   // then everything else, each alphabetically
   const rank = (n: Node) => (n.path === 'index' ? 0 : n.children.size > 0 && !n.page ? 1 : 2);
   const kids = [...node.children.values()].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
   return (
-    <ul className="tree" style={{ paddingLeft: depth ? 12 : 0 }}>
+    <ul className="tree">
       {kids.map((k) => (
         <li key={k.path}>
           {k.page ? (
@@ -45,7 +45,7 @@ function Branch({ node, current, depth }: { node: Node; current: string; depth: 
               {k.name.replace(/[-_]/g, ' ')}
             </Link>
           )}
-          {k.children.size > 0 && <Branch node={k} current={current} depth={depth + 1} />}
+          {k.children.size > 0 && <Branch node={k} current={current} />}
         </li>
       ))}
     </ul>
@@ -141,7 +141,7 @@ export default function Sidebar({
             <div className="muted pad">No pages match.</div>
           )
         ) : (
-          <Branch node={tree} current={current} depth={0} />
+          <Branch node={tree} current={current} />
         )}
       </nav>
       <div className="whoami">
