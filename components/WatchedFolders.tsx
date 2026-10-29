@@ -96,17 +96,19 @@ export default function WatchedFolders() {
   }
 
   // Folders ticked in the picker: all watched in one go, each under its own name unless one folder
-  // was picked and a label was typed for it
-  async function addMany(picks: { path: string; name: string }[]) {
+  // was picked and a label was typed for it. Returns the paths that were watched, so the picker
+  // can drop those ticks; it stays open when some could not be watched, ready to be finished
+  async function addMany(picks: { path: string; name: string }[]): Promise<string[]> {
     if (
       picks.length > 1 &&
       label.trim() &&
       !window.confirm(`Watch ${picks.length} folders, each under its own name? Your label "${label.trim()}" will not be used.`)
     )
-      return;
+      return [];
     setBusy(true);
     setMessage(null);
     const watched: string[] = [];
+    const saved: string[] = [];
     const problems: string[] = [];
     for (const p of picks) {
       try {
@@ -123,6 +125,7 @@ export default function WatchedFolders() {
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || 'That did not work.');
         watched.push(d.label ?? p.name);
+        saved.push(p.path);
       } catch (e: any) {
         problems.push(`"${p.name}": ${e.message}`);
       }
@@ -130,10 +133,12 @@ export default function WatchedFolders() {
     await load();
     setBusy(false);
     if (watched.length) {
-      setPicking(false);
-      setLabel('');
-      setDir('');
-      setDirDisplay('');
+      if (!problems.length) {
+        setPicking(false);
+        setLabel('');
+        setDir('');
+        setDirDisplay('');
+      }
       setMessage({
         kind: 'ok',
         text:
@@ -147,6 +152,7 @@ export default function WatchedFolders() {
     } else {
       setMessage({ kind: 'error', text: problems.join('; ') || 'That did not work.' });
     }
+    return saved;
   }
 
   return (

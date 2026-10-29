@@ -40,7 +40,9 @@ export default function FolderPicker({
   mode?: 'pick' | 'select';
   confirmLabel?: string;
   onPick?: (path: string, name: string, display: string) => void;
-  onSelect?: (picks: { path: string; name: string }[]) => void;
+  // Returning the paths that were watched lets the ticks for them be dropped, so a batch where
+  // some folders could not be watched can be finished without sending the finished ones again
+  onSelect?: (picks: { path: string; name: string }[]) => string[] | void | Promise<string[] | void>;
   onCancel: () => void;
 }) {
   const [shortcuts, setShortcuts] = useState<Shortcut[]>([]);
@@ -49,6 +51,8 @@ export default function FolderPicker({
   const [error, setError] = useState('');
   // What has been ticked so far, by path; kept across navigation until the picker closes
   const [checked, setChecked] = useState<Map<string, string>>(new Map());
+  // True while the chosen folders are being watched, so the confirm button cannot be hit twice
+  const [saving, setSaving] = useState(false);
 
   async function open(p: string): Promise<boolean> {
     setLoading(true);
@@ -133,10 +137,10 @@ export default function FolderPicker({
             </button>
           </li>
         )}
-        {mode === 'select' && listing && listing.parent && (
+        {mode === 'select' && listing && (
           <li>
             <label className="picker-check">
-              <input type="checkbox" checked={checked.has(listing.path)} onChange={() => toggle(listing.path, listing.name)} />
+              <input type="checkbox" aria-label={`Watch ${listing.name}`} checked={checked.has(listing.path)} onChange={() => toggle(listing.path, listing.name)} />
               <span className="picker-check-name">This folder itself</span>
             </label>
           </li>
@@ -179,8 +183,23 @@ export default function FolderPicker({
           <button
             type="button"
             className="btn primary small"
-            disabled={loading || checked.size === 0}
-            onClick={() => onSelect?.([...checked].map(([path, name]) => ({ path, name })))}
+            disabled={loading || saving || checked.size === 0}
+            onClick={async () => {
+              const picks = [...checked].map(([path, name]) => ({ path, name }));
+              setSaving(true);
+              try {
+                const watched = await onSelect?.(picks);
+                if (Array.isArray(watched) && watched.length) {
+                  setChecked((prev) => {
+                    const next = new Map(prev);
+                    for (const p of watched) next.delete(p);
+                    return next;
+                  });
+                }
+              } finally {
+                setSaving(false);
+              }
+            }}
           >
             {checked.size > 0 ? `Watch ${checked.size} folder${checked.size === 1 ? '' : 's'}` : 'Watch the selected folders'}
           </button>
