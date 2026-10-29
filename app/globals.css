@@ -296,6 +296,11 @@ a.file-chip { padding-right: 10px; }
 .picker-row { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 14px; color: var(--ink); overflow-wrap: anywhere; }
 .picker-row:hover, .picker-row:focus-visible { background: var(--teal-soft); }
 .folder-row::before { content: ''; display: inline-block; width: 14px; height: 10px; margin-right: 8px; border: 1.5px solid var(--ink-soft); border-radius: 2px; vertical-align: -1px; }
+/* A tickable folder row: the checkbox watches it, clicking its name looks inside */
+.picker-check { display: flex; align-items: center; gap: 6px; padding: 2px 4px; }
+.picker-check input { flex: none; accent-color: var(--teal); }
+.picker-check .picker-row { flex: 1; width: auto; }
+.picker-check-name { font-size: 14px; color: var(--ink); overflow-wrap: anywhere; padding: 4px 8px; }
 .picker-empty { padding: 6px 8px; }
 .picker-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--rule); background: var(--paper); }
 .chosen-folder { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; }

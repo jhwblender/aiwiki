@@ -25,20 +25,30 @@ function trail(p: string): { label: string; path: string }[] {
   return out;
 }
 
-// Browse folders on the wiki server and pick one
+// Browse folders on the wiki server and pick one (to move a watched folder to), or tick several
+// to watch in one go: the ticked selection builds up while you browse, so folders that sit next
+// to each other do not have to be walked to one at a time.
 export default function FolderPicker({
   start,
+  mode = 'pick',
+  confirmLabel = 'Use this folder',
   onPick,
+  onSelect,
   onCancel,
 }: {
   start?: string;
-  onPick: (path: string, name: string, display: string) => void;
+  mode?: 'pick' | 'select';
+  confirmLabel?: string;
+  onPick?: (path: string, name: string, display: string) => void;
+  onSelect?: (picks: { path: string; name: string }[]) => void;
   onCancel: () => void;
 }) {
   const [shortcuts, setShortcuts] = useState<Shortcut[]>([]);
   const [listing, setListing] = useState<Listing | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // What has been ticked so far, by path; kept across navigation until the picker closes
+  const [checked, setChecked] = useState<Map<string, string>>(new Map());
 
   async function open(p: string): Promise<boolean> {
     setLoading(true);
@@ -71,8 +81,16 @@ export default function FolderPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const toggle = (path: string, name: string) =>
+    setChecked((prev) => {
+      const next = new Map(prev);
+      if (next.has(path)) next.delete(path);
+      else next.set(path, name);
+      return next;
+    });
+
   return (
-    <div className="picker" role="group" aria-label="Choose a folder">
+    <div className="picker" role="group" aria-label={mode === 'select' ? 'Choose folders to watch' : 'Choose a folder'}>
       {shortcuts.length > 0 && (
         <div className="picker-shortcuts">
           {shortcuts.map((s) => (
@@ -115,11 +133,28 @@ export default function FolderPicker({
             </button>
           </li>
         )}
+        {mode === 'select' && listing && listing.parent && (
+          <li>
+            <label className="picker-check">
+              <input type="checkbox" checked={checked.has(listing.path)} onChange={() => toggle(listing.path, listing.name)} />
+              <span className="picker-check-name">This folder itself</span>
+            </label>
+          </li>
+        )}
         {listing?.dirs.map((d) => (
           <li key={d.path}>
-            <button type="button" className="picker-row folder-row" onClick={() => open(d.path)}>
-              {d.name}
-            </button>
+            {mode === 'select' ? (
+              <div className="picker-check">
+                <input type="checkbox" aria-label={`Watch ${d.name}`} checked={checked.has(d.path)} onChange={() => toggle(d.path, d.name)} />
+                <button type="button" className="picker-row folder-row" onClick={() => open(d.path)}>
+                  {d.name}
+                </button>
+              </div>
+            ) : (
+              <button type="button" className="picker-row folder-row" onClick={() => open(d.path)}>
+                {d.name}
+              </button>
+            )}
           </li>
         ))}
         {listing && listing.dirs.length === 0 && <li className="muted small-text picker-empty">No folders inside this one.</li>}
@@ -128,24 +163,37 @@ export default function FolderPicker({
 
       <div className="picker-foot">
         <span className="muted small-text">
-          {listing
-            ? `${listing.display}: ${listing.docs} document${listing.docs === 1 ? '' : 's'} directly in this folder`
-            : loading
-              ? 'Loading'
-              : ''}
+          {mode === 'select' && checked.size > 0
+            ? `${checked.size} folder${checked.size === 1 ? '' : 's'} selected`
+            : listing
+              ? `${listing.display}: ${listing.docs} document${listing.docs === 1 ? '' : 's'} directly in this folder`
+              : loading
+                ? 'Loading'
+                : ''}
         </span>
         <span className="spacer" />
         <button type="button" className="btn quiet small" onClick={onCancel}>
           Cancel
         </button>
-        <button
-          type="button"
-          className="btn primary small"
-          disabled={!listing || loading}
-          onClick={() => listing && onPick(listing.path, listing.name, listing.display)}
-        >
-          Use this folder
-        </button>
+        {mode === 'select' ? (
+          <button
+            type="button"
+            className="btn primary small"
+            disabled={loading || checked.size === 0}
+            onClick={() => onSelect?.([...checked].map(([path, name]) => ({ path, name })))}
+          >
+            {checked.size > 0 ? `Watch ${checked.size} folder${checked.size === 1 ? '' : 's'}` : 'Watch the selected folders'}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn primary small"
+            disabled={!listing || loading}
+            onClick={() => listing && onPick?.(listing.path, listing.name, listing.display)}
+          >
+            {confirmLabel}
+          </button>
+        )}
       </div>
     </div>
   );
