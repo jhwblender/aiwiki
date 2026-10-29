@@ -98,7 +98,9 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .copy-code { position: absolute; top: 8px; right: 8px; z-index: 2; padding: 3px 10px; font-size: 12px; color: #c7d4de; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 7px; cursor: pointer; opacity: 0.55; }
 .copy-code:hover, .copy-code:focus-visible { opacity: 1; }
 .copy-code.done { color: #b8e6c8; border-color: rgba(140, 220, 170, 0.5); opacity: 1; }
-.copy-code + pre { padding-top: 38px; }
+.code-wrap.has-lang .copy-code + pre { padding-top: 38px; }
+.copy-code + pre { padding-top: 30px; }
+.code-lang { position: absolute; top: 9px; left: 14px; z-index: 2; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; color: #9fb4c4; }
 .doc table { border-collapse: collapse; display: block; overflow-x: auto; }
 .doc th, .doc td { border: 1px solid var(--rule); padding: 6px 10px; }
 .doc img { max-width: 100%; }

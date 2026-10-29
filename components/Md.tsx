@@ -57,10 +57,23 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
+// The language written on a fenced block (```json), if it has one
+function langOf(children: ReactNode): string {
+  const list = Array.isArray(children) ? children : [children];
+  for (const c of list) {
+    const cls = (c as { props?: { className?: string } } | null)?.props?.className;
+    const lang = cls?.match(/language-([^ ]+)/)?.[1];
+    if (lang) return lang;
+  }
+  return '';
+}
+
 function CopyCode(props: { children?: ReactNode }) {
   const [copied, setCopied] = useState(false);
+  const lang = langOf(props.children);
   return (
-    <div className="code-wrap">
+    <div className={'code-wrap' + (lang ? ' has-lang' : '')}>
+      {lang && <span className="code-lang">{lang}</span>}
       <button
         type="button"
         className={'copy-code' + (copied ? ' done' : '')}
