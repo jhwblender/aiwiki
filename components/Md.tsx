@@ -2,6 +2,7 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import Link from 'next/link';
+import { useState, type ReactNode } from 'react';
 import type { PluggableList } from 'unified';
 import { usePages } from './WikiContext';
 
@@ -22,6 +23,59 @@ function wikiLinks(md: string): string {
     const href = `/wiki/${slugify(target)}`;
     return label ? `[${label.trim()}](${href})` : `[${target.trim()}](${href} "${UNLABELED}")`;
   });
+}
+
+// Pull the plain text out of a rendered code block (a nested element graph)
+export function codeTextOf(node: unknown): string {
+  if (node == null || typeof node === 'boolean') return '';
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(codeTextOf).join('');
+  const own = (node as { props?: { children?: unknown } }).props;
+  return own ? codeTextOf(own.children) : '';
+}
+
+// Copies through the clipboard API where the browser allows it (https, localhost) and through a
+// hidden textarea everywhere else, like the wiki reaching its machine over plain http on the LAN
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const t = document.createElement('textarea');
+      t.value = text;
+      t.style.position = 'fixed';
+      t.style.opacity = '0';
+      document.body.appendChild(t);
+      t.select();
+      const ok = document.execCommand('copy');
+      t.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
+function CopyCode(props: { children?: ReactNode }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="code-wrap">
+      <button
+        type="button"
+        className={'copy-code' + (copied ? ' done' : '')}
+        onClick={async () => {
+          if (await copyText(codeTextOf(props.children))) {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1600);
+          }
+        }}
+      >
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+      <pre>{props.children}</pre>
+    </div>
+  );
 }
 
 export default function Md({ children, rehypePlugins }: { children: string; rehypePlugins?: PluggableList }) {
@@ -46,6 +100,9 @@ export default function Md({ children, rehypePlugins }: { children: string; rehy
               {children}
             </a>
           );
+        },
+        pre(props) {
+          return <CopyCode {...props} />;
         },
       }}
     >
