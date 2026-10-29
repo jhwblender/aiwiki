@@ -153,6 +153,9 @@ export default function Sidebar({
           <Link href="/wiki/index#contents" className="settings-link">
             Contents
           </Link>
+          <Link href="/history" className="settings-link">
+            History
+          </Link>
           <Link href="/settings" className="settings-link">
             Settings
           </Link>

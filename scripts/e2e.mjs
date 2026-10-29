@@ -1140,6 +1140,69 @@ try {
   check('search finds approved content', hits.some((h) => h.path === 'guide/naming-policy'));
   const loose = (await api('GET', '/api/search?q=zzz-nothing naming policy')).data;
   check('a search whose words are too specific falls back to partial matches', loose.some((h) => h.path === 'guide/naming-policy'), JSON.stringify(loose.map((h) => h.path)));
+
+  // 38. Approval history: approved changes can be looked over and undone, guarded so nothing newer is lost
+  const wikiHistory = (await api('GET', '/api/history')).data;
+  check('the wiki history lists pages removed and created, but not plain edits',
+    wikiHistory.entries.some((e) => e.actions.some((a) => a.kind === 'removed' && a.path === 'docs/basics/details')) &&
+      wikiHistory.entries.some((e) => e.actions.some((a) => a.kind === 'created' && a.path === 'notes/guide')) &&
+      wikiHistory.entries.some((e) => e.actions.some((a) => a.kind === 'moved' && a.path === 'pages/notebook' && a.newPath === 'style/notebook')) &&
+      wikiHistory.entries.every((e) => e.actions.every((a) => a.kind !== 'edited')),
+    JSON.stringify(wikiHistory.entries.slice(0, 4).map((e) => [e.approver, e.actions.map((a) => [a.kind, a.path, a.exists])])));
+
+  // a removed page is brought back exactly as it was
+  const detailsHistory = (await api('GET', '/api/history?page=docs/basics/details')).data;
+  const detailsRemoval = detailsHistory.entries.find((e) => e.actions.some((a) => a.kind === 'removed' && a.path === 'docs/basics/details'));
+  const detailsWas = detailsRemoval ? git('show', `${detailsRemoval.commit}^:docs/basics/details.md`) : '';
+  check('a removal is in the page history with its approver', !!detailsRemoval && detailsRemoval.approver === 'Kim' && detailsRemoval.actions[0].exists === false, JSON.stringify(detailsRemoval));
+  const removalUndone = await api('POST', '/api/history', { action: 'undo', commit: detailsRemoval.commit, user: 'Kim' });
+  check('undoing a removal brings the page back as it was', removalUndone.status === 200 && pageFile('docs/basics/details') === detailsWas);
+  check('undoing a removal twice says it is back already', (await api('POST', '/api/history', { action: 'undo', commit: detailsRemoval.commit, user: 'Kim' })).status === 400);
+
+  // a created page is removed again, and a move undone returns it to its old place
+  await chat('Please suggest a photos page', 'Alex', 'local', 'e2e-chat-hist-photos');
+  const photosSet = (await getPage('gallery/photos')).pending[0];
+  check('the photos page is suggested anew', photosSet?.isNew === true, JSON.stringify(photosSet?.summary));
+  await api('POST', `/api/proposals/${photosSet.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
+  const photosCreated = (await api('GET', '/api/history?page=gallery/photos')).data.entries[0];
+  check('an approved creation is in the history', photosCreated?.actions[0].kind === 'created' && photosCreated.approver === 'Kim' && pageFile('gallery/photos').includes('The gallery files pictures by month.'),
+    JSON.stringify(photosCreated));
+  await chat('Now move the photos page under archive', 'Alex', 'local', 'e2e-chat-hist-move');
+  const photosOp = (await getPage('gallery/photos')).ops[0];
+  check('the move waits on the page', photosOp?.kind === 'move' && photosOp.newPath === 'archive/photos', JSON.stringify(photosOp));
+  await api('POST', `/api/ops/${photosOp.opId}`, { action: 'approve', user: 'Kim' });
+  const photosMoved = (await api('GET', '/api/history?page=gallery/photos')).data.entries[0];
+  check('an approved move is in the history', photosMoved?.actions.some((a) => a.kind === 'moved' && a.path === 'gallery/photos' && a.newPath === 'archive/photos'), JSON.stringify(photosMoved));
+  const moveUndone = await api('POST', '/api/history', { action: 'undo', commit: photosMoved.commit, user: 'Kim' });
+  check('undoing a move puts the page back where it was', moveUndone.status === 200 &&
+    fs.existsSync(path.join(wikiDir, 'gallery/photos.md')) && !fs.existsSync(path.join(wikiDir, 'archive/photos.md')), JSON.stringify(moveUndone.data));
+  const creationUndone = await api('POST', '/api/history', { action: 'undo', commit: photosCreated.commit, user: 'Kim' });
+  check('undoing a creation removes the page again', creationUndone.status === 200 && !fs.existsSync(path.join(wikiDir, 'gallery/photos.md')), JSON.stringify(creationUndone.data));
+
+  // an approved edit is undone on top of later changes, and refused when they overlap
+  await chat('Please add a style section', 'Alex', 'local', 'e2e-chat-hist-edit');
+  const styleSet = (await getPage('docs/basics')).pending[0];
+  await api('POST', `/api/proposals/${styleSet.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
+  check('the style section is live', pageFile('docs/basics').includes('Titles are short and lowercase.'));
+  const editEntry = (await api('GET', '/api/history?page=docs/basics')).data.entries[0];
+  check('an approved edit is in the page history, not the wiki list', editEntry?.actions[0].kind === 'edited' && editEntry.summary === 'Add the style rules' &&
+    !(await api('GET', '/api/history')).data.entries.some((e) => e.commit === editEntry.commit), JSON.stringify(editEntry));
+  const basicsApproved = pageFile('docs/basics');
+  // a hand change in the same place refuses the undo
+  await api('PUT', '/api/page', { path: 'docs/basics', content: basicsApproved.replace('## Style\n\nTitles are short and lowercase.', '## House style\n\nTitles follow the hand-written rule.'), user: 'Jordan' });
+  const staleUndo = await api('POST', '/api/history', { action: 'undo', commit: editEntry.commit, user: 'Kim' });
+  check('an edit cannot be undone after the page changed in the same place', staleUndo.status === 400 && /cannot be undone/.test(staleUndo.data.error ?? ''), JSON.stringify(staleUndo.data));
+  // a hand change elsewhere is kept while the approved edit is taken back
+  await api('PUT', '/api/page', { path: 'docs/basics', content: `${basicsApproved}\n## Later note\n\nAdded after the approval.\n`, user: 'Jordan' });
+  const editUndone = await api('POST', '/api/history', { action: 'undo', commit: editEntry.commit, user: 'Kim' });
+  check('undoing an approved edit takes it back and keeps later changes', editUndone.status === 200 &&
+    !pageFile('docs/basics').includes('Titles are short and lowercase.') && pageFile('docs/basics').includes('Added after the approval.'),
+    JSON.stringify(editUndone.data));
+
+  // only editors can undo
+  await login('Vera', 'vera-pass-1234');
+  check('a viewer cannot undo', (await api('POST', '/api/history', { action: 'undo', commit: editEntry.commit, user: 'Vera' })).status === 403);
+  check('a viewer can read the history', (await api('GET', '/api/history')).status === 200);
 } catch (e) {
   failures++;
   console.error('FAIL', e.message);

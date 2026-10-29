@@ -7,6 +7,7 @@ import Md from './Md';
 import PlaceDialog, { titleOf } from './PlaceDialog';
 import LinkDialog from './LinkDialog';
 import Contents from './Contents';
+import PageHistory from './PageHistory';
 import { usePages } from './WikiContext';
 import { joinSummary, splitSummary } from '@/lib/summary';
 import SourceChip from './SourceChip';
@@ -131,12 +132,14 @@ function Hunk({
 export default function PageView({
   path,
   user,
+  role,
   version,
   onChanged,
   onDropFiles,
 }: {
   path: string;
   user: string;
+  role: string;
   version: number;
   onChanged: () => void;
   onDropFiles?: (files: File[]) => void;
@@ -512,6 +515,7 @@ export default function PageView({
               </ul>
             </footer>
           )}
+          {data.exists && <PageHistory path={data.path} role={role} onChanged={() => (load(), onChanged())} />}
         </>
       )}
     </main>

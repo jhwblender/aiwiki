@@ -71,6 +71,25 @@ export type ChatMsg = { role: 'user' | 'assistant'; content: string };
 
 export type Attachment = { id: number; name: string; mime: string; size: number; kind: string };
 
+// One approved change to a page, as the approval history shows it
+export type HistoryAction = {
+  kind: 'created' | 'removed' | 'moved' | 'edited';
+  path: string; // the page's path (for a move, where it came from)
+  newPath?: string; // for a move, where it went
+  title: string;
+  newTitle?: string; // for a move, shown for the place it went to
+  exists: boolean; // whether the page is in the wiki now
+};
+
+export type HistoryEntry = {
+  commit: string;
+  at: string;
+  approver: string;
+  summary: string;
+  changeSet: number;
+  actions: HistoryAction[];
+};
+
 export type ChatResponse = {
   reply: string;
   trace: string[];
