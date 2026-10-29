@@ -112,7 +112,7 @@ async function runPlan(row: any, signal: AbortSignal, onProgress: (text: string)
     // Stopped: the model call was cut with the signal, so end as cancelled at once - unless a chat
     // took the model, in which case kick() puts the plan back in line
     if (signal.aborted) {
-      if (preempted(signal)) throw new Error('Preempted for a chat.');
+      if (preempted(signal)) throw new Error('Set aside.');
       return finish(row.id, 'cancelled', 'Stopped while it was planning. Rules and files are as they were.');
     }
     if (MODEL_DOWN.test(msg)) throw new ModelDown(msg);
@@ -209,13 +209,22 @@ export function isPaused(): boolean {
   return r?.value === '1';
 }
 
-// Pausing lets the file being read finish, then stops before the next one; tidy runs still go
+// Pausing stops everything the models are doing, not only the file backlog: the run under way is
+// cut at once the way a chat cuts it and goes back in line for resume, and while paused nothing
+// new is claimed, the librarian's runs included. Files already waiting are kept for resume.
 export function setPaused(paused: boolean) {
   db()
     .prepare("INSERT INTO settings (key, value) VALUES ('queue.paused', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value")
     .run(paused ? '1' : '0');
   changed();
-  if (!paused) kick();
+  if (paused) {
+    if (worker.current) {
+      // The in-flight model call is destroyed, so the model is free at once; unwinding requeues
+      // the job instead of failing or cancelling it
+      worker.current.controller.abort(PAUSE as unknown as Error);
+      worker.current.status = 'Paused';
+    }
+  } else kick();
 }
 
 // ---------- cancelling and retrying ----------
@@ -342,8 +351,8 @@ async function agentFor(row: any, signal: AbortSignal, run: () => ReturnType<typ
   } catch (e: any) {
     const msg = e?.message ?? String(e);
     if (signal.aborted) {
-      // A chat took the model: kick() puts the job back in line instead of cancelling it
-      if (preempted(signal)) throw new Error('Preempted for a chat.');
+      // A chat or a pause took the model: kick() puts the job back in line instead of cancelling it
+      if (preempted(signal)) throw new Error('Set aside.');
       finish(row.id, 'cancelled', 'Stopped while it was running. Anything already suggested stays for review.');
       return null;
     }
@@ -508,9 +517,11 @@ export function retryNow() {
 // model: while a chat is under way, the working job is cut and put back in line, and no new job
 // is claimed until the chat is over.
 let chatsActive = 0;
+// Both reasons share one meaning: give the model up, put the job back in line, go no further
 const PREEMPT = { name: 'chat-preempt' };
+const PAUSE = { name: 'pause-preempt' };
 function preempted(signal: AbortSignal): boolean {
-  return (signal.reason as { name?: string } | undefined)?.name === 'chat-preempt';
+  return ['chat-preempt', 'pause-preempt'].includes((signal.reason as { name?: string } | undefined)?.name ?? '');
 }
 
 // Returns the job to the queue; used instead of finishing it as cancelled
@@ -561,10 +572,12 @@ export function kick() {
           await sleep(600);
           continue;
         }
-        // A tidy run was asked for by someone waiting on it, so it goes before a backlog of files,
-        // and pausing (which holds back files) does not hold it
-        const onlyTidy = isPaused() ? "AND mode IN ('tidy', 'plan')" : '';
-        const row = db().prepare(`SELECT * FROM ingest_jobs WHERE status = 'queued' ${onlyTidy} ORDER BY ${RUN_ORDER} LIMIT 1`).get() as any;
+        // The pause holds back everything, librarian runs included; wait out a resume
+        if (isPaused()) {
+          await sleep(600);
+          continue;
+        }
+        const row = db().prepare(`SELECT * FROM ingest_jobs WHERE status = 'queued' ORDER BY ${RUN_ORDER} LIMIT 1`).get() as any;
         if (!row) break;
         db().prepare("UPDATE ingest_jobs SET status = 'working', started_at = ? WHERE id = ?").run(now(), row.id);
         changed();

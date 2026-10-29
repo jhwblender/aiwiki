@@ -161,8 +161,7 @@ export default function BackgroundJobs() {
           </div>
           {state.paused && (
             <p className="muted small-text">
-              {c!.working > 0 ? 'The file being read finishes first, then filing stops. ' : ''}The librarian&apos;s runs still go while
-              filing is paused.
+              Filing and the librarian&apos;s runs are all held, and the run under way was set aside to go back in line on resume.
             </p>
           )}
 

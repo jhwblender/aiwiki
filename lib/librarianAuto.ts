@@ -7,7 +7,7 @@ import { lastChanged } from './wiki';
 // since it last looked, once filing is done and the changes have settled, and queues one tidy run:
 // the whole wiki first (the sections, the home page), then each changed section. A part with
 // librarian suggestions still waiting for review is left until people have decided on them, and a
-// run whose survey finds nothing ends without asking the model.
+// run whose survey finds nothing ends without asking the model. A paused queue holds it too.
 
 const secs = (name: string, fallback: number) => {
   const v = Number(process.env[name]);
@@ -43,9 +43,10 @@ export async function checkLibrarian(): Promise<string | null> {
   if (!librarianSettings().auto) return null;
   const d = db();
   if (d.prepare("SELECT 1 FROM ingest_jobs WHERE mode = 'tidy' AND status IN ('queued', 'working')").get()) return null;
-  // Wait for a batch of filing to finish; a paused backlog does not count as running
+  // A pause holds the librarian too: no run is queued and no survey started until resume
+  if (isPaused()) return null;
   const filing = d.prepare("SELECT status FROM ingest_jobs WHERE mode != 'tidy' AND status IN ('queued', 'working')").all() as { status: string }[];
-  if (filing.some((j) => j.status === 'working') || (filing.length && !isPaused())) return null;
+  if (filing.length) return null;
 
   const now = Date.now();
   const scopes = [WHOLE, ...(await listSections()).map((s) => s.section)];

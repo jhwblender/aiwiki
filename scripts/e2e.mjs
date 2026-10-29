@@ -886,17 +886,29 @@ try {
   const surveyed = await chat('Please tidy the notes section', 'Alex');
   check('the chat can survey a section', surveyed.reply === 'SURVEY-SEEN' && surveyed.trace?.includes('Surveyed the notes section'), JSON.stringify(surveyed));
   check('a missing section cannot be tidied', (await api('POST', '/api/librarian', { section: 'nowhere', user: 'Alex' })).status === 400);
-  // a slow file keeps the queue busy so the tidy has to wait, and filing is paused behind it
+  // a slow file keeps the queue busy, and pausing sets it aside at once rather than reading it out;
+  // the pause holds the librarian too, so a tidy queued behind it waits for resume
   const busyJob = await queueOne('busy.txt', 'FACT: Busy fact.\n', 'Please slowly add a style section');
   for (let i = 0; i < 80 && (await api('GET', '/api/ingest')).data.current?.job?.id !== busyJob; i++) await new Promise((r) => setTimeout(r, 100));
   await ctl('pause');
+  let aside = false;
+  let busyStatus = '';
+  for (let i = 0; i < 40 && !aside; i++) {
+    const st = (await api('GET', '/api/ingest')).data;
+    aside = st.paused === true && st.current === null;
+    busyStatus = (await jobStatus(busyJob)) ?? '';
+    if (!aside) await new Promise((r) => setTimeout(r, 100));
+  }
+  check('pausing sets the file being read aside at once', aside && busyStatus === 'queued', JSON.stringify(busyStatus));
   const tidyJob = (await api('POST', '/api/librarian', { section: 'notes', user: 'Alex', provider: 'local', limit: 3 })).data.job;
   check('a section is tidied only once at a time', (await api('POST', '/api/librarian', { section: 'notes', user: 'Alex' })).status === 400);
   check('a waiting tidy shows on its section', (await api('GET', '/api/librarian')).data.sections.find((s) => s.section === 'notes')?.run === 'queued');
-  const tidied = await waitJob(tidyJob);
-  check('a tidy runs while filing is paused', (await api('GET', '/api/ingest')).data.paused === true && tidied?.status === 'done');
+  await new Promise((r) => setTimeout(r, 1200));
+  const tidyStatus = await jobStatus(tidyJob);
+  check('a tidy waits while the queue is paused', tidyStatus === 'queued', JSON.stringify(tidyStatus));
   await ctl('resume');
-  await waitJob(busyJob);
+  const tidied = await waitJob(tidyJob);
+  check('resuming runs the tidy and reads the file', tidied?.status === 'done' && (await waitJob(busyJob))?.status === 'done', JSON.stringify({ tidied }));
   for (const p of (await getPage('docs/basics')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
   check('a tidy run suggests changes up to its limit', tidied?.status === 'done' && tidied.kind === 'tidy' &&
     JSON.stringify([...tidied.proposed].sort()) === JSON.stringify(['notes/guide', 'notes/pages', 'notes/writing']) && /over the limit/.test(tidied.detail ?? ''), JSON.stringify(tidied));
@@ -1092,13 +1104,15 @@ try {
   await api('POST', '/api/folders', { label: 'Bulk share', path: bulkDir, fileExisting: true });
   let bulkQueued = 0;
   for (let i = 0; i < 40 && bulkQueued < 2; i++) {
-    bulkQueued = (await api('GET', '/api/ingest')).data.jobs.filter((x) => x.folderLabel === 'Bulk share' && x.status === 'queued').length;
+    bulkQueued = (await api('GET', '/api/ingest')).data.jobs.filter((x) => x.folderLabel === 'Bulk share' && x.status === 'queued' && x.kind === 'file').length;
     if (bulkQueued < 2) await new Promise((r) => setTimeout(r, 250));
   }
+  // The pause holds the folder's plan job as well (it used to run while paused), so it is aimed
+  // for, cancelled and sent back with the two files
   const cancelledBulk = (await ctl('cancel-waiting', { folder: 'Bulk share' })).data.count;
   const backAgain = (await ctl('retry-cancelled', { folder: 'Bulk share' })).data.count;
-  const backNow = (await api('GET', '/api/ingest')).data.jobs.filter((x) => x.folderLabel === 'Bulk share' && x.status === 'queued').length;
-  check('cancelled work goes back in the queue in bulk', cancelledBulk === 2 && backAgain === 2 && backNow === 2, JSON.stringify({ cancelledBulk, backAgain, backNow }));
+  const backNow = (await api('GET', '/api/ingest')).data.jobs.filter((x) => x.folderLabel === 'Bulk share' && x.status === 'queued' && x.kind === 'file').length;
+  check('cancelled work goes back in the queue in bulk', cancelledBulk === 3 && backAgain === 3 && backNow === 2, JSON.stringify({ cancelledBulk, backAgain, backNow }));
   await api('POST', '/api/ingest/control', { action: 'resume' });
   const bulkJobs = (await api('GET', '/api/ingest')).data.jobs.filter((x) => x.folderLabel === 'Bulk share');
   for (const j of bulkJobs) await waitJob(j.id);
