@@ -7,8 +7,9 @@
 #   ./start.sh --shortcut  put a "Start wiki" file on the Windows desktop (WSL only)
 #   PORT=3001 ./start.sh   start from another port (a busy port falls back to the next free one)
 #
-# The first run checks for Node, npm and git, offers to download Node 22 if it
-# is missing, installs the packages, and creates .env.local from .env.example.
+# The first run checks for Node, npm and git, offers to download Node 22 if it is
+# missing or if only an older Node is installed, installs the packages, and creates
+# .env.local from .env.example.
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -129,10 +130,10 @@ wiki_node_works() {
 }
 
 ask_to_install_node() {
-  local answer
+  local answer reason="${1:-Node.js is not installed.}"
   # Without a terminal (a service, a pipe, a plain double-click) nobody can answer.
   [[ -t 0 && -t 1 ]] || return 1
-  printf '\nNode.js is not installed. The wiki needs Node 22.\n'
+  printf '\n%s The wiki needs Node 22.\n' "$reason"
   printf 'Download Node 22 into\n  %s\nand use it for the wiki? This needs no administrator password (about 30 MB).\n' "$WIKI_NODE_HOME"
   printf 'Install Node 22 now? [y/N] '
   read -r answer || return 1
@@ -292,6 +293,26 @@ NODE_VERSION="$(node -v 2>/dev/null)" || fail "Node.js is installed but does not
 NODE_MAJOR="${NODE_VERSION#v}"; NODE_MAJOR="${NODE_MAJOR%%.*}"
 [[ "$NODE_MAJOR" =~ ^[0-9]+$ ]] || fail "Could not read the Node.js version (got '$NODE_VERSION'). Install Node 22 or newer, then run this again."
 (( NODE_MAJOR >= 18 )) || fail "Node $NODE_VERSION is too old. Install Node 22 or newer."
+
+# The wiki is meant to run on Node 22 or newer (the PDF reader's parser is built and tested for
+# it, and the database module's official support starts there; older Node works but is not
+# supported by either). The Node this script can download beats the system's old one, and the
+# download keeps needing no administrator password.
+node_major() { local v; v="$($1 -v 2>/dev/null | sed -e 's/^v//' -e 's/\..*//')"; [[ "$v" =~ ^[0-9]+$ ]] && (( v >= 22 )) || false; }
+
+if (( NODE_MAJOR < 22 )); then
+  if wiki_node_works && node_major "$WIKI_NODE_HOME/bin/node"; then
+    PATH="$WIKI_NODE_HOME/bin:$PATH"; export PATH
+    NODE_VERSION="$(node -v)"; NODE_MAJOR="${NODE_VERSION#v}"; NODE_MAJOR="${NODE_MAJOR%%.*}"
+    say "Using the wiki's Node $NODE_VERSION instead of its older system Node."
+  elif ask_to_install_node "Node.js $NODE_VERSION is installed here, but 22 or newer is recommended"; then
+    install_wiki_node
+    PATH="$WIKI_NODE_HOME/bin:$PATH"; export PATH
+    command -v node >/dev/null || fail "Node.js was downloaded to $WIKI_NODE_HOME, but it cannot be run. Delete that folder and run ./start.sh again."
+    NODE_VERSION="$(node -v)"; NODE_MAJOR="${NODE_VERSION#v}"; NODE_MAJOR="${NODE_MAJOR%%.*}"
+    say "Using Node $NODE_VERSION from $WIKI_NODE_HOME"
+  fi
+fi
 (( NODE_MAJOR >= 22 )) || say "Note: Node $NODE_VERSION works, but Node 22 or newer is recommended (the PDF reader expects it)."
 
 # ---------- already running? ----------
@@ -360,6 +381,12 @@ if [[ ! -d node_modules || ! -f "$STAMP" ]] \
     fail "Installing packages failed. See the messages above and the log at $LOG."
   fi
   [[ -x node_modules/.bin/next ]] || fail "Packages were installed, but Next.js is missing from node_modules. Delete node_modules and run ./start.sh again."
+  # The native database module is fetched per Node release (its ABI): when the Node in use changed,
+  # the module that is there cannot be loaded and the fetcher needs another go under the new Node.
+  if ! node -e 'require("better-sqlite3")' >/dev/null 2>&1; then
+    say "Fetching the database module for Node $NODE_VERSION..."
+    npm rebuild better-sqlite3 2>&1 | tail -n 3
+  fi
   node -e 'require("better-sqlite3")' >/dev/null 2>&1 || fail "Packages were installed, but the database module (better-sqlite3) cannot start. Install the build tools (sudo apt install build-essential python3, or on macOS: xcode-select --install), delete node_modules, and run ./start.sh again."
   cp package-lock.json "$STAMP"
   rm -f "$LOG"
