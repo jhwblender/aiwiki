@@ -9,6 +9,7 @@ type UiMsg = ChatMsg & {
   trace?: string[];
   proposed?: { path: string; isNew: boolean }[];
   error?: boolean;
+  stopped?: boolean;
   attachments?: Attachment[];
 };
 
@@ -65,6 +66,7 @@ export default function ChatPanel({
   const [now, setNow] = useState(Date.now());
   const runIdRef = useRef<string | null>(null);
   const readerRef = useRef<AbortController | null>(null);
+  const areaRef = useRef<HTMLTextAreaElement>(null);
   const mounted = useRef(true);
 
   // Closing the panel only stops listening; the request keeps running on the server
@@ -254,7 +256,7 @@ export default function ChatPanel({
       localStorage.removeItem(RUN_KEY);
     } catch {}
     if (d.error === 'Stopped.') {
-      setMsgs((m) => [...m, { role: 'assistant', content: 'Stopped. Anything already suggested stays on its page for review.' }]);
+      setMsgs((m) => [...m, { role: 'assistant', content: 'Stopped. Anything already suggested stays on its page for review.', stopped: true }]);
       onChanged();
     } else if (d.error) {
       setMsgs((m) => [...m, { role: 'assistant', content: d.error!, error: true }]);
@@ -265,15 +267,27 @@ export default function ChatPanel({
     }
   }
 
-  // Send the last message again after an error - the network blip is often gone by now
+  // Send the last message again after an error or a stop - the network blip is often gone by now
   async function retryLast() {
     if (busy) return;
     const last = msgs[msgs.length - 1];
-    if (!last?.error) return;
+    if (!last?.error && !last?.stopped) return;
     const next: UiMsg[] = msgs.slice(0, -1);
     setMsgs(next);
     const lastUser = [...next].reverse().find((m) => m.role === 'user' && m.content);
     dispatch(next, lastUser?.attachments?.map((a) => a.id) ?? []);
+  }
+
+  // Put a stopped prompt back in the composer, with its files, for a look and a change before it
+  // goes again. The stopped attempt stays in the conversation as the record of what happened.
+  function editStopped() {
+    if (busy) return;
+    const lastUser = [...msgs].reverse().find((m) => m.role === 'user' && m.content);
+    if (!lastUser) return;
+    setInput(lastUser.content);
+    if (lastUser.attachments?.length)
+      setPending((p) => [...p, ...lastUser.attachments!.map((a) => ({ key: nextKey++, name: a.name, status: 'ready' as const, file: a }))]);
+    areaRef.current?.focus();
   }
 
   // Follow a run until it ends. Returns quietly if the panel closed meanwhile; the run carries on
@@ -363,7 +377,7 @@ export default function ChatPanel({
     const body = JSON.stringify({
       stream: true,
       messages: next
-        .filter((m) => !m.error)
+        .filter((m) => !m.error && !m.stopped)
         .map((m, i, all) => ({
           role: m.role,
           content: m.attachments?.length && i < all.length - 1 ? `${m.content}\n\n[Attached: ${m.attachments.map((a) => a.name).join(', ')}]` : m.content,
@@ -492,10 +506,17 @@ export default function ChatPanel({
                 <Link href="/settings">Check the model settings</Link>
               </p>
             )}
-            {m.error && i === msgs.length - 1 && !busy && (
-              <button className="btn small" onClick={retryLast}>
-                Try again
-              </button>
+            {(m.error || m.stopped) && i === msgs.length - 1 && !busy && (
+              <div className="msg-actions">
+                <button className="btn small" onClick={retryLast}>
+                  Try again
+                </button>
+                {m.stopped && (
+                  <button className="btn small quiet" onClick={editStopped}>
+                    Edit and send again
+                  </button>
+                )}
+              </div>
             )}
             {m.proposed && m.proposed.length > 0 && (
               <div className="proposed">
@@ -594,6 +615,7 @@ export default function ChatPanel({
           Attach files
         </button>
         <textarea
+          ref={areaRef}
           value={input}
           rows={2}
           placeholder={ready.length ? 'Say what to do with the files, or just send' : 'Ask or add information'}
