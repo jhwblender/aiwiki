@@ -706,6 +706,15 @@ try {
   const Database = (await import('better-sqlite3')).default;
   const movedDb = new Database(path.join(dataDir, 'wiki.db'), { readonly: true });
   try {
+    // A queue that has just gone idle can still be seconds from having written the moved folder's
+    // documents, so the checks wait for the documents themselves and only then assert
+    let movedReady = false;
+    for (let i = 0; i < 120 && !movedReady; i++) {
+      const keys = movedDb.prepare("SELECT COUNT(*) n FROM documents WHERE doc_key IN ('folder:renamed:keep.txt','folder:renamed:gone/deep.txt','folder:renamed:new/fresh.txt')").get().n;
+      const keepVersions = movedDb.prepare("SELECT COUNT(*) n FROM document_versions v JOIN documents d ON d.id = v.document_id WHERE d.doc_key = 'folder:renamed:keep.txt'").get().n;
+      if (keys === 3 && keepVersions === 2) movedReady = true;
+      else await new Promise((r) => setTimeout(r, 250));
+    }
     check('documents move to the new name, so nothing double-files',
       movedDb.prepare("SELECT COUNT(*) n FROM documents WHERE doc_key LIKE 'folder:Will rename:%'").get().n === 0 &&
       movedDb.prepare("SELECT COUNT(*) n FROM documents WHERE doc_key IN ('folder:renamed:keep.txt','folder:renamed:gone/deep.txt','folder:renamed:new/fresh.txt')").get().n === 3,
