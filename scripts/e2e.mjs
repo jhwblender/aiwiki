@@ -1142,6 +1142,19 @@ try {
     JSON.stringify({ clearedCancelled, left: leftCancelled.jobs.map((j) => [j.kind, j.displayName]) }));
   await api('POST', '/api/ingest/control', { action: 'resume' });
 
+  // 34g. A model the server no longer has waits the way an unreachable server does, instead of
+  // failing the job; the waiting reason names the trouble, and putting the model back carries on
+  await api('PUT', '/api/settings', { baseUrl: mockUrl, model: 'missing-model' });
+  const lostModelJob = await queueOne('lost-model.txt', 'FACT: Lost model fact.\n', 'Just keep this on file.');
+  await new Promise((r) => setTimeout(r, 5000));
+  const lostState = (await api('GET', '/api/ingest')).data;
+  check('a job for a model the server does not have waits instead of failing',
+    lostState.current === null && (await jobStatus(lostModelJob)) === 'queued' && lostState.waitingForModel !== null && /does not have that model/.test(lostState.waitingForModel.reason),
+    JSON.stringify({ current: lostState.current, waiting: lostState.waitingForModel }));
+  await api('PUT', '/api/settings', { baseUrl: mockUrl, model: 'mock' });
+  await ctl('retry-now');
+  check('the waiting job goes ahead once the model is set right', (await waitJob(lostModelJob))?.status === 'done');
+
   // 35. A long file comes in parts; the assistant reads on only where it chooses to
   const longText = Array.from({ length: 160 }, (_, i) => `Paragraph ${i} of the long manual describes care of the wiki in plain words.`).join('\n\n') + '\n\nPART-TWO-MARKER is near the end.\n';
   const longFile = await upload([['long-notes.txt', Buffer.from(longText), 'text/plain']]);

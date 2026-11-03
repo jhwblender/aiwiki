@@ -590,6 +590,11 @@ export function startMock(port = 4555) {
       }
       // "slowly" in the opening message makes the first model call take a moment, to see progress in the UI
       const body = JSON.parse(raw || '{}');
+      // a 404 like Ollama's when the model is not there: jobs wait for the model instead of failing
+      if (body.model === 'missing-model') {
+        send(404, { error: { message: "model 'missing-model' not found", type: 'not_found' } });
+        return;
+      }
       const slow =
         (body.messages ?? []).some((m) => m.role === 'user' && typeof m.content === 'string' && /slowly/i.test(m.content)) &&
         !(body.messages ?? []).some((m) => m.role === 'assistant');

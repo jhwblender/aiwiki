@@ -341,7 +341,11 @@ function finish(id: number, status: JobStatus, detail: string, proposed: string[
 const day = (iso: string) => iso.slice(0, 10);
 
 // The model server is not answering at all (as opposed to failing on one document)
-const MODEL_DOWN = /Could not reach|Could not connect|Nothing is answering|fetch failed|ECONNREFUSED|ECONNRESET|was dropped|cannot be found\. Check the address/i;
+// A model server that is not there, or no longer has the model it is asked for, is a wait for the
+// same reason: it may be restarting, updating or mid-configuration, and failing a whole waiting
+// list over it loses nothing and helps nobody. The wording here matches the plain messages the
+// request layer produces for those two cases.
+const MODEL_DOWN = /Could not reach|Could not connect|Nothing is answering|fetch failed|ECONNREFUSED|ECONNRESET|was dropped|cannot be found\. Check the address|does not have that model|answered, but not at this address/i;
 class ModelDown extends Error {}
 
 // Runs the assistant for a job; a stopped run is recorded as cancelled, an unreachable model waits

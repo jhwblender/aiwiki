@@ -48,6 +48,12 @@ function describeStatus(status: number, body: string): string {
 
 const CONNECT_MS = 10_000;
 
+// The whole wait for one model answer. A local model on a long prompt (a big document, a chat
+// whose context grew through many tool calls) can take many minutes before a byte arrives, so
+// this is generous; a server that is really stuck gives the run back with the plain reason after
+// it. MODEL_TIMEOUT_SECONDS overrides it.
+const MODEL_WAIT_SECONDS = Math.max(120, Number(process.env.MODEL_TIMEOUT_SECONDS) || 30 * 60);
+
 // One request with Node's own http module. fetch is not used for model calls: it gives up after five
 // minutes without a reply, whatever timeout is asked for, and a large local model on a long prompt
 // can take longer than that before it answers at all.
@@ -167,7 +173,7 @@ export function localProvider(s: LocalModelSettings): Provider {
           // a plain question (no tools) leaves the field out; some servers reject an empty list
           ...(tools.length ? { tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } })) } : {}),
         },
-        900,
+        MODEL_WAIT_SECONDS,
         signal,
       );
       const msg = data.choices?.[0]?.message ?? {};
@@ -197,7 +203,7 @@ export async function describeLocalImage(s: LocalModelSettings, image: { data: B
         },
       ],
     },
-    900,
+    MODEL_WAIT_SECONDS,
     signal,
   );
   const text = String(data.choices?.[0]?.message?.content ?? '').trim();
