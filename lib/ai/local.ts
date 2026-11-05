@@ -128,6 +128,22 @@ export async function localRequest(
   }
 }
 
+// Ask the model server to unload its model right away, so a stopped wiki actually frees the
+// machine it runs on instead of leaving the model in memory for the server's own idle timer.
+// Best effort only: known to work on Ollama's own API; a server without such an endpoint answers
+// with an error that the caller reports honestly.
+export async function unloadLocalModel(s: LocalModelSettings): Promise<boolean> {
+  if (!s.baseUrl || !s.model) return false;
+  const root = s.baseUrl.replace(/\/v1\/?$/, '');
+  if (!root) return false;
+  try {
+    const { status } = await send(`${root}/api/generate`, 'POST', { 'Content-Type': 'application/json' }, JSON.stringify({ model: s.model, keep_alive: 0 }), 5000);
+    return status >= 200 && status < 300;
+  } catch {
+    return false;
+  }
+}
+
 function parseToolCalls(msg: any): ToolCall[] {
   return (msg?.tool_calls ?? []).map((tc: any, i: number) => {
     let args: Record<string, any> = {};

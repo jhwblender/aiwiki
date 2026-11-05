@@ -833,6 +833,13 @@ try {
   await ctl('resume');
   check('resuming files what was waiting', (await waitJob(pausedJob))?.status === 'done');
 
+  // Stopping the AI: the same full pause, plus a best-effort ask to the model server to unload;
+  // the mock has no such endpoint, and the paused state is set all the same
+  const stopAi = await ctl('stop-ai');
+  check('stopping the AI holds the queue and says honestly whether the model freed its memory',
+    stopAi.status === 200 && stopAi.data.ok === true && stopAi.data.freed === false && (await api('GET', '/api/ingest')).data.paused === true, JSON.stringify(stopAi.data));
+  await ctl('resume');
+
   const slowJob = await queueOne('slow.txt', 'FACT: Slow fact.\n', 'Please slowly add a style section');
   let live = null;
   for (let i = 0; i < 80 && !live; i++) {

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { beginChat, cancelWaiting, clearCancelled, clearFinished, retryFailed, retryNow, retryStopped, setPaused } from '@/lib/queue';
+import { unloadLocalModel } from '@/lib/ai/local';
+import { localModelSettings } from '@/lib/settings';
 import { fail, requireUser, isResponse } from '@/lib/api';
 
 export const runtime = 'nodejs';
@@ -16,6 +18,11 @@ export async function POST(req: NextRequest) {
       case 'pause':
         setPaused(true);
         return NextResponse.json({ ok: true });
+      case 'stop-ai':
+        // The same full stop as pausing, plus a best-effort ask to the local model server to
+        // unload its model now, so the machine really is freed
+        setPaused(true);
+        return NextResponse.json({ ok: true, freed: await unloadLocalModel(localModelSettings()) });
       case 'resume':
         setPaused(false);
         return NextResponse.json({ ok: true });
