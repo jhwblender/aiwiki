@@ -431,6 +431,21 @@ say "Starting the wiki"
 echo "  On this computer:  http://localhost:${PORT}"
 [[ -n "$LAN_IP" ]] && echo "  On the network:    http://${LAN_IP}:${PORT}  (if your firewall allows it)"
 echo "  Stop it with Ctrl+C."
+# In WSL with mirrored networking the wiki is on the machine's own network addresses; only the
+# Windows firewall stands between it and other devices. Say what to run about it, once, so the
+# line above is not a mystery. (Classic NAT networking hands out a 172.* address that no other
+# device can reach, which needs a Windows port forward instead; say that too.)
+if [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
+  if [[ "$(hostname -I 2>/dev/null)" == *172.1[6-9].* || "$(hostname -I 2>/dev/null)" == *172.2?.* || "$(hostname -I 2>/dev/null)" == *172.3[01].* ]]; then
+    echo "  Other devices cannot reach a WSL address like this directly. From Windows (admin PowerShell):"
+    echo "    netsh interface portproxy add v4tov4 listenport=${PORT} listenaddress=0.0.0.0 connectport=${PORT} connectaddress=$LAN_IP"
+    echo "  and allow port ${PORT} through the firewall for other devices to arrive."
+  elif [[ -n "$LAN_IP" ]]; then
+    echo "  If other devices cannot open the network address, run this once on Windows in an admin PowerShell:"
+    echo "    New-NetFirewallRule -DisplayName 'Wiki' -Direction Inbound -Protocol TCP -LocalPort ${PORT} -Action Allow"
+    echo "    Set-NetFirewallHyperVVMSetting -Name '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -DefaultInboundAction Allow"
+  fi
+fi
 echo
 
 # Remember it for "already running?" on the next start and for ./stop.sh.
