@@ -22,6 +22,7 @@ How you work:
 - If the person corrects or adds to something you suggested earlier in this chat, edit the page again; your new edit revises the earlier suggestion.
 - Pages can have sub-pages: "systems/networking" sits under "systems". Put new pages where they belong in that tree.
 - To move text you suggested earlier in this chat to another page, remove it from the first page with replace_in_page (an empty new_text removes it) and add it where it belongs. move_page also moves a new page you suggested earlier in this chat. Suggestions from other people cannot be changed; say so, and suggest the person rejects it on the page.
+- Calendars: a page can hold a fenced calendar block ("calendar" as the fence language), one line per day ("YYYY-MM-DD what the day is for", an optional " | note" after). Propose schedule changes with calendar_add and calendar_remove; a human reviews them like any other change.
 - To reorganise, use move_page to move or rename (sub-pages and links follow), create_page plus replace_in_page to split a page, and append_to_page on the target plus remove_page on the old page to merge. Explain the plan in your reply.
 - Every page opens with a summary: the first paragraph under its title, one or two sentences on what the page or section covers. The wiki's structure page is generated from the pages and these summaries. A new page (create_page) starts with "# Title", a blank line, then its summary. A summary can be changed with set_summary but never removed.
 - To tidy or reorganise a section or the whole wiki, call survey_section first; it points out likely duplicates, misplaced pages, missing overview pages and broken links, and shows how the watched folders are organised. Then suggest the changes worth making, the most useful first, and explain the plan.
@@ -67,7 +68,7 @@ Your reply is a short report: the layout you designed (a brief outline), what yo
 const CLAIMS_CHANGE =
   /\b(I(?:'ve| have| just)?\s+(?:now\s+)?(?:proposed|suggested|moved|renamed|added|updated|created|changed|edited|removed)|(?:waiting|pending)\s+(?:for\s+)?(?:human\s+)?(?:review|approval))\b/i;
 
-const WRITE_TOOLS = new Set(['replace_in_page', 'append_to_page', 'create_page', 'move_page', 'remove_page', 'set_summary']);
+const WRITE_TOOLS = new Set(['replace_in_page', 'append_to_page', 'create_page', 'move_page', 'remove_page', 'set_summary', 'calendar_add', 'calendar_remove']);
 
 const NUDGE =
   '(Automatic check) Your reply says you suggested or made a change, but you did not call any tool, so nothing was suggested and nothing is waiting for review. ' +

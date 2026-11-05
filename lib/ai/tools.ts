@@ -7,6 +7,7 @@ import { db } from '../db';
 import { librarianSettings, surveySection, WHOLE } from '../librarian';
 import { summaryOf, withSummary } from '../structure';
 import { summaryProblem } from '../summary';
+import { addCalendarEntry, removeCalendarEntry, findCalendarBlock, parseCalendar } from '../calendar';
 import type { ToolDef } from './providers';
 
 export const toolDefs: ToolDef[] = [
@@ -45,6 +46,37 @@ export const toolDefs: ToolDef[] = [
         summary: { type: 'string', description: 'One short sentence describing the change, for the reviewer.' },
       },
       required: ['path', 'old_text', 'new_text', 'summary'],
+    },
+  },
+  {
+    name: 'calendar_add',
+    description:
+      'Propose adding a day to a calendar block on a page (a ```calendar section with one line per day). Day resolution only: date is YYYY-MM-DD, a title is what the day is for, and an optional note follows it. The page gains a calendar block if it has none. The change is NOT published; a human reviews it.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'The page holding the calendar.' },
+        date: { type: 'string', description: 'The day, as YYYY-MM-DD.' },
+        title: { type: 'string', description: 'What the day is for, briefly.' },
+        note: { type: 'string', description: 'Optional extra detail for the day.' },
+        summary: { type: 'string', description: 'One short sentence describing the change, for the reviewer.' },
+      },
+      required: ['path', 'date', 'title', 'summary'],
+    },
+  },
+  {
+    name: 'calendar_remove',
+    description:
+      'Propose removing a day from a calendar block on a page. date is YYYY-MM-DD; include title when that day holds several entries. The change is NOT published; a human reviews it.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'The page holding the calendar.' },
+        date: { type: 'string', description: 'The day to take out, as YYYY-MM-DD.' },
+        title: { type: 'string', description: 'The entry title, when that day holds more than one.' },
+        summary: { type: 'string', description: 'One short sentence describing the change, for the reviewer.' },
+      },
+      required: ['path', 'date', 'summary'],
     },
   },
   {
@@ -488,6 +520,50 @@ export async function runTool(name: string, args: Record<string, any>, ctx: Tool
         const csId = await ensureChangeSet(ctx, String(args.summary ?? 'Update page'));
         if (!(await stage(ctx, csId, p, next, w.revising))) return WITHDRAWN(p);
         return `Proposed change to "${p}". It is pending human review and not live yet.`;
+      }
+      case 'calendar_add': {
+        const p = normalizePath(String(args.path ?? ''));
+        const date = String(args.date ?? '').trim();
+        const title = String(args.title ?? '').replace(/\r?\n/g, ' ').trim();
+        const note = String(args.note ?? '').replace(/\r?\n/g, ' ').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return 'date must be a day as YYYY-MM-DD.';
+        if (!title && !note) return 'A calendar entry needs a title or a note. Nothing was staged.';
+        const w = await working(ctx, p);
+        if (!w.exists) return `No page at "${p}". Use create_page for a new page, or add the calendar to an existing one.`;
+        if (findCalendarBlock(w.content)) {
+          const parsed = parseCalendar(findCalendarBlock(w.content)!.text);
+          if (parsed.some((e) => e.date === date && e.title.toLowerCase() === title.toLowerCase())) return 'That day already carries this entry. Nothing to add.';
+        }
+        const next = addCalendarEntry(w.content, { date, title, note });
+        const cited = citesSource(ctx, next, w.content);
+        if (cited) return citationError(cited);
+        const lost = summaryProblem(w.content, next);
+        if (lost) return `Error: ${lost} Use set_summary to change it. Nothing was staged.`;
+        const csId = await ensureChangeSet(ctx, String(args.summary ?? `Schedule ${date}${title ? `: ${title}` : ''}`));
+        if (!(await stage(ctx, csId, p, next, w.revising))) return WITHDRAWN(p);
+        return `Proposed adding ${date}${title ? ` (${title})` : ''} to the calendar on "${p}". It is pending human review.`;
+      }
+      case 'calendar_remove': {
+        const p = normalizePath(String(args.path ?? ''));
+        const date = String(args.date ?? '').trim();
+        const title = String(args.title ?? '').replace(/\r?\n/g, ' ').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return 'date must be a day as YYYY-MM-DD.';
+        const w = await working(ctx, p);
+        if (!w.exists) return `No page at "${p}".`;
+        const next = removeCalendarEntry(w.content, date, title || undefined);
+        if (next === null) {
+          const hasBlock = !!findCalendarBlock(w.content);
+          return hasBlock
+            ? `No entry on ${date}${title ? ` titled "${title}"` : ''} in the calendar on "${p}". Call read_page and copy the day exactly.`
+            : `The page "${p}" has no calendar block. Nothing was staged.`;
+        }
+        const cited = citesSource(ctx, next, w.content);
+        if (cited) return citationError(cited);
+        const lost = summaryProblem(w.content, next);
+        if (lost) return `Error: ${lost} Use set_summary to change it. Nothing was staged.`;
+        const csId = await ensureChangeSet(ctx, String(args.summary ?? `Remove ${date}${title ? ` (${title})` : ''} from the calendar on "${p}"`));
+        if (!(await stage(ctx, csId, p, next, w.revising))) return WITHDRAWN(p);
+        return `Proposed removing ${date}${title ? ` (${title})` : ''} from the calendar on "${p}". It is pending human review.`;
       }
       case 'append_to_page': {
         const p = normalizePath(String(args.path ?? ''));

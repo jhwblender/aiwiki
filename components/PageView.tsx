@@ -173,6 +173,9 @@ export default function PageView({
   const router = useRouter();
   const [data, setData] = useState<PageData | null>(null);
   const [editing, setEditing] = useState(false);
+  // The live preview of what is being written is on by default: the point of the editor is to see
+  // the page as it will read, with the markdown in view beside it for the brackets and lists
+  const [showPreview, setShowPreview] = useState(true);
   const [draft, setDraft] = useState('');
   // The summary is edited in its own box, so it can be changed but not dropped by accident
   const [summaryDraft, setSummaryDraft] = useState('');
@@ -381,11 +384,25 @@ export default function PageView({
           <div className="field">
             <div className="field-head">
               <span>Page</span>
-              <button type="button" className="btn small quiet" onClick={() => setPickingLink(true)}>
-                Insert link
-              </button>
+              <span className="field-head-actions">
+                <button type="button" className="btn small quiet" aria-pressed={showPreview} onClick={() => setShowPreview(!showPreview)}>
+                  {showPreview ? 'Hide preview' : 'Show preview'}
+                </button>
+                <button type="button" className="btn small quiet" onClick={() => setPickingLink(true)}>
+                  Insert link
+                </button>
+              </span>
             </div>
-            <textarea value={draft} onChange={(e) => setDraft(e.target.value)} spellCheck autoFocus ref={bodyArea} />
+            {/* The page is written in markdown and shown as it will read; the markdown side stays
+                because headings, lists and [[links]] are still typed the markdown way */}
+            <div className={'editor-work' + (showPreview ? ' split' : '')}>
+              <textarea value={draft} onChange={(e) => setDraft(e.target.value)} spellCheck autoFocus ref={bodyArea} />
+              {showPreview && (
+                <div className="editor-preview" aria-label="What the page will read like">
+                  {draft.trim() ? <Md>{draft}</Md> : <p className="muted small-text">The page reads live here as you write.</p>}
+                </div>
+              )}
+            </div>
           </div>
           <div className="editor-bar">
             <button className="btn primary" disabled={busy || !!summaryNote} onClick={save}>

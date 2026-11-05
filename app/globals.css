@@ -221,6 +221,29 @@ a.btn { display: inline-block; text-decoration: none; color: var(--ink); }
 .field { display: flex; flex-direction: column; gap: 4px; margin-top: 14px; font-size: 13px; font-weight: 500; }
 .field input { padding: 8px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); font-size: 15px; font-weight: 400; }
 .field-help { margin: 4px 0 0; }
+.field-head-actions { display: flex; gap: 6px; }
+.editor-work { display: grid; gap: 10px; align-items: start; }
+.editor-work.split { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.editor-preview { border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; background: var(--paper); overflow-wrap: anywhere; min-height: 160px; }
+@media (max-width: 900px) {
+  .editor-work.split { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ---------- calendar block ---------- */
+.cal { border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px 12px; margin: 12px 0; font-family: var(--font-ui); }
+.cal-head { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 14px; }
+.cal-head button { border: 0; background: none; cursor: pointer; font-size: 15px; line-height: 1; padding: 2px 8px; color: var(--ink-soft); border-radius: 5px; }
+.cal-head button:hover { color: var(--teal); background: var(--teal-soft); }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; margin-top: 8px; }
+.cal-wd { font-size: 11px; color: var(--ink-soft); text-align: center; font-weight: 600; padding-bottom: 2px; }
+.cal-day { min-height: 46px; border: 1px solid var(--rule); border-radius: 5px; font-size: 12px; padding: 2px 4px; background: var(--paper); overflow-wrap: anywhere; }
+.cal-day .n { display: block; color: var(--ink-soft); }
+.cal-day.today { border-color: var(--teal); box-shadow: inset 0 0 0 1px var(--teal); }
+.cal-day.dim { background: none; border-color: transparent; }
+.cal-entry { display: block; font-size: 11.5px; line-height: 1.35; margin-top: 2px; color: var(--ink); }
+.cal-entry p { margin: 0; font-family: inherit; font-size: inherit; }
+.cal-entry .missing-link { color: var(--ink-soft); }
+.cal-empty { margin: 6px 0 0; font-size: 12px; }
 .presets { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
 .btn.picked { border-color: var(--teal); background: var(--teal-soft); }
 .check { display: flex; align-items: center; gap: 6px; margin-top: 8px; }

@@ -345,6 +345,19 @@ const SCENARIOS = [
     reply: 'I moved the suggested photos page under archive.',
   },
   {
+    keyword: 'schedule the integration test',
+    steps: [
+      { name: 'calendar_add', args: { path: 'docs/basics', date: '2027-03-01', title: 'Integration test day', note: 'bring the radar', summary: 'Schedule the integration test' } },
+      { name: 'calendar_add', args: { path: 'docs/basics', date: '2027-03-05', title: 'Radar review', summary: 'Schedule the radar review' } },
+    ],
+    reply: 'I scheduled the integration test day and the radar review on the calendar.',
+  },
+  {
+    keyword: 'drop the integration test entry',
+    steps: [{ name: 'calendar_remove', args: { path: 'docs/basics', date: '2027-03-01', title: 'Integration test day', summary: 'Take the integration test out of the calendar' } }],
+    reply: 'I proposed removing the integration test day from the calendar.',
+  },
+  {
     keyword: 'relocate the archive photos page',
     steps: [{ name: 'move_page', args: { path: 'archive/photos', new_path: 'misc/photos', summary: 'Somewhere else' } }],
     reply: 'Done.',

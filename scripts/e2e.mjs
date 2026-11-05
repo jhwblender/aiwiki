@@ -1247,6 +1247,21 @@ try {
     !pageFile('docs/basics').includes('Titles are short and lowercase.') && pageFile('docs/basics').includes('Added after the approval.'),
     JSON.stringify(editUndone.data));
 
+  // 39. A calendar block on a page: the assistant schedules and removes days, a person approves,
+  // and the block stays plain markdown the whole way through
+  await chat('Please schedule the integration test in the schedule', 'Alex', 'local', 'e2e-chat-cal');
+  const calSet = (await getPage('docs/basics')).pending[0];
+  check('a calendar suggestion waits on the page', !!calSet && !!calSet.proposalId && /schedule/i.test(calSet.summary ?? ''), JSON.stringify(calSet?.summary));
+  const calOk = await api('POST', `/api/proposals/${calSet.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
+  const calFile = pageFile('docs/basics');
+  check('approving it puts the calendar lines in the page',
+    calOk.status === 200 && calFile.includes('```calendar') && calFile.indexOf('2027-03-01 Integration test day | bring the radar') < calFile.indexOf('2027-03-05 Radar review'), JSON.stringify(calFile.slice(-260)));
+  await chat('Drop the integration test entry from the calendar', 'Alex', 'local', 'e2e-chat-cal2');
+  const calRm = (await getPage('docs/basics')).pending[0];
+  await api('POST', `/api/proposals/${calRm.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
+  check('removing a calendar entry takes the line out and the block stays',
+    !pageFile('docs/basics').includes('2027-03-01') && pageFile('docs/basics').includes('2027-03-05 Radar review') && pageFile('docs/basics').includes('```calendar'), JSON.stringify(pageFile('docs/basics').slice(-160)));
+
   // only editors can undo
   await login('Vera', 'vera-pass-1234');
   check('a viewer cannot undo', (await api('POST', '/api/history', { action: 'undo', commit: editEntry.commit, user: 'Vera' })).status === 403);
