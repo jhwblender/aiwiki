@@ -53,42 +53,43 @@ function Branch({ node, current, open, toggle }: { node: Node; current: string; 
   const kids = [...node.children.values()].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
   return (
     <ul className="tree">
-      {kids.map((k) => (
-        <li key={k.path}>
-          <div className="tree-row">
-            <button
-              type="button"
-              className={'tree-caret' + (k.children.size > 0 ? (open.has(k.path) ? ' open' : '') : ' empty')}
-              aria-expanded={k.children.size > 0 ? open.has(k.path) : undefined}
-              aria-label={k.children.size > 0 ? `${open.has(k.path) ? 'Collapse' : 'Expand'} ${k.name.replace(/[-_]/g, ' ')}` : undefined}
-              tabIndex={k.children.size > 0 ? 0 : -1}
-              onClick={
-                k.children.size > 0
-                  ? (e) => {
-                      e.stopPropagation();
-                      toggle(k.path);
-                    }
-                  : undefined
-              }
-            />
-            {k.page ? (
-              <Link href={`/wiki/${k.page.path}`} className={'tree-item' + (k.path === current ? ' active' : '')}>
-                <span className="tree-name">{k.page.title}</span>
-                {k.page.pending > 0 && (
-                  <span className="badge" title={`${k.page.pending} suggestion${k.page.pending > 1 ? 's' : ''} waiting for review`}>
-                    {k.page.isNew ? 'new' : k.page.pending}
-                  </span>
-                )}
-              </Link>
-            ) : (
-              <Link href={`/wiki/${k.path}`} className={'tree-folder' + (k.path === current ? ' active' : '')}>
-                {k.name.replace(/[-_]/g, ' ')}
-              </Link>
+      {kids.map((k) => {
+        const item = k.page ? (
+          <Link href={`/wiki/${k.page.path}`} className={'tree-item' + (k.path === current ? ' active' : '')}>
+            <span className="tree-name">{k.page.title}</span>
+            {k.page.pending > 0 && (
+              <span className="badge" title={`${k.page.pending} suggestion${k.page.pending > 1 ? 's' : ''} waiting for review`}>
+                {k.page.isNew ? 'new' : k.page.pending}
+              </span>
             )}
-          </div>
-          {k.children.size > 0 && open.has(k.path) && <Branch node={k} current={current} open={open} toggle={toggle} />}
-        </li>
-      ))}
+          </Link>
+        ) : (
+          <Link href={`/wiki/${k.path}`} className={'tree-folder' + (k.path === current ? ' active' : '')}>
+            {k.name.replace(/[-_]/g, ' ')}
+          </Link>
+        );
+        // Only a level that holds something underneath carries the caret; a page at the end of a
+        // branch sits at the same left edge as the folder names beside it, without a slot of its own
+        if (k.children.size === 0) return <li key={k.path}>{item}</li>;
+        return (
+          <li key={k.path}>
+            <div className="tree-row">
+              <button
+                type="button"
+                className={'tree-caret' + (open.has(k.path) ? ' open' : '')}
+                aria-expanded={open.has(k.path)}
+                aria-label={`${open.has(k.path) ? 'Collapse' : 'Expand'} ${k.name.replace(/[-_]/g, ' ')}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggle(k.path);
+                }}
+              />
+              {item}
+            </div>
+            {open.has(k.path) && <Branch node={k} current={current} open={open} toggle={toggle} />}
+          </li>
+        );
+      })}
     </ul>
   );
 }
