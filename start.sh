@@ -344,10 +344,16 @@ fi
 # ---------- packages: install when missing, incomplete, or when the package list changed ----------
 STAMP=node_modules/.installed-lock
 
-# Both the server and the native database module must work. Checking them
-# catches a half-finished install and a Node upgrade that broke better-sqlite3.
+# Both the server and the native database module must work. The database check does real work in
+# a database in memory, because a module built for one Node release can still load under another
+# and only crash when it is used: loading alone is not enough to call it working.
+sqlite_ok() {
+  node -e 'const db=require("better-sqlite3")(":memory:"); db.exec("CREATE TABLE t(x)"); db.prepare("INSERT INTO t VALUES (7)").run(); if (db.prepare("SELECT x FROM t").get().x !== 7) process.exit(1);' >/dev/null 2>&1
+}
+
+# The check catches a half-finished install and a Node upgrade that broke better-sqlite3.
 packages_ready() {
-  [[ -x node_modules/.bin/next ]] && node -e 'require("better-sqlite3")' >/dev/null 2>&1
+  [[ -x node_modules/.bin/next ]] && sqlite_ok
 }
 
 [[ -f package-lock.json ]] || fail "package-lock.json is missing, so the packages cannot be installed. Restore it (git checkout -- package-lock.json) and run ./start.sh again."
@@ -382,12 +388,13 @@ if [[ ! -d node_modules || ! -f "$STAMP" ]] \
   fi
   [[ -x node_modules/.bin/next ]] || fail "Packages were installed, but Next.js is missing from node_modules. Delete node_modules and run ./start.sh again."
   # The native database module is fetched per Node release (its ABI): when the Node in use changed,
-  # the module that is there cannot be loaded and the fetcher needs another go under the new Node.
-  if ! node -e 'require("better-sqlite3")' >/dev/null 2>&1; then
+  # the module that is there can load but not be used, so the fetcher has another go here under
+  # the Node that will run the wiki.
+  if ! sqlite_ok; then
     say "Fetching the database module for Node $NODE_VERSION..."
     npm rebuild better-sqlite3 2>&1 | tail -n 3
   fi
-  node -e 'require("better-sqlite3")' >/dev/null 2>&1 || fail "Packages were installed, but the database module (better-sqlite3) cannot start. Install the build tools (sudo apt install build-essential python3, or on macOS: xcode-select --install), delete node_modules, and run ./start.sh again."
+  sqlite_ok || fail "Packages were installed, but the database module (better-sqlite3) cannot start. Install the build tools (sudo apt install build-essential python3, or on macOS: xcode-select --install), delete node_modules, and run ./start.sh again."
   cp package-lock.json "$STAMP"
   rm -f "$LOG"
 fi
