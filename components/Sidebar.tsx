@@ -145,6 +145,20 @@ export default function Sidebar({
       return next;
     });
   }, [current]);
+  // A waiting suggestion hangs its badge on the page it belongs to, whose levels are closed, so
+  // the levels down to every page carrying suggestions open on their own; they last only while
+  // the suggestions do
+  useEffect(() => {
+    if (!items.length) return;
+    const paths: string[] = [];
+    for (const it of items) if (it.pending > 0) paths.push(...pathTo(it.path));
+    if (!paths.length) return;
+    setOpen((prev) => {
+      const next = new Set(prev);
+      for (const p of paths) next.add(p);
+      return next.size === prev.size ? prev : next;
+    });
+  }, [items]);
   const toggle = (path: string) => {
     setOpen((prev) => {
       const next = new Set(prev);
