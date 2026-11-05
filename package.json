@@ -6,7 +6,7 @@
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start -p 3000",
-    "e2e": "node scripts/e2e.mjs",
+    "e2e": "sh -c 'WN=\"${XDG_DATA_HOME:-$HOME/.local/share}/aiwiki/node/bin\"; [ -x \"$WN/node\" ] && PATH=\"$WN:$PATH\"; exec node scripts/e2e.mjs'",
     "mock-llm": "node scripts/mock-llm.mjs"
   },
   "dependencies": {

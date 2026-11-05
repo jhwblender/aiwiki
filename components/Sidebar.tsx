@@ -7,6 +7,30 @@ import PlaceDialog from './PlaceDialog';
 
 type Node = { name: string; path: string; page?: PageListItem; children: Map<string, Node> };
 
+// Which folders the person left open, remembered between visits; the tree starts closed and only
+// what they opened (or where they are now) is visible
+const OPEN_KEY = 'wiki-tree-open';
+
+function savedOpen(): Set<string> {
+  const set = new Set<string>();
+  try {
+    const saved = JSON.parse(localStorage.getItem(OPEN_KEY) || '[]');
+    if (Array.isArray(saved)) for (const p of saved) if (typeof p === 'string') set.add(p);
+  } catch {}
+  return set;
+}
+
+// The folder levels from the top down to where the person is, so the current page is visible
+function pathTo(current: string): string[] {
+  const parts = current.split('/');
+  const out: string[] = [];
+  for (let i = 1; i <= parts.length; i++) {
+    const p = parts.slice(0, i).join('/');
+    if (p) out.push(p);
+  }
+  return out;
+}
+
 function buildTree(items: PageListItem[]): Node {
   const root: Node = { name: '', path: '', children: new Map() };
   for (const it of items) {
@@ -22,7 +46,7 @@ function buildTree(items: PageListItem[]): Node {
   return root;
 }
 
-function Branch({ node, current }: { node: Node; current: string }) {
+function Branch({ node, current, open, toggle }: { node: Node; current: string; open: Set<string>; toggle: (path: string) => void }) {
   // The home page is the wiki's front door, so it comes first; then folders that only group pages,
   // then everything else, each alphabetically
   const rank = (n: Node) => (n.path === 'index' ? 0 : n.children.size > 0 && !n.page ? 1 : 2);
@@ -31,21 +55,38 @@ function Branch({ node, current }: { node: Node; current: string }) {
     <ul className="tree">
       {kids.map((k) => (
         <li key={k.path}>
-          {k.page ? (
-            <Link href={`/wiki/${k.page.path}`} className={'tree-item' + (k.path === current ? ' active' : '')}>
-              <span className="tree-name">{k.page.title}</span>
-              {k.page.pending > 0 && (
-                <span className="badge" title={`${k.page.pending} suggestion${k.page.pending > 1 ? 's' : ''} waiting for review`}>
-                  {k.page.isNew ? 'new' : k.page.pending}
-                </span>
-              )}
-            </Link>
-          ) : (
-            <Link href={`/wiki/${k.path}`} className={'tree-folder' + (k.path === current ? ' active' : '')}>
-              {k.name.replace(/[-_]/g, ' ')}
-            </Link>
-          )}
-          {k.children.size > 0 && <Branch node={k} current={current} />}
+          <div className="tree-row">
+            <button
+              type="button"
+              className={'tree-caret' + (k.children.size > 0 ? (open.has(k.path) ? ' open' : '') : ' empty')}
+              aria-expanded={k.children.size > 0 ? open.has(k.path) : undefined}
+              aria-label={k.children.size > 0 ? `${open.has(k.path) ? 'Collapse' : 'Expand'} ${k.name.replace(/[-_]/g, ' ')}` : undefined}
+              tabIndex={k.children.size > 0 ? 0 : -1}
+              onClick={
+                k.children.size > 0
+                  ? (e) => {
+                      e.stopPropagation();
+                      toggle(k.path);
+                    }
+                  : undefined
+              }
+            />
+            {k.page ? (
+              <Link href={`/wiki/${k.page.path}`} className={'tree-item' + (k.path === current ? ' active' : '')}>
+                <span className="tree-name">{k.page.title}</span>
+                {k.page.pending > 0 && (
+                  <span className="badge" title={`${k.page.pending} suggestion${k.page.pending > 1 ? 's' : ''} waiting for review`}>
+                    {k.page.isNew ? 'new' : k.page.pending}
+                  </span>
+                )}
+              </Link>
+            ) : (
+              <Link href={`/wiki/${k.path}`} className={'tree-folder' + (k.path === current ? ' active' : '')}>
+                {k.name.replace(/[-_]/g, ' ')}
+              </Link>
+            )}
+          </div>
+          {k.children.size > 0 && open.has(k.path) && <Branch node={k} current={current} open={open} toggle={toggle} />}
         </li>
       ))}
     </ul>
@@ -86,6 +127,34 @@ export default function Sidebar({
   }, [q]);
 
   const tree = useMemo(() => buildTree(items), [items]);
+
+  // Which folders are open: what the person opened before (remembered between visits), plus the
+  // levels down to the page they are on now, so the current page is visible without hunting for
+  // it. The remembered opens are the only thing saved; the levels above the current page last
+  // only while they are on that page.
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    setOpen(savedOpen());
+  }, []);
+  useEffect(() => {
+    if (!current) return;
+    setOpen((prev) => {
+      const next = new Set(prev);
+      for (const p of pathTo(current)) next.add(p);
+      return next;
+    });
+  }, [current]);
+  const toggle = (path: string) => {
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      try {
+        localStorage.setItem(OPEN_KEY, JSON.stringify([...next]));
+      } catch {}
+      return next;
+    });
+  };
 
   const [creating, setCreating] = useState(false);
   // A new page goes beside the current one, or under it when it is a section
@@ -141,7 +210,7 @@ export default function Sidebar({
             <div className="muted pad">No pages match.</div>
           )
         ) : (
-          <Branch node={tree} current={current} />
+          <Branch node={tree} current={current} open={open} toggle={toggle} />
         )}
       </nav>
       <div className="whoami">
