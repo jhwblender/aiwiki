@@ -222,6 +222,12 @@ a.btn { display: inline-block; text-decoration: none; color: var(--ink); }
 .field input { padding: 8px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); font-size: 15px; font-weight: 400; }
 .field-help { margin: 4px 0 0; }
 .field-head-actions { display: flex; gap: 6px; }
+.md-toolbar { display: flex; flex-wrap: wrap; gap: 4px; }
+.md-toolbar .btn { padding: 2px 9px; font-size: 12.5px; }
+.md-help { margin-top: 8px; font-size: 13px; color: var(--ink-soft); }
+.md-help summary { cursor: pointer; font-weight: 500; color: var(--ink-soft); }
+.md-help ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.md-help code { background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 1px 5px; font-size: 12px; color: var(--ink); }
 .editor-work { display: grid; gap: 10px; align-items: start; }
 .editor-work.split { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .editor-preview { border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; background: var(--paper); overflow-wrap: anywhere; min-height: 160px; }

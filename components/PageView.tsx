@@ -176,6 +176,36 @@ export default function PageView({
   // The live preview of what is being written is on by default: the point of the editor is to see
   // the page as it will read, with the markdown in view beside it for the brackets and lists
   const [showPreview, setShowPreview] = useState(true);
+
+  // Formatting buttons: they go to work on the text that is selected, or drop in a sample to be
+  // replaced, and the caret lands inside so the sample can be typed over
+  function wrap(before: string, after: string, placeholder: string) {
+    const area = bodyArea.current;
+    if (!area) return;
+    const { selectionStart: s, selectionEnd: e, value } = area;
+    const chosen = value.slice(s, e) || placeholder;
+    setDraft(value.slice(0, s) + before + chosen + after + value.slice(e));
+    requestAnimationFrame(() => {
+      area.focus();
+      area.setSelectionRange(s + before.length, s + before.length + chosen.length);
+    });
+  }
+  function linePrefix(prefix: string) {
+    const area = bodyArea.current;
+    if (!area) return;
+    const { selectionStart: s, value } = area;
+    const lineStart = value.lastIndexOf('\n', Math.max(0, s - 1)) + 1;
+    setDraft(value.slice(0, lineStart) + prefix + value.slice(lineStart));
+    requestAnimationFrame(() => {
+      area.focus();
+      area.setSelectionRange(s + prefix.length, s + prefix.length);
+    });
+  }
+  function calendarStarter(): string {
+    const t = new Date();
+    const day = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+    return `\`\`\`calendar\n${day} What the day is for\n\`\`\`\n`;
+  }
   const [draft, setDraft] = useState('');
   // The summary is edited in its own box, so it can be changed but not dropped by accident
   const [summaryDraft, setSummaryDraft] = useState('');
@@ -393,6 +423,32 @@ export default function PageView({
                 </button>
               </span>
             </div>
+            <div className="md-toolbar" role="toolbar" aria-label="Formatting">
+              {/* Each button wraps the selected text, or drops in a sample to be replaced over */}
+              <button type="button" className="btn small quiet" title="Bold: **text**" onClick={() => wrap('**', '**', 'bold text')}>
+                Bold
+              </button>
+              <button type="button" className="btn small quiet" title="Italic: *text*" onClick={() => wrap('*', '*', 'italic text')}>
+                Italic
+              </button>
+              <button type="button" className="btn small quiet" title="Heading: ## for a section title" onClick={() => linePrefix('## ')}>
+                Heading
+              </button>
+              <button type="button" className="btn small quiet" title="Bullet list: - item" onClick={() => linePrefix('- ')}>
+                Bullet list
+              </button>
+              <button type="button" className="btn small quiet" title="Numbered list: 1. item" onClick={() => linePrefix('1. ')}>
+                Numbered list
+              </button>
+              <button
+                type="button"
+                className="btn small quiet"
+                title="Calendar: a block with one line per day, YYYY-MM-DD what the day is for"
+                onClick={() => wrap(calendarStarter(), '', '')}
+              >
+                Calendar
+              </button>
+            </div>
             {/* The page is written in markdown and shown as it will read; the markdown side stays
                 because headings, lists and [[links]] are still typed the markdown way */}
             <div className={'editor-work' + (showPreview ? ' split' : '')}>
@@ -412,9 +468,38 @@ export default function PageView({
               Cancel
             </button>
             <span className="muted small-text">
-              Saved edits publish right away under {user}. Use # for headings, - for lists, and Insert link (or [[page/path]]) to link a page.
+              Saved edits publish right away under {user}. The buttons above drop in the common things; the formatting help below lists the rest.
             </span>
           </div>
+          <details className="md-help">
+            <summary>Formatting help</summary>
+            <ul>
+              <li>
+                <code>{'# Title'}</code> <code>{'## Smaller'}</code> <code>{'### Smallest'}</code> — section titles, biggest to smallest
+              </li>
+              <li>
+                <code>{'**bold**'}</code> — bold; <code>{'*italic*'}</code> — italic
+              </li>
+              <li>
+                <code>{'- item'}</code> — bullet list; <code>{'2 spaces in'}</code> under an item nests it
+              </li>
+              <li>
+                <code>{'1. item'}</code> — numbered list
+              </li>
+              <li>
+                <code>{'[[systems/radar]]'}</code> — a link to a page; <code>{'[[systems/radar|Radar]]'}</code> — a link reading Radar
+              </li>
+              <li>
+                <code>{'| A | B |'}</code> then <code>{'| --- | --- |'}</code> then rows — a table
+              </li>
+              <li>
+                <code>{'> quote'}</code> — a quote; <code>{'---'}</code> alone on a line — a divider
+              </li>
+              <li>
+                a <code>{'```calendar'}</code> block with one <code>{'YYYY-MM-DD'}</code> line per day — a schedule (the Calendar button drops one in)
+              </li>
+            </ul>
+          </details>
         </div>
       ) : (
         <>
