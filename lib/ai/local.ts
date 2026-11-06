@@ -72,12 +72,22 @@ function send(url: string, method: string, headers: Record<string, string>, body
       res.on('data', (c: Buffer) => chunks.push(c));
       res.on('end', () => {
         clearTimeout(timer);
+        clearStall();
         cleanupAbort();
         resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString('utf8') });
       });
       res.on('error', fail);
     });
     const timer = setTimeout(() => req.destroy(Object.assign(new Error('timed out'), { name: 'TimeoutError' })), timeoutMs);
+    // A silent call is the hardest kind to diagnose from a chat panel that only counts seconds:
+    // the console says who is waiting and for how long, once a minute past the first
+    let stalled = 60_000;
+    const stall = setInterval(() => {
+      if (stalled < timeoutMs) console.warn(`[model] still waiting on ${u.host}${u.pathname} (${Math.round(stalled / 1000)} s so far)`);
+      else clearInterval(stall);
+      stalled += 60_000;
+    }, 60_000);
+    const clearStall = () => clearInterval(stall);
     // A stopping run cuts the request as soon as it is asked to, instead of waiting out the
     // model's whole answer.
     const onAbort = () => req.destroy(Object.assign(new Error('stopped'), { name: 'AbortError' }));
@@ -94,6 +104,7 @@ function send(url: string, method: string, headers: Record<string, string>, body
     req.on('error', fail);
     function fail(e: unknown) {
       clearTimeout(timer);
+      clearStall();
       cleanupAbort();
       reject(e);
     }

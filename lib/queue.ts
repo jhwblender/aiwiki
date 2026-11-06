@@ -560,6 +560,12 @@ export function endChat() {
   if (!chatsActive) kick();
 }
 
+// Whether any chat run is under way: a moment the model server should not be disturbed in, since
+// asking it to unload while it is generating can wedge it
+export function chatsRunning(): boolean {
+  return chatsActive > 0;
+}
+
 function sleep(ms: number) {
   return new Promise<void>((resolve) => {
     const t = setTimeout(done, ms);

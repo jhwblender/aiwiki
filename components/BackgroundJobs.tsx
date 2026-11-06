@@ -115,7 +115,7 @@ export default function BackgroundJobs() {
   const control = (action: string, extra: object = {}) => act('/api/ingest/control', { action, ...extra });
   // Whether the model server was asked to unload, from the last Stop the AI click, so the paused
   // note says honestly what did and did not happen to the machine's memory
-  const [stoppedByAI, setFreed] = useState<{ freed: boolean } | null>(null);
+  const [stoppedByAI, setFreed] = useState<{ freed: boolean; busy: boolean } | null>(null);
 
   const c = state?.counts;
   const cur = state?.current;
@@ -164,7 +164,7 @@ export default function BackgroundJobs() {
                 disabled={busy}
                 onClick={async () => {
                   const d = await control('stop-ai');
-                  setFreed({ freed: !!d?.freed });
+                  setFreed({ freed: !!d?.freed, busy: !!d?.busy });
                 }}
               >
                 Stop the AI
@@ -174,7 +174,14 @@ export default function BackgroundJobs() {
           {state.paused && (
             <p className="muted small-text">
               Filing and the librarian&apos;s runs are all held, and the run under way was set aside to go back in line on resume.
-              {stoppedByAI && <> {stoppedByAI.freed ? 'The model server was asked to unload its model, so its memory is freed.' : 'The model server could not be asked to unload its model; it frees itself when idle.'}</>}
+              {stoppedByAI &&
+                (stoppedByAI.busy ? (
+                  <> A chat was still going, so the model was not unloaded yet; click Stop the AI again once the chat is over to free the memory.</>
+                ) : stoppedByAI.freed ? (
+                  <> The model server was asked to unload its model, so its memory is freed.</>
+                ) : (
+                  <> The model server could not be asked to unload its model; it frees itself when idle.</>
+                ))}
             </p>
           )}
 
