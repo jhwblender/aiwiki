@@ -419,6 +419,12 @@ async function runJob(row: any, signal: AbortSignal, onProgress: (text: string) 
       await extractText(f, (image, prompt) => provider.describeImage(image, prompt, signal));
     } catch (e: any) {
       const msg = e?.message ?? String(e);
+      // A chat or a pause takes the model even mid-read: a scanned file is read page by page,
+      // and a person waiting or stopping must not stand behind that
+      if (signal.aborted) {
+        if (preempted(signal)) throw new Error('Set aside.');
+        return finish(row.id, 'cancelled', 'Stopped while it was being read.');
+      }
       if (MODEL_DOWN.test(msg)) throw new ModelDown(msg);
       return finish(row.id, 'failed', `Could not read the file: ${msg}`);
     }
@@ -445,13 +451,19 @@ async function runJob(row: any, signal: AbortSignal, onProgress: (text: string) 
     return finish(row.id, 'kept', rule.why);
   }
   // Read the file first, so a file that cannot be read fails (and can be tried again) instead of
-  // being reported as filed, and an unreachable model makes the queue wait
+  // being reported as filed, and an unreachable model makes the queue wait. A scanned file is
+  // read page by page, so the read takes the model for a while: it honours a chat waiting, and a
+  // stop or a pause, by being cut the same way the agent is.
   let text: string;
   try {
     const provider = getProvider(row.provider ?? undefined);
-    text = (await extractText(f, (image, prompt) => provider.describeImage(image, prompt))).full;
+    text = (await extractText(f, (image, prompt) => provider.describeImage(image, prompt, signal))).full;
   } catch (e: any) {
     const msg = e?.message ?? String(e);
+    if (signal.aborted) {
+      if (preempted(signal)) throw new Error('Set aside.');
+      return finish(row.id, 'cancelled', 'Stopped while it was being read.');
+    }
     if (MODEL_DOWN.test(msg)) throw new ModelDown(msg);
     return finish(row.id, 'failed', `Could not read the file: ${msg}`);
   }

@@ -1173,6 +1173,27 @@ try {
   await ctl('retry-now');
   check('the waiting job goes ahead once the model is set right', (await waitJob(lostModelJob))?.status === 'done');
 
+  // 34h. A scanned file is read page by page, which takes a while on the model: a chat arriving
+  // then takes the model the same way it does from a working plan, and the reading set aside
+  const scanUpload = await upload([['slow-scan.pdf', scannedPdf(3), 'application/pdf']]);
+  const scanJob = (await api('POST', '/api/ingest', { fileIds: [scanUpload.data[0].id], user: 'Alex', provider: 'local', note: 'Please file this into the guide.' })).data.jobs[0];
+  let scanReading = false;
+  for (let i = 0; i < 80 && !scanReading; i++) {
+    const st = (await api('GET', '/api/ingest')).data;
+    scanReading = st.current?.job?.id === scanJob;
+    if (!scanReading) await new Promise((r) => setTimeout(r, 100));
+  }
+  check('the scanned file is being read', scanReading);
+  const scanChatAt = Date.now();
+  const scanChat = (await chat('What day is it today?', 'Kim')).reply;
+  const scanChatDelay = Date.now() - scanChatAt;
+  check('a chat goes first while a scanned file is being read', scanChat === 'DATE-OK' && scanChatDelay < 15000, `chat took ${scanChatDelay} ms`);
+  const scanAfter = (await api('GET', '/api/ingest')).data.jobs.find((j) => j.id === scanJob);
+  check('the reading was set aside politely, not failed', ['queued', 'working'].includes(scanAfter?.status), JSON.stringify({ status: scanAfter?.status, detail: scanAfter?.detail }));
+  check('the scanned file still finishes once the chat is over', (await waitJob(scanJob))?.status === 'done');
+  // its suggestion on the guide waits like any filing, and the rest of the suite expects a clean page
+  for (const p of (await getPage('docs/basics')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+
   // 35. A long file comes in parts; the assistant reads on only where it chooses to
   const longText = Array.from({ length: 160 }, (_, i) => `Paragraph ${i} of the long manual describes care of the wiki in plain words.`).join('\n\n') + '\n\nPART-TWO-MARKER is near the end.\n';
   const longFile = await upload([['long-notes.txt', Buffer.from(longText), 'text/plain']]);

@@ -603,15 +603,18 @@ export function startMock(port = 4555) {
       }
       // "slowly" in the opening message makes the first model call take a moment, to see progress in the UI
       const body = JSON.parse(raw || '{}');
+      const messages = body.messages ?? [];
       // a 404 like Ollama's when the model is not there: jobs wait for the model instead of failing
       if (body.model === 'missing-model') {
         send(404, { error: { message: "model 'missing-model' not found", type: 'not_found' } });
         return;
       }
+      // reading a scanned file page by page is slow, so a chat can arrive while the read is going
+      const slowScan = hasImage(messages) && JSON.stringify(messages).includes('scanned document');
       const slow =
-        (body.messages ?? []).some((m) => m.role === 'user' && typeof m.content === 'string' && /slowly/i.test(m.content)) &&
-        !(body.messages ?? []).some((m) => m.role === 'assistant');
-      setTimeout(() => send(200, respond(body)), slow ? 4000 : 0);
+        messages.some((m) => m.role === 'user' && typeof m.content === 'string' && /slowly/i.test(m.content)) &&
+        !messages.some((m) => m.role === 'assistant') || slowScan;
+      setTimeout(() => send(200, respond(body)), slow ? 3500 : 0);
     });
   });
   return new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve(server)));
