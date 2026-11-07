@@ -247,6 +247,7 @@ a.btn { display: inline-block; text-decoration: none; color: var(--ink); }
 .cal-day.today { border-color: var(--teal); box-shadow: inset 0 0 0 1px var(--teal); }
 .cal-day.dim { background: none; border-color: transparent; }
 .cal-entry { display: block; font-size: 11.5px; line-height: 1.35; margin-top: 2px; color: var(--ink); }
+.cal-entry.span { border-left: 2px solid var(--teal); padding-left: 3px; margin-left: -5px; }
 .cal-entry p { margin: 0; font-family: inherit; font-size: inherit; }
 .cal-entry .missing-link { color: var(--ink-soft); }
 .cal-empty { margin: 6px 0 0; font-size: 12px; }

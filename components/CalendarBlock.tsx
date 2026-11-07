@@ -1,7 +1,7 @@
 'use client';
 import { useMemo, useState } from 'react';
 import Md from './Md';
-import { parseCalendar } from '../lib/calendar';
+import { parseCalendar, daysOf } from '../lib/calendar';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -13,11 +13,14 @@ const iso = (y: number, m: number, d: number) => `${y}-${String(m + 1).padStart(
 export default function CalendarBlock({ text }: { text: string }) {
   const entries = useMemo(() => parseCalendar(text), [text]);
   const byDay = useMemo(() => {
-    const map = new Map<string, { title: string; note: string }[]>();
+    // An item that runs several days shows on every day it covers
+    const map = new Map<string, { title: string; note: string; span: boolean }[]>();
     for (const e of entries) {
-      const holds = map.get(e.date) ?? [];
-      holds.push(e);
-      map.set(e.date, holds);
+      for (const day of daysOf(e)) {
+        const holds = map.get(day) ?? [];
+        holds.push({ title: e.title, note: e.note, span: !!e.end });
+        map.set(day, holds);
+      }
     }
     return map;
   }, [entries]);
@@ -74,7 +77,7 @@ export default function CalendarBlock({ text }: { text: string }) {
             <span key={i} className={'cal-day' + (iso(c.y, c.m, c.d) === todayIso ? ' today' : '')}>
               <span className="n">{c.d}</span>
               {(byDay.get(iso(c.y, c.m, c.d)) ?? []).map((e, j) => (
-                <span key={j} className="cal-entry">
+                <span key={j} className={'cal-entry' + (e.span ? ' span' : '')}>
                   <Md>{e.title ? `${e.title}${e.note ? ` — ${e.note}` : ''}` : e.note || '(day)'}</Md>
                 </span>
               ))}

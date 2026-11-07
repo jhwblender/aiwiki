@@ -1276,7 +1276,9 @@ try {
   const calOk = await api('POST', `/api/proposals/${calSet.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
   const calFile = pageFile('docs/basics');
   check('approving it puts the calendar lines in the page',
-    calOk.status === 200 && calFile.includes('```calendar') && calFile.indexOf('2027-03-01 Integration test day | bring the radar') < calFile.indexOf('2027-03-05 Radar review'), JSON.stringify(calFile.slice(-260)));
+    calOk.status === 200 && calFile.includes('```calendar') &&
+    calFile.indexOf('2027-03-01 Integration test day | bring the radar') < calFile.indexOf('2027-03-02/2027-03-03 Tuning workshop') &&
+    calFile.indexOf('2027-03-02/2027-03-03 Tuning workshop') < calFile.indexOf('2027-03-05 Radar review'), JSON.stringify(calFile.slice(-300)));
   await chat('Drop the integration test entry from the calendar', 'Alex', 'local', 'e2e-chat-cal2');
   const calRm = (await getPage('docs/basics')).pending[0];
   await api('POST', `/api/proposals/${calRm.proposalId}/resolve`, { action: 'approve', user: 'Kim' });

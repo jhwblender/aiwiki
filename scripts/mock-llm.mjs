@@ -349,8 +349,9 @@ const SCENARIOS = [
     steps: [
       { name: 'calendar_add', args: { path: 'docs/basics', date: '2027-03-01', title: 'Integration test day', note: 'bring the radar', summary: 'Schedule the integration test' } },
       { name: 'calendar_add', args: { path: 'docs/basics', date: '2027-03-05', title: 'Radar review', summary: 'Schedule the radar review' } },
+      { name: 'calendar_add', args: { path: 'docs/basics', date: '2027-03-02', end: '2027-03-03', title: 'Tuning workshop', summary: 'Schedule the tuning workshop' } },
     ],
-    reply: 'I scheduled the integration test day and the radar review on the calendar.',
+    reply: 'I scheduled the integration test day, the tuning workshop and the radar review on the calendar.',
   },
   {
     keyword: 'drop the integration test entry',
