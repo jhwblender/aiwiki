@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { beginChat, cancelWaiting, chatsRunning, clearCancelled, clearFinished, retryFailed, retryNow, retryStopped, setPaused } from '@/lib/queue';
 import { unloadLocalModel } from '@/lib/ai/local';
-import { localModelSettings } from '@/lib/settings';
+import { localModelSettings, saveChatHoldSeconds } from '@/lib/settings';
 import { fail, requireUser, isResponse } from '@/lib/api';
 
 export const runtime = 'nodejs';
@@ -28,6 +28,8 @@ export async function POST(req: NextRequest) {
       case 'resume':
         setPaused(false);
         return NextResponse.json({ ok: true });
+      case 'set-chat-hold':
+        return NextResponse.json({ ok: true, seconds: saveChatHoldSeconds(Number(b.seconds)) });
       case 'retry-failed':
         return NextResponse.json({ count: retryFailed() });
       case 'retry-cancelled':

@@ -1,4 +1,5 @@
 import { db } from './db';
+import { chatHoldSeconds } from './settings';
 import { changed } from './pulse';
 import { extractText, getFile } from './files';
 import { getProvider } from './ai/providers';
@@ -224,7 +225,12 @@ export function setPaused(paused: boolean) {
       worker.current.controller.abort(PAUSE as unknown as Error);
       worker.current.status = 'Paused';
     }
-  } else kick();
+  } else {
+    // An explicit Resume is a person asking for work to go ahead now, so it also skips the quiet
+    // time after a chat
+    worker.chatHoldUntil = 0;
+    kick();
+  }
 }
 
 // ---------- cancelling and retrying ----------
@@ -500,12 +506,29 @@ type Worker = {
   waitReason: string;
   delay: number;
   wake: (() => void) | null;
+  // Chat priority and the quiet time after a chat: how many chat runs are under way, and until
+  // when the queue stays off the model. These live on the worker, shared across every route's
+  // copy of this module, so the counting and the hold are one fact for the whole process
+  chatsActive: number;
+  chatHoldUntil: number;
 };
 const g = globalThis as unknown as { __ingestWorker?: Worker };
-const worker: Worker = (g.__ingestWorker ??= { running: false, recovered: false, current: null, waitUntil: 0, waitReason: '', delay: 0, wake: null });
+const worker: Worker = (g.__ingestWorker ??= {
+  running: false,
+  recovered: false,
+  current: null,
+  waitUntil: 0,
+  waitReason: '',
+  delay: 0,
+  wake: null,
+  chatsActive: 0,
+  chatHoldUntil: 0,
+});
 worker.current ??= null;
 worker.waitUntil ??= 0;
 worker.delay ??= 0;
+worker.chatsActive ??= 0;
+worker.chatHoldUntil ??= 0;
 
 const FIRST_DELAY = () => Math.max(1, Number(process.env.INGEST_RETRY_SECONDS) || 30) * 1000;
 const MAX_DELAY = 10 * 60 * 1000;
@@ -515,6 +538,8 @@ export function queueState() {
   return {
     paused: isPaused(),
     waitingForModel: worker.waitUntil > Date.now() ? { until: new Date(worker.waitUntil).toISOString(), reason: worker.waitReason } : null,
+    chatHoldUntil: Date.now() < worker.chatHoldUntil ? new Date(worker.chatHoldUntil).toISOString() : null,
+    chatHoldSeconds: chatHoldSeconds(),
     current: c ? { job: getJob(c.jobId), steps: c.steps, status: c.status, startedAt: c.startedAt } : null,
     counts: jobCounts(),
     waitingByFolder: waitingByFolder(),
@@ -524,6 +549,7 @@ export function queueState() {
 // Try the model again now instead of waiting out the delay
 export function retryNow() {
   worker.waitUntil = 0;
+  worker.chatHoldUntil = 0;
   worker.wake?.();
   kick();
 }
@@ -532,7 +558,14 @@ export function retryNow() {
 // A person waiting in the chat should not stand behind the background queue when both share one
 // model: while a chat is under way, the working job is cut and put back in line, and no new job
 // is claimed until the chat is over.
-let chatsActive = 0;
+// Chat priority -----------------------------------------------------------------
+// A person waiting in the chat should not stand behind the background queue when both share one
+// model: while a chat is under way, the working job is cut and put back in line, and no new job
+// is claimed until the chat is over. The count and the hold live on the worker (shared across
+// every route's copy of this module through globalThis), because in Next each route is its own
+// bundle: a module-level let would give every route its own, wrong copy.
+worker.chatsActive ??= 0;
+worker.chatHoldUntil ??= 0;
 // Both reasons share one meaning: give the model up, put the job back in line, go no further
 const PREEMPT = { name: 'chat-preempt' };
 const PAUSE = { name: 'pause-preempt' };
@@ -547,7 +580,9 @@ function requeue(rowId: number) {
 }
 
 export function beginChat() {
-  chatsActive += 1;
+  worker.chatsActive += 1;
+  // Whatever quiet window was counting down for earlier chatting, a new chat starts fresh
+  worker.chatHoldUntil = 0;
   if (worker.current) {
     // The in-flight model call is destroyed, so the model is free for the chat right away
     worker.current.controller.abort(PREEMPT as unknown as Error);
@@ -556,15 +591,22 @@ export function beginChat() {
 }
 
 export function endChat() {
-  chatsActive = Math.max(0, chatsActive - 1);
-  if (!chatsActive) kick();
+  worker.chatsActive = Math.max(0, worker.chatsActive - 1);
+  if (!worker.chatsActive) {
+    // The quiet time after a reply: filing waits a moment before it takes the model back
+    worker.chatHoldUntil = Date.now() + chatHoldSeconds() * 1000;
+    kick();
+  }
 }
 
 // Whether any chat run is under way: a moment the model server should not be disturbed in, since
 // asking it to unload while it is generating can wedge it
 export function chatsRunning(): boolean {
-  return chatsActive > 0;
+  return worker.chatsActive > 0;
 }
+
+// The settling time after the last chat reply, stored on the worker rather than the database, so a
+// server restart starts clean
 
 function sleep(ms: number) {
   return new Promise<void>((resolve) => {
@@ -590,7 +632,12 @@ export function kick() {
       }
       for (;;) {
         // A person waiting in the chat goes first: hold off claiming work while a chat is active
-        if (chatsActive) {
+        if (worker.chatsActive) {
+          await sleep(600);
+          continue;
+        }
+        // The quiet time after a chat reply: give the person the machine back before claiming
+        if (Date.now() < worker.chatHoldUntil) {
           await sleep(600);
           continue;
         }

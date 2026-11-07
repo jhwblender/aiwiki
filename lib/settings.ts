@@ -38,3 +38,18 @@ export function saveLocalModelSettings(input: { baseUrl: string; model: string; 
   if (input.visionModel !== undefined) set('local.visionModel', input.visionModel.trim());
   if (input.apiKey !== undefined) set('local.apiKey', input.apiKey.trim());
 }
+
+// The quiet time after a chat reply: background filing waits this long before claiming its next
+// job, so the machine stays with the person reading and typing. Resume, Try now or a new chat cut
+// the wait short.
+export function chatHoldSeconds(): number {
+  const n = Number(get('queue.chatHoldSeconds'));
+  return Number.isFinite(n) && n >= 0 ? Math.min(n, 3600) : 300;
+}
+
+export function saveChatHoldSeconds(seconds: number): number {
+  const n = Math.floor(Number(seconds));
+  if (!(n >= 0 && n <= 3600)) throw new Error('The chat hold must be a number of seconds from 0 to 3600.');
+  set('queue.chatHoldSeconds', String(n));
+  return n;
+}

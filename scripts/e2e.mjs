@@ -1316,6 +1316,33 @@ try {
   await api('POST', `/api/ops/${backCard.ops[0].opId}`, { action: 'approve', user: 'Kim' });
   check('the brought-back move can still be approved', fs.existsSync(path.join(wikiDir, 'guide/details.md')) && !fs.existsSync(path.join(wikiDir, 'docs/basics/details.md')));
 
+  // 41. After a chat reply the queue holds the model for the settling window; Resume or Try now skips it
+  const holdSet = await ctl('set-chat-hold', { seconds: 120 });
+  check('the chat hold takes a new setting', holdSet.status === 200 && holdSet.data.seconds === 120 && (await api('GET', '/api/ingest')).data.chatHoldSeconds === 120);
+  await chat('What day is it today?', 'Kim');
+  const held0 = (await api('GET', '/api/ingest')).data;
+  const holdJobs = [];
+  const enqInfo = [];
+  for (const [n, txt] of [['hold-a.txt', 'FACT: Hold A.\n'], ['hold-b.txt', 'FACT: Hold B.\n']]) {
+    // The enqueue answers with the job's own number, not a wrapper
+    holdJobs.push(await queueOne(n, txt, 'Just keep this on file.'));
+    enqInfo.push(n);
+  }
+  await new Promise((r) => setTimeout(r, 2500));
+  const heldNow = (await api('GET', '/api/ingest')).data;
+  const heldStatus = await jobStatus(holdJobs[0]);
+  const holdDetail = JSON.stringify({
+    hold0: held0.chatHoldUntil, holdNow: heldNow.chatHoldUntil, chatsNow: heldNow.debugChats, first: heldNow.jobs.filter((j) => holdJobs.includes(j.id)).map((j) => [j.displayName, j.status]),
+    counts: heldNow.counts, ids: heldNow.jobs.slice(0, 4).map((j) => [j.id, j.displayName, j.status]),
+  });
+  check('after a chat reply the queue holds instead of claiming',
+    heldNow.current === null && heldNow.paused === false && !!heldNow.chatHoldUntil && heldStatus === 'queued', holdDetail);
+  await ctl('resume');
+  const holdFinished = await waitJob(holdJobs[0]);
+  check('Resume skips the hold and files what was waiting', holdFinished?.status === 'done' && (await waitJob(holdJobs[1]))?.status === 'done');
+  const holdBack = await ctl('set-chat-hold', { seconds: 0 });
+  check('the chat hold can be turned off', holdBack.data.seconds === 0 && (await api('GET', '/api/ingest')).data.chatHoldSeconds === 0);
+
   // a viewer can read the rejected list but not undo a rejection
   await login('Vera', 'vera-pass-1234');
   check('a viewer cannot undo', (await api('POST', '/api/history', { action: 'undo', commit: editEntry.commit, user: 'Vera' })).status === 403);

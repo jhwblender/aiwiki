@@ -21,6 +21,8 @@ type Job = {
 type State = {
   paused: boolean;
   waitingForModel: { until: string; reason: string } | null;
+  chatHoldUntil: string | null;
+  chatHoldSeconds: number;
   current: { job: Job | null; steps: string[]; status: string; startedAt: string } | null;
   counts: Record<Status, number>;
   waitingByFolder: { folder: string | null; count: number }[];
@@ -116,9 +118,19 @@ export default function BackgroundJobs() {
   // Whether the model server was asked to unload, from the last Stop the AI click, so the paused
   // note says honestly what did and did not happen to the machine's memory
   const [stoppedByAI, setFreed] = useState<{ freed: boolean; busy: boolean } | null>(null);
+  async function saveHold() {
+    const seconds = Math.round(Number(holdMinutes) * 60);
+    if (Number.isFinite(seconds) && seconds >= 0) await control('set-chat-hold', { seconds });
+  }
+  // The chat hold setting, in minutes as it is edited; seconds live in state
+  const [holdMinutes, setHoldMinutes] = useState('5');
+  useEffect(() => {
+    if (state?.chatHoldSeconds !== undefined) setHoldMinutes(String(Math.round((state.chatHoldSeconds / 60) * 2) / 2));
+  }, [state?.chatHoldSeconds]);
 
   const c = state?.counts;
   const cur = state?.current;
+  const holdUntil = state?.chatHoldUntil ? new Date(state.chatHoldUntil) : null;
 
   return (
     <section className="card" id="background">
@@ -143,7 +155,13 @@ export default function BackgroundJobs() {
                 <strong>Idle.</strong>
               )}{' '}
               {c!.queued} waiting
+              {holdUntil && !state.paused ? ` · holding the model for the chat until ${holdUntil.toLocaleTimeString(undefined, { timeStyle: 'short' })}` : ''}
             </span>
+            {holdUntil && !state.paused && (
+              <button className="btn small quiet" disabled={busy} onClick={() => control('resume')} title="Let filing take the model now">
+                Skip the hold
+              </button>
+            )}
             <span className="spacer" />
             {c!.queued > 0 && (
               <button
@@ -183,6 +201,26 @@ export default function BackgroundJobs() {
                   <> The model server could not be asked to unload its model; it frees itself when idle.</>
                 ))}
             </p>
+          )}
+          {!state.paused && (
+            <div className="inline-field small-text">
+              <label htmlFor="chat-hold">After each chat reply, keep files waiting for</label>
+              <input
+                id="chat-hold"
+                type="number"
+                min={0}
+                max={60}
+                step={0.5}
+                value={holdMinutes}
+                onChange={(e) => setHoldMinutes(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && saveHold()}
+              />
+              <span>minutes</span>
+              <button className="btn small" disabled={busy || Number(holdMinutes) * 60 === state?.chatHoldSeconds} onClick={saveHold}>
+                Save hold
+              </button>
+              <span className="muted">so your machine stays with you; Resume or Try now skips the wait</span>
+            </div>
           )}
 
           {state.waitingForModel && (
