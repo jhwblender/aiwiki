@@ -14,11 +14,11 @@ export default function CalendarBlock({ text }: { text: string }) {
   const entries = useMemo(() => parseCalendar(text), [text]);
   const byDay = useMemo(() => {
     // An item that runs several days shows on every day it covers
-    const map = new Map<string, { title: string; note: string; span: boolean }[]>();
+    const map = new Map<string, { title: string; note: string; span: boolean; end?: string; date: string }[]>();
     for (const e of entries) {
       for (const day of daysOf(e)) {
         const holds = map.get(day) ?? [];
-        holds.push({ title: e.title, note: e.note, span: !!e.end });
+        holds.push({ title: e.title, note: e.note, span: !!e.end, end: e.end, date: e.date });
         map.set(day, holds);
       }
     }
