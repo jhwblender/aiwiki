@@ -242,14 +242,28 @@ a.btn { display: inline-block; text-decoration: none; color: var(--ink); }
 .cal-head button:hover { color: var(--teal); background: var(--teal-soft); }
 .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; margin-top: 8px; }
 .cal-wd { font-size: 11px; color: var(--ink-soft); text-align: center; font-weight: 600; padding-bottom: 2px; }
-.cal-day { min-height: 46px; border: 1px solid var(--rule); border-radius: 5px; font-size: 12px; padding: 2px 4px; background: var(--paper); overflow-wrap: anywhere; }
+.cal-day { min-height: 46px; border: 1px solid var(--rule); border-radius: 5px; font-size: 12px; padding: 2px 4px; background: var(--paper); overflow-wrap: anywhere; cursor: pointer; }
+.cal-day:focus-visible { outline: 2px solid var(--teal); outline-offset: 1px; }
 .cal-day .n { display: block; color: var(--ink-soft); }
 .cal-day.today { border-color: var(--teal); box-shadow: inset 0 0 0 1px var(--teal); }
-.cal-day.dim { background: none; border-color: transparent; }
-.cal-entry { display: block; font-size: 11.5px; line-height: 1.35; margin-top: 2px; color: var(--ink); }
-.cal-entry.span { border-left: 2px solid var(--teal); padding-left: 3px; margin-left: -5px; }
-.cal-entry p { margin: 0; font-family: inherit; font-size: inherit; }
+.cal-day.sel { background: var(--teal-soft); border-color: var(--teal); }
+.cal-day.dim { background: none; border-color: transparent; cursor: default; }
+/* A cell is a pointer to the day: entries stay on one clipped line each, the whole text is the
+   detail pane below, opened by clicking the day */
+.cal-entry { display: block; font-size: 11.5px; line-height: 1.35; margin-top: 2px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-entry p { display: inline; margin: 0; font-family: inherit; font-size: inherit; }
 .cal-entry .missing-link { color: var(--ink-soft); }
+.cal-more { display: block; font-size: 10.5px; color: var(--teal); margin-top: 1px; }
+.cal-detail { margin-top: 10px; border-top: 1px solid var(--rule); padding-top: 8px; }
+.cal-detail-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-weight: 600; font-size: 13.5px; }
+.cal-items { list-style: none; margin: 4px 0 0; padding: 0; }
+.cal-item { padding: 6px 0 6px 10px; border-left: 2px solid var(--rule); }
+.cal-item + .cal-item { border-top: 1px solid var(--rule); }
+.cal-item-body { display: block; font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.cal-item-body p { margin: 0; }
+.cal-item-note { display: block; font-size: 12px; color: var(--ink-soft); }
+.cal-item-note p { margin: 0; }
+.cal-item-range { display: block; font-size: 11px; color: var(--ink-soft); margin-top: 1px; }
 .cal-empty { margin: 6px 0 0; font-size: 12px; }
 .presets { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
 .btn.picked { border-color: var(--teal); background: var(--teal-soft); }
