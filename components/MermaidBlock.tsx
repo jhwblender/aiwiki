@@ -43,7 +43,12 @@ export default function MermaidBlock({ text }: { text: string }) {
       {error && (
         <>
           <pre className="mermaid-source">{text}</pre>
-          <p className="small-text mermaid-error">This diagram could not be drawn: {error}</p>
+          <p className="small-text mermaid-error">
+            This diagram could not be drawn: {error}
+            {/got '|Expecting/.test(error ?? '') && /\[[^\]"']*\([^\)]*\)/.test(text)
+              ? ' Parentheses or other marks inside a label need the text in double quotes: AM["McKinney (Alli) - CEO"].'
+              : null}
+          </p>
         </>
       )}
       {svg !== null && <div className="mermaid-draw" dangerouslySetInnerHTML={{ __html: svg }} />}

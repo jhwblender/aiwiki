@@ -1348,8 +1348,8 @@ try {
   const diaSet = (await getPage('docs/basics')).pending[0];
   await api('POST', `/api/proposals/${diaSet.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
   const diaFile = pageFile('docs/basics');
-  check('the org chart lands as a mermaid block',
-    diaFile.includes('```mermaid') && diaFile.includes('graph TD') && diaFile.includes('CEO[SoloPulse CEO] --> Eng[Engineering lead]'), JSON.stringify(diaFile.slice(-260)));
+  check('the org chart lands as a quoted mermaid block',
+    diaFile.includes('```mermaid') && diaFile.includes('graph TD') && diaFile.includes('CEO["Allyson McKinney (Alli) - CEO"]'), JSON.stringify(diaFile.slice(-300)));
 
   // a viewer can read the rejected list but not undo a rejection
   await login('Vera', 'vera-pass-1234');

@@ -356,7 +356,7 @@ const SCENARIOS = [
         name: 'append_to_page',
         args: {
           path: 'docs/basics',
-          text: '## Team structure\n\n```mermaid\ngraph TD\n  CEO[SoloPulse CEO] --> Eng[Engineering lead]\n  CEO --> Ops[Operations lead]\n```',
+          text: '## Team structure\n\n```mermaid\ngraph TD\n  CEO["Allyson McKinney (Alli) - CEO"] --> Eng[Engineering lead]\n  CEO --> Ops[Operations lead]\n```',
           summary: 'Add the team org chart as a diagram',
         },
       },
