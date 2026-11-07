@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import HistoryList from './HistoryList';
-import type { HistoryEntry } from '@/lib/types';
+import type { HistoryEntry, RejectedItem } from '@/lib/types';
 
 // The approvals a person can look back over: what was approved, who approved it, and an undo for
 // when a click went to the wrong button. Wiki-wide this lists the pages suggestions created,
@@ -10,6 +10,7 @@ import type { HistoryEntry } from '@/lib/types';
 export default function HistoryView({ page }: { page?: string }) {
   const [me, setMe] = useState<{ role: string } | null>(null);
   const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
+  const [rejected, setRejected] = useState<RejectedItem[] | null>(null);
   const [more, setMore] = useState(false);
   const [error, setError] = useState('');
   const [backTo, setBackTo] = useState('/wiki/index');
@@ -34,6 +35,7 @@ export default function HistoryView({ page }: { page?: string }) {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Could not load the history.');
       setEntries(d.entries);
+      setRejected(Array.isArray(d.rejected) ? d.rejected : []);
       setMore(!!d.more);
       setError('');
     } catch (e: any) {
@@ -60,13 +62,13 @@ export default function HistoryView({ page }: { page?: string }) {
           <section className="card">
             <p className="muted small-text">
               {page
-                ? `Approved changes that touched "${page}", newest first. Undo puts back what the approval changed; anything done since stays as it is.`
-                : 'Every page a suggestion created, removed or moved, newest first, and who approved it. Undo puts back what the approval changed; anything done since stays as it is.'}
+                ? `Approved changes that touched "${page}", newest first, and the suggestions that were rejected there; undo puts back what the approval changed, or brings a rejected suggestion back to its page for review. Anything done since stays as it is.`
+                : 'Every page a suggestion created, removed or moved, newest first, and who approved it, followed by the suggestions that were rejected. Undo puts back what the approval changed, or brings a rejected suggestion back to its page for review; anything done since stays as it is.'}
             </p>
             {error && <div className="error">{error}</div>}
             {!entries && !error && <p className="muted small-text">Loading</p>}
             {entries && entries.length === 0 && <p className="muted">Nothing has been approved from a suggestion yet.</p>}
-            {entries && entries.length > 0 && <HistoryList entries={entries} canUndo={canUndo} onChanged={load} />}
+            {entries && entries.length > 0 && <HistoryList entries={entries} rejected={rejected ?? []} canUndo={canUndo} onChanged={load} />}
             {more && <p className="muted small-text">Older approvals are not shown.</p>}
           </section>
         </div>

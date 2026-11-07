@@ -90,6 +90,22 @@ export type HistoryEntry = {
   actions: HistoryAction[];
 };
 
+// A suggestion a person rejected: it never reached the wiki, so it lives in the decision records,
+// and taking the rejection back puts it on its page to review again
+export type RejectedItem = {
+  kind: 'edit' | 'move' | 'remove';
+  table: 'proposal' | 'op';
+  id: number;
+  pagePath: string;
+  newPath?: string;
+  title: string;
+  isNew?: boolean;
+  summary: string;
+  rejectedBy: string;
+  at: string;
+  exists: boolean;
+};
+
 export type ChatResponse = {
   reply: string;
   trace: string[];

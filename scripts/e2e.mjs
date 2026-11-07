@@ -1285,9 +1285,41 @@ try {
   check('removing a calendar entry takes the line out and the block stays',
     !pageFile('docs/basics').includes('2027-03-01') && pageFile('docs/basics').includes('2027-03-05 Radar review') && pageFile('docs/basics').includes('```calendar'), JSON.stringify(pageFile('docs/basics').slice(-160)));
 
-  // only editors can undo
+  // 40. A rejection is on the record too, and taking it back puts the suggestion on its page again
+  await chat('Please add a style section', 'Alex', 'local', 'e2e-chat-unrej');
+  const unSet = (await getPage('docs/basics')).pending[0];
+  await api('POST', `/api/proposals/${unSet.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
+  check('nothing waits after the rejection', (await getPage('docs/basics')).pending.length === 0);
+  let rejList = (await api('GET', '/api/history?page=docs/basics')).data.rejected;
+  const rejectedEdit = rejList?.find((r) => r.kind === 'edit' && r.summary === 'Add the style rules');
+  check('the rejected change is listed with who rejected it and when', !!rejectedEdit && rejectedEdit.rejectedBy === 'Kim' && rejectedEdit.table === 'proposal', JSON.stringify(rejList?.[0]));
+  const un = await api('POST', '/api/history', { action: 'unreject', kind: 'proposal', id: rejectedEdit.id, user: 'Kim' });
+  check('taking a rejection back puts the suggestion on its page to review', un.status === 200 && (await getPage('docs/basics')).pending.length === 1);
+  rejList = (await api('GET', '/api/history?page=docs/basics')).data.rejected;
+  check('the brought-back suggestion is not listed as rejected any more', !rejList?.some((r) => r.table === 'proposal' && r.id === rejectedEdit.id), JSON.stringify(rejList?.[0]));
+  const backSet = (await getPage('docs/basics')).pending[0];
+  await api('POST', `/api/proposals/${backSet.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
+  check('the brought-back suggestion can still be approved', pageFile('docs/basics').includes('Titles are short and lowercase.'));
+
+  // the same for a rejected structural suggestion: reject it, see it listed, bring it back, approve it
+  await chat('Please move the checklist to the guide', 'Alex', 'local', 'e2e-chat-unrej-op');
+  const moveCard = await getPage('docs/basics/details');
+  const rejOp = moveCard?.ops[0];
+  check('a structural suggestion waits on the page', !!rejOp && rejOp.kind === 'move' && rejOp.newPath === 'guide/details', JSON.stringify(moveCard?.ops));
+  await api('POST', `/api/ops/${rejOp.opId}`, { action: 'reject', user: 'Kim' });
+  const rejOps = (await api('GET', '/api/history?page=' + encodeURIComponent('docs/basics/details'))).data.rejected;
+  const rejectedMove = rejOps?.find((r) => r.kind === 'move' && r.table === 'op' && r.summary === 'The checklist belongs in the guide');
+  check('the rejected move is listed', !!rejectedMove && rejectedMove.exists === true, JSON.stringify(rejOps?.[0]));
+  const unOp = await api('POST', '/api/history', { action: 'unreject', kind: 'op', id: rejectedMove.id, user: 'Kim' });
+  const backCard = await getPage('docs/basics/details');
+  check('the rejected move waits on its page again after the undo', unOp.status === 200 && backCard?.ops.length === 1, JSON.stringify(backCard?.ops?.[0]));
+  await api('POST', `/api/ops/${backCard.ops[0].opId}`, { action: 'approve', user: 'Kim' });
+  check('the brought-back move can still be approved', fs.existsSync(path.join(wikiDir, 'guide/details.md')) && !fs.existsSync(path.join(wikiDir, 'docs/basics/details.md')));
+
+  // a viewer can read the rejected list but not undo a rejection
   await login('Vera', 'vera-pass-1234');
   check('a viewer cannot undo', (await api('POST', '/api/history', { action: 'undo', commit: editEntry.commit, user: 'Vera' })).status === 403);
+  check('a viewer cannot take a rejection back', (await api('POST', '/api/history', { action: 'unreject', kind: 'op', id: rejectedMove.id, user: 'Vera' })).status === 403);
   check('a viewer can read the history', (await api('GET', '/api/history')).status === 200);
 } catch (e) {
   failures++;

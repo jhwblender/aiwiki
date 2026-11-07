@@ -1,8 +1,8 @@
 import { db } from './db';
 import { changed } from './pulse';
-import { deletePage, movePage, planMove, readPage, rewriteLinks, writePage, titleFor } from './wiki';
+import { deletePage, listPages, movePage, planMove, readPage, rewriteLinks, writePage, titleFor } from './wiki';
 import { fromBlocks, hunkCount, normalize, rebase, resolveHunk, segments, toBlocks } from './diff';
-import type { PageSourceRef, PendingOp, PendingSet, SourceInfo } from './types';
+import type { PageSourceRef, PendingOp, PendingSet, RejectedItem, SourceInfo } from './types';
 
 const now = () => new Date().toISOString();
 
@@ -468,6 +468,96 @@ export async function decideAll(proposalId: number, action: 'approve' | 'reject'
   }
   db().prepare("UPDATE proposals SET status = 'resolved' WHERE id = ?").run(p.id);
   log(p.id, action, 'all', user);
+  changed();
+}
+
+// ---------- rejected suggestions and taking a rejection back ----------
+// A rejection publishes nothing, so the page history (which reads the wiki's journal) cannot show
+// it; the decision tables hold it, and this is the list of them with the way back. Taking a
+// rejection back only restores the suggestion to review on its page - never applies it.
+
+export async function rejectedItems(page?: string): Promise<RejectedItem[]> {
+  const pages = new Set((await listPages()).map((p) => p.path));
+  const args = page ? [page, page, '/%'] : [];
+  const proposalWhere = page
+    ? 'AND (? = p.page_path OR p.page_path LIKE ? || ?)'
+    : '';
+  const opWhere = page
+    ? 'AND (? = o.page_path OR o.page_path LIKE ? || ?)'
+    : '';
+  const rows: RejectedItem[] = [];
+
+  for (const r of db()
+    .prepare(
+      `SELECT p.id, p.page_path, p.new_content, p.is_new, cs.summary,
+        (SELECT d2.user FROM decisions d2 WHERE d2.proposal_id = p.id AND d2.action = 'reject' ORDER BY d2.at DESC LIMIT 1) AS user,
+        (SELECT d3.at FROM decisions d3 WHERE d3.proposal_id = p.id AND d3.action = 'reject' ORDER BY d3.at DESC LIMIT 1) AS at
+      FROM proposals p JOIN change_sets cs ON cs.id = p.change_set_id
+      WHERE p.status = 'resolved'
+        AND EXISTS (SELECT 1 FROM decisions d WHERE d.proposal_id = p.id AND d.action = 'reject')
+        AND NOT EXISTS (SELECT 1 FROM decisions d WHERE d.proposal_id = p.id AND d.action = 'approve')
+        ${proposalWhere}`,
+    )
+    .all(...args) as any[]) {
+    rows.push({
+      kind: 'edit',
+      table: 'proposal',
+      id: r.id,
+      pagePath: r.page_path,
+      title: titleFor(String(r.new_content ?? ''), r.page_path),
+      isNew: !!r.is_new,
+      summary: r.summary ?? '',
+      rejectedBy: r.user ?? '',
+      at: r.at ?? '',
+      exists: pages.has(r.page_path),
+    });
+  }
+
+  for (const r of db()
+    .prepare(
+      `SELECT o.id, o.kind, o.page_path, o.new_path, cs.summary,
+        (SELECT d2.user FROM op_decisions d2 WHERE d2.op_id = o.id AND d2.action = 'reject' ORDER BY d2.at DESC LIMIT 1) AS user,
+        (SELECT d3.at FROM op_decisions d3 WHERE d3.op_id = o.id AND d3.action = 'reject' ORDER BY d3.at DESC LIMIT 1) AS at
+      FROM page_ops o JOIN change_sets cs ON cs.id = o.change_set_id
+      WHERE o.status = 'resolved'
+        AND EXISTS (SELECT 1 FROM op_decisions d WHERE d.op_id = o.id AND d.action = 'reject')
+        AND NOT EXISTS (SELECT 1 FROM op_decisions d WHERE d.op_id = o.id AND d.action = 'approve')
+        ${opWhere}`,
+    )
+    .all(...args) as any[]) {
+    const kind = r.kind === 'move' ? 'move' : 'remove';
+    rows.push({
+      kind,
+      table: 'op',
+      id: r.id,
+      pagePath: r.page_path,
+      newPath: kind === 'move' ? r.new_path : undefined,
+      title: titleFor('', r.page_path),
+      summary: r.summary ?? '',
+      rejectedBy: r.user ?? '',
+      at: r.at ?? '',
+      exists: pages.has(r.page_path),
+    });
+  }
+  return rows.sort((a, b) => (a.at < b.at ? 1 : -1));
+}
+
+// Put a rejected suggestion back where it was: on the page, waiting for review. The suggestion
+// itself is untouched, so a stale one simply shows as out of date on the page again.
+export async function unReject(kind: 'op' | 'proposal', id: number, user: string): Promise<void> {
+  if (kind === 'op') {
+    const r = db().prepare('SELECT status FROM page_ops WHERE id = ?').get(id) as { status: string } | undefined;
+    if (!r || r.status !== 'resolved' || !db().prepare("SELECT 1 FROM op_decisions WHERE op_id = ? AND action = 'reject'").get(id))
+      throw new Error('Only a suggestion a person rejected can be brought back.');
+    db().prepare("UPDATE page_ops SET status = 'pending' WHERE id = ?").run(id);
+    db().prepare('INSERT INTO op_decisions (op_id, action, user, at) VALUES (?, ?, ?, ?)').run(id, 'unreject', user, now());
+  } else {
+    const r = db().prepare('SELECT status FROM proposals WHERE id = ?').get(id) as { status: string } | undefined;
+    if (!r || r.status !== 'resolved' || !db().prepare("SELECT 1 FROM decisions WHERE proposal_id = ? AND action = 'reject'").get(id))
+      throw new Error('Only a suggestion a person rejected can be brought back.');
+    db().prepare("UPDATE proposals SET status = 'pending' WHERE id = ?").run(id);
+    db().prepare('INSERT INTO decisions (proposal_id, action, scope, user, at) VALUES (?, ?, ?, ?, ?)').run(id, 'unreject', 'all', user, now());
+  }
   changed();
 }
 

@@ -62,7 +62,7 @@ function migrate(d: Database.Database) {
     CREATE TABLE IF NOT EXISTS decisions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       proposal_id INTEGER NOT NULL REFERENCES proposals(id),
-      action TEXT NOT NULL,            -- approve | reject | supersede
+      action TEXT NOT NULL,            -- approve | reject | unreject | supersede
       scope TEXT NOT NULL,             -- hunk | all
       user TEXT NOT NULL,
       at TEXT NOT NULL
@@ -89,7 +89,7 @@ function migrate(d: Database.Database) {
     CREATE TABLE IF NOT EXISTS op_decisions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       op_id INTEGER NOT NULL REFERENCES page_ops(id),
-      action TEXT NOT NULL,            -- approve | reject
+      action TEXT NOT NULL,            -- approve | reject | unreject
       user TEXT NOT NULL,
       at TEXT NOT NULL
     );

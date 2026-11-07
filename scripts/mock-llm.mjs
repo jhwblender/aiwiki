@@ -345,6 +345,11 @@ const SCENARIOS = [
     reply: 'I moved the suggested photos page under archive.',
   },
   {
+    keyword: 'move the checklist to the guide',
+    steps: [{ name: 'move_page', args: { path: 'docs/basics/details', new_path: 'guide/details', summary: 'The checklist belongs in the guide' } }],
+    reply: 'I proposed moving [[docs/basics/details]] to [[guide/details]].',
+  },
+  {
     keyword: 'schedule the integration test',
     steps: [
       { name: 'calendar_add', args: { path: 'docs/basics', date: '2027-03-01', title: 'Integration test day', note: 'bring the radar', summary: 'Schedule the integration test' } },

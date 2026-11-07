@@ -1,9 +1,11 @@
 'use client';
 import { useState } from 'react';
 import Link from 'next/link';
-import type { HistoryAction, HistoryEntry } from '@/lib/types';
+import type { HistoryAction, HistoryEntry, RejectedItem } from '@/lib/types';
 
 const VERB: Record<HistoryAction['kind'], string> = { created: 'Created', removed: 'Removed', moved: 'Moved', edited: 'Edited' };
+
+const REJECTED_VERB: Record<RejectedItem['kind'], string> = { edit: 'An edit to', move: 'A move of', remove: 'The removal of' };
 
 function when(iso: string) {
   try {
@@ -34,25 +36,56 @@ function alreadyDone(e: HistoryEntry): string | null {
   return null;
 }
 
-// The list of approvals, with the undo that puts back what an approval changed
-export default function HistoryList({ entries, canUndo, onChanged }: { entries: HistoryEntry[]; canUndo: boolean; onChanged: () => void }) {
+// The list of approvals, with the undo that puts back what an approval changed, and the rejected
+// suggestions, whose undo puts the suggestion itself back on its page to review again
+export default function HistoryList({
+  entries,
+  rejected,
+  canUndo,
+  onChanged,
+}: {
+  entries: HistoryEntry[];
+  rejected: RejectedItem[];
+  canUndo: boolean;
+  onChanged: () => void;
+}) {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
+
+  async function post(body: unknown) {
+    const r = await fetch('/api/history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || 'That did not work.');
+  }
 
   async function undo(e: HistoryEntry) {
     setBusy(e.commit);
     setError('');
     setNote('');
     try {
-      const r = await fetch('/api/history', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'undo', commit: e.commit }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || 'That did not work.');
+      await post({ action: 'undo', commit: e.commit });
       setNote('Undone.');
+      onChanged();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy('');
+    }
+  }
+
+  // A rejection back: the suggestion goes to its page, still waiting for review like any other
+  async function unreject(r: RejectedItem) {
+    setBusy(`${r.table}-${r.id}`);
+    setError('');
+    setNote('');
+    try {
+      await post({ action: 'unreject', kind: r.table, id: r.id });
+      setNote('Waiting for review again on its page.');
       onChanged();
     } catch (err: any) {
       setError(err.message);
@@ -100,6 +133,37 @@ export default function HistoryList({ entries, canUndo, onChanged }: { entries: 
           );
         })}
       </ul>
+      {rejected.length > 0 && (
+        <section className="rejected">
+          <h3>Rejected suggestions</h3>
+          <ul className="history-list">
+            {rejected.map((r) => (
+              <li key={`${r.table}-${r.id}`} className="history-entry">
+                <div>
+                  {REJECTED_VERB[r.kind]}{' '}
+                  {r.exists ? (
+                    <Link href={`/wiki/${r.newPath && r.kind === 'move' ? r.newPath : r.pagePath}`}>{r.title}</Link>
+                  ) : (
+                    <Link href={`/history?page=${encodeURIComponent(r.pagePath)}`}>{r.title}</Link>
+                  )}
+                  {r.kind === 'move' && r.newPath && <span className="muted"> to {r.newPath}</span>}
+                </div>
+                {r.summary && <div className="muted small-text">{r.summary}</div>}
+                <div className="history-meta">
+                  <span className="muted small-text">
+                    rejected by {r.rejectedBy}, {when(r.at)}
+                  </span>
+                  {canUndo && (
+                    <button className="btn small quiet" disabled={busy === `${r.table}-${r.id}`} onClick={() => unreject(r)}>
+                      Undo rejection
+                    </button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }
