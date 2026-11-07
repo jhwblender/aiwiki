@@ -206,6 +206,9 @@ export default function PageView({
     const day = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
     return `\`\`\`calendar\n${day} What the day is for\n\`\`\`\n`;
   }
+  function mermaidStarter(): string {
+    return `\`\`\`mermaid\ngraph TD\n  Alice[CEO] --> Bob[Reports to Alice]\n\`\`\`\n`;
+  }
   const [draft, setDraft] = useState('');
   // The summary is edited in its own box, so it can be changed but not dropped by accident
   const [summaryDraft, setSummaryDraft] = useState('');
@@ -448,6 +451,14 @@ export default function PageView({
               >
                 Calendar
               </button>
+              <button
+                type="button"
+                className="btn small quiet"
+                title="Diagram: a mermaid block the page draws, e.g. an org chart"
+                onClick={() => wrap(mermaidStarter(), '', '')}
+              >
+                Diagram
+              </button>
             </div>
             {/* The page is written in markdown and shown as it will read; the markdown side stays
                 because headings, lists and [[links]] are still typed the markdown way */}
@@ -497,6 +508,10 @@ export default function PageView({
               </li>
               <li>
                 a <code>{'```calendar'}</code> block with one <code>{'YYYY-MM-DD'}</code> line per day — a schedule (the Calendar button drops one in)
+              </li>
+              <li>
+                a <code>{'```mermaid'}</code> block holding a diagram definition — the page draws it (the Diagram button drops in an org chart to edit):
+                <code>{'graph TD'}</code> then lines like <code>{'Alice[CEO] --> Bob[CTO]'}</code>
               </li>
             </ul>
           </details>

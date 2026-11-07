@@ -1343,6 +1343,14 @@ try {
   const holdBack = await ctl('set-chat-hold', { seconds: 0 });
   check('the chat hold can be turned off', holdBack.data.seconds === 0 && (await api('GET', '/api/ingest')).data.chatHoldSeconds === 0);
 
+  // 42. Diagrams: a ```mermaid block stays in the page as markdown, the page draws it
+  await chat('Please diagram the team structure', 'Alex', 'local', 'e2e-chat-diagram');
+  const diaSet = (await getPage('docs/basics')).pending[0];
+  await api('POST', `/api/proposals/${diaSet.proposalId}/resolve`, { action: 'approve', user: 'Kim' });
+  const diaFile = pageFile('docs/basics');
+  check('the org chart lands as a mermaid block',
+    diaFile.includes('```mermaid') && diaFile.includes('graph TD') && diaFile.includes('CEO[SoloPulse CEO] --> Eng[Engineering lead]'), JSON.stringify(diaFile.slice(-260)));
+
   // a viewer can read the rejected list but not undo a rejection
   await login('Vera', 'vera-pass-1234');
   check('a viewer cannot undo', (await api('POST', '/api/history', { action: 'undo', commit: editEntry.commit, user: 'Vera' })).status === 403);

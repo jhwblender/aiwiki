@@ -6,6 +6,7 @@ import { useState, type ReactNode } from 'react';
 import type { PluggableList } from 'unified';
 import { usePages } from './WikiContext';
 import CalendarBlock from './CalendarBlock';
+import MermaidBlock from './MermaidBlock';
 
 export function slugify(s: string): string {
   return s
@@ -115,13 +116,13 @@ export default function Md({ children, rehypePlugins }: { children: string; rehy
             </a>
           );
         },
-        // A fenced block marked ```calendar renders as a month view over its lines; every other
-        // code block keeps its copy button and its language label
+        // Fenced blocks with a meaning render as the thing itself: ```calendar becomes a month
+        // view, ```mermaid becomes a diagram; every other code block keeps its copy button and
+        // its language label
         code({ className, children }) {
-          if (String(className ?? '').includes('language-calendar')) {
-            const text = Array.isArray(children) ? children.map(String).join('') : String(children);
-            return <CalendarBlock text={text} />;
-          }
+          const text = Array.isArray(children) ? children.map(String).join('') : String(children);
+          if (String(className ?? '').includes('language-calendar')) return <CalendarBlock text={text} />;
+          if (String(className ?? '').includes('language-mermaid')) return <MermaidBlock text={text} />;
           return (
             <code className={className}>
               {children}
@@ -130,7 +131,7 @@ export default function Md({ children, rehypePlugins }: { children: string; rehy
         },
         pre(props) {
           const first: any = Array.isArray(props.children) ? props.children[0] : props.children;
-          if (first?.type === CalendarBlock) return <>{props.children}</>;
+          if (first?.type === CalendarBlock || first?.type === MermaidBlock) return <>{props.children}</>;
           return <CopyCode {...props} />;
         },
       }}

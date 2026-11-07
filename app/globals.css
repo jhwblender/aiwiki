@@ -265,6 +265,12 @@ a.btn { display: inline-block; text-decoration: none; color: var(--ink); }
 .cal-item-note p { margin: 0; }
 .cal-item-range { display: block; font-size: 11px; color: var(--ink-soft); margin-top: 1px; }
 .cal-empty { margin: 6px 0 0; font-size: 12px; }
+
+/* ---------- mermaid blocks ---------- */
+.mermaid-block { margin: 12px 0; overflow-x: auto; }
+.mermaid-draw svg { max-width: 100%; height: auto; border: 1px solid var(--rule); border-radius: 8px; background: var(--paper); padding: 8px; }
+.mermaid-source { margin: 8px 0; }
+.mermaid-error { color: var(--rem-ink); }
 .presets { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
 .btn.picked { border-color: var(--teal); background: var(--teal-soft); }
 .check { display: flex; align-items: center; gap: 6px; margin-top: 8px; }

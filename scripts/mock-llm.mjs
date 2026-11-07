@@ -350,6 +350,20 @@ const SCENARIOS = [
     reply: 'I proposed moving [[docs/basics/details]] to [[guide/details]].',
   },
   {
+    keyword: 'diagram the team structure',
+    steps: [
+      {
+        name: 'append_to_page',
+        args: {
+          path: 'docs/basics',
+          text: '## Team structure\n\n```mermaid\ngraph TD\n  CEO[SoloPulse CEO] --> Eng[Engineering lead]\n  CEO --> Ops[Operations lead]\n```',
+          summary: 'Add the team org chart as a diagram',
+        },
+      },
+    ],
+    reply: 'I proposed the team org chart as a mermaid diagram.',
+  },
+  {
     keyword: 'schedule the integration test',
     steps: [
       { name: 'calendar_add', args: { path: 'docs/basics', date: '2027-03-01', title: 'Integration test day', note: 'bring the radar', summary: 'Schedule the integration test' } },
