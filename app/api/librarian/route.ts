@@ -35,7 +35,10 @@ export async function POST(req: NextRequest) {
     if (b.section !== WHOLE) {
       section = normalizePath(String(b.section ?? ''));
       if (section === 'index') throw new Error('The home page is not a section; tidy the whole wiki instead.');
-      const has = (await readPage(section)) !== null || (await listSections()).some((s) => s.section === section.split('/')[0]);
+      // A section this person cannot change reads the same as one that is not there
+      const access = accessFor(editor);
+      const editable = (p: string) => access.can(p, 'edit');
+      const has = ((await readPage(section)) !== null && editable(section)) || (await listSections(editable)).some((s) => s.section === section.split('/')[0]);
       if (!has) throw new Error(`There is no section "${section}".`);
     }
     const job = enqueueTidy({

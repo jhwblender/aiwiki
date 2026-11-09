@@ -3,9 +3,9 @@ import { normalizeCall, ORGANISE_TOOLS, runTool, toolDefs, ToolContext } from '.
 import type { ChatMsg, ChatResponse } from '../types';
 import { getFile } from '../files';
 import { folderContext } from '../folderContext';
-import { isWhole } from '../librarian';
+import { isWhole, librarianAccess } from '../librarian';
 import { structureOutline } from '../structure';
-import { accessFor, accessForName, NOBODY } from '../access';
+import { accessForName } from '../access';
 import { checkVersion, dropIdentity, prepareFile, recordVersion, type DocIdentity, type VersionInfo } from '../ingest';
 
 const SYSTEM = `You are the assistant built into a company wiki. You help people find information and keep the wiki accurate.
@@ -102,8 +102,7 @@ export async function runAgent(opts: {
   const ctx: ToolContext = {
     user: opts.user,
     username: opts.username ?? opts.user,
-    // A librarian run works for the whole wiki, so it only sees what is open to anyone
-    access: opts.librarian ? accessFor(NOBODY) : accessForName(opts.username ?? opts.user),
+    access: opts.librarian ? librarianAccess(opts.user) : accessForName(opts.username ?? opts.user),
     providerId: provider.id,
     note: last?.content ?? '',
     chatId: opts.chatId,

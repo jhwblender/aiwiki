@@ -20,7 +20,7 @@ const EVERYONE: EveryoneLevel[] = ['none', 'role', 'read', 'edit', 'approve'];
 export const WHOLE_WIKI = '*';
 
 export type Who = { name: string; role: string };
-// No account and no groups: what is open to anyone. Librarian runs and unknown names work as this.
+// No account and no groups: what is open to anyone. The librarian's own runs and unknown names work as this.
 export const NOBODY: Who = { name: '', role: 'viewer' };
 
 type RuleRow = { path: string; kind: 'everyone' | 'group' | 'user'; subject: string; level: string };

@@ -1433,6 +1433,18 @@ try {
   await api('PUT', '/api/page', { path: 'vault/closed', content: '# Closed\n\nA page that follows the section rule.\n' });
   await as('Gina', 'gina-pass-1234');
   check('a section stays closed when its only group goes', (await api('GET', '/api/page?path=vault/closed')).status === 404);
+
+  // A librarian run someone starts covers the pages they can edit
+  await asKim();
+  await api('PUT', '/api/page', { path: 'vault/second', content: '# Second\n\nAnother page that follows the section rule.\n' });
+  await api('PUT', '/api/access', { path: 'vault', rules: { everyone: 'read', entries: [] } });
+  await as('Alex', 'alex-pass-1234');
+  check('a librarian run needs editing rights on the section', /no section/.test((await api('POST', '/api/librarian', { section: 'vault' })).data.error ?? ''));
+  await asKim();
+  await api('PUT', '/api/access', { path: 'vault', rules: { everyone: 'none', entries: [{ kind: 'user', subject: 'Alex', level: 'edit' }] } });
+  await as('Alex', 'alex-pass-1234');
+  const limitedTidy = await waitJob((await api('POST', '/api/librarian', { section: 'vault' })).data.job);
+  check('a librarian run reaches a limited section for someone who can edit it', limitedTidy?.status === 'done', JSON.stringify(limitedTidy));
   }
 } catch (e) {
   failures++;

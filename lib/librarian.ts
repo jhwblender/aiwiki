@@ -1,3 +1,4 @@
+import { accessFor, accessForName, NOBODY, type Access } from './access';
 import { db } from './db';
 import { listPages, normalizePath, readPage } from './wiki';
 import { pendingCounts } from './proposals';
@@ -17,6 +18,14 @@ export const MAX_LIMIT = 50;
 export const WHOLE = '*';
 // Who starts the runs the librarian schedules for itself
 export const AUTO_USER = 'Librarian';
+
+// A run someone started covers the pages that person can edit. The librarian's own runs have nobody
+// behind them, so they only see what is open to anyone.
+export function librarianAccess(user: string): Access {
+  if (user === AUTO_USER) return accessFor(NOBODY);
+  const access = accessForName(user);
+  return { ...access, visible: (path) => access.can(path, 'edit') };
+}
 
 export const scopeName = (section: string) => (section === WHOLE ? 'the whole wiki' : `the ${section} section`);
 // What a run is called in Background filing: Organise for the whole wiki, Tidy for a section
