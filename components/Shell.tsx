@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import type { PageListItem } from '@/lib/types';
 import Sidebar from './Sidebar';
+import ThemePicker from './ThemePicker';
 import PageView from './PageView';
 import ChatPanel, { type IncomingFiles } from './ChatPanel';
 import { PagesContext } from './WikiContext';
@@ -124,6 +125,7 @@ export default function Shell() {
             {pendingTotal > 0 && <span className="badge" aria-label={`${pendingTotal} waiting for review`}>{pendingTotal}</span>}
           </button>
           <span className="spacer" />
+          <ThemePicker />
           <button className="btn small" aria-expanded={chatOpen} onClick={toggleChat}>
             {chatOpen ? 'Hide assistant' : 'Assistant'}
           </button>

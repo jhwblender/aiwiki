@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { THEME_EVENT } from '@/lib/theme';
 
 // A fenced ```mermaid block is a diagram written as markdown text, and it renders as the real
 // drawing here. The library is large, so it loads only when a page happens to carry a diagram.
@@ -9,6 +10,14 @@ export default function MermaidBlock({ text }: { text: string }) {
   const [svg, setSvg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const runRef = useRef(0);
+  // Bumped when the wiki switches between light and dark, so the drawing is made again to match
+  const [themeTurn, setThemeTurn] = useState(0);
+
+  useEffect(() => {
+    const onTheme = () => setThemeTurn((n) => n + 1);
+    window.addEventListener(THEME_EVENT, onTheme);
+    return () => window.removeEventListener(THEME_EVENT, onTheme);
+  }, []);
 
   useEffect(() => {
     const run = ++runRef.current;
@@ -16,7 +25,8 @@ export default function MermaidBlock({ text }: { text: string }) {
     (async () => {
       try {
         const mermaid = (await import('mermaid')).default;
-        mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'neutral' });
+        const theme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'neutral';
+        mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme });
         const { svg: drawn } = await mermaid.render(`wiki-mermaid-${run}`, text);
         if (run === runRef.current) {
           settled = true;
@@ -35,7 +45,7 @@ export default function MermaidBlock({ text }: { text: string }) {
       // A newer render wins; the older one's result is thrown away
       if (!settled) runRef.current = run + 1;
     };
-  }, [text]);
+  }, [text, themeTurn]);
 
   return (
     <div className="mermaid-block">
