@@ -92,9 +92,11 @@ const related = (a: string, b: string) => a.startsWith(b + '/') || b.startsWith(
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 3) + '...' : s);
 
-async function loadPages(): Promise<Page[]> {
+type Visible = (path: string) => boolean;
+
+async function loadPages(visible: Visible = () => true): Promise<Page[]> {
   const out: Page[] = [];
-  for (const { path, title } of await listPages()) {
+  for (const { path, title } of (await listPages()).filter((p) => visible(p.path))) {
     const content = (await readPage(path)) ?? '';
     const words = wordsOf(content);
     out.push({ path, title, content, words: new Set(words), shingles: shinglesOf(words) });
@@ -144,8 +146,8 @@ function bySectionOf(all: Page[]): Map<string, Page[]> {
 const bodyChars = (md: string) => md.replace(/^#{1,6}\s.*$/gm, '').replace(/\s+/g, ' ').trim().length;
 
 // Top-level sections with how many pages sit in each, for the Tidy buttons on Settings
-export async function listSections(): Promise<{ section: string; title: string; pages: number }[]> {
-  const pages = await listPages();
+export async function listSections(visible: Visible = () => true): Promise<{ section: string; title: string; pages: number }[]> {
+  const pages = (await listPages()).filter((p) => visible(p.path));
   const titles = new Map(pages.map((p) => [p.path, p.title]));
   const counts = new Map<string, number>();
   for (const p of pages) {
@@ -293,10 +295,10 @@ function folderMap(known: Set<string>, onlyLabels?: Set<string>, maxDirs = 40): 
 export type Survey = { section: string; pages: number; findings: number; report: string };
 
 // A plain-text report on one section (or the whole wiki) for the assistant, kept short enough for a local model
-export async function surveySection(sectionInput: string): Promise<Survey> {
-  if (isWhole(sectionInput)) return surveyWiki();
+export async function surveySection(sectionInput: string, visible?: Visible): Promise<Survey> {
+  if (isWhole(sectionInput)) return surveyWiki(visible);
   const section = normalizePath(sectionInput);
-  const all = await loadPages();
+  const all = await loadPages(visible);
   const known = new Set(all.map((p) => p.path));
   const pending = pendingCounts();
   const suggestedNew = new Set([...pending.entries()].filter(([, v]) => v.isNew).map(([p]) => p));
@@ -450,8 +452,8 @@ export const isWhole = (s: string) => [WHOLE, '', 'all', 'whole', 'whole wiki', 
 
 // The shape of the whole wiki: its sections and what they hold, the home page, sections that are
 // too small to stand alone, pages that repeat or belong in another section, and the watched folders
-export async function surveyWiki(): Promise<Survey> {
-  const all = await loadPages();
+export async function surveyWiki(visible?: Visible): Promise<Survey> {
+  const all = await loadPages(visible);
   const known = new Set(all.map((p) => p.path));
   const bySection = bySectionOf(all);
   const lines: string[] = [];

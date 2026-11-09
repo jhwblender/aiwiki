@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { readStored } from '@/lib/files';
+import { accessFor, sourcesAllowed } from '@/lib/access';
 import { fail, fileResponse, requireUser, isResponse } from '@/lib/api';
 
 export const runtime = 'nodejs';
@@ -14,6 +15,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     const s = db().prepare("SELECT filename, stored_path FROM sources WHERE id = ? AND kind = 'file'").get(Number(id)) as
       | { filename: string; stored_path: string | null }
       | undefined;
+    if (s && !sourcesAllowed(accessFor(viewer), [Number(id)])) return NextResponse.json({ error: 'This source is not available to you' }, { status: 404 });
     if (!s?.stored_path) return NextResponse.json({ error: 'This source has no stored file' }, { status: 404 });
     const f = db().prepare('SELECT mime FROM files WHERE stored_path = ? LIMIT 1').get(s.stored_path) as { mime: string } | undefined;
     return fileResponse({ filename: s.filename, mime: f?.mime ?? 'application/octet-stream' }, await readStored({ storedPath: s.stored_path }));

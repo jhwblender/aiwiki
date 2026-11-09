@@ -5,6 +5,7 @@ import { getFile } from '../files';
 import { folderContext } from '../folderContext';
 import { isWhole } from '../librarian';
 import { structureOutline } from '../structure';
+import { accessFor, accessForName, NOBODY } from '../access';
 import { checkVersion, dropIdentity, prepareFile, recordVersion, type DocIdentity, type VersionInfo } from '../ingest';
 
 const SYSTEM = `You are the assistant built into a company wiki. You help people find information and keep the wiki accurate.
@@ -101,6 +102,8 @@ export async function runAgent(opts: {
   const ctx: ToolContext = {
     user: opts.user,
     username: opts.username ?? opts.user,
+    // A librarian run works for the whole wiki, so it only sees what is open to anyone
+    access: opts.librarian ? accessFor(NOBODY) : accessForName(opts.username ?? opts.user),
     providerId: provider.id,
     note: last?.content ?? '',
     chatId: opts.chatId,
@@ -158,7 +161,7 @@ export async function runAgent(opts: {
     if (lastIdx >= 0 && sections.length) {
       const m = messages[lastIdx] as { role: 'user'; content: string };
       // The layout Organise keeps, with each section's summary, so new pages go where they belong
-      const guide = await structureOutline(80);
+      const guide = await structureOutline(80, ctx.access.visible);
       const where = guide
         ? `\n\n<<<Wiki structure: each section's summary says what belongs in it. Put new information on the page or in the section whose summary fits; start a new section only when none fits.>>>\n${guide}\n<<<End of structure>>>`
         : '';

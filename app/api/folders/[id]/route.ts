@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { stopFolderJobs } from '@/lib/queue';
 import { changeFolderPath, folderLabel, removeFolder, scanFolder, setEnabled, setVisibility } from '@/lib/watcher';
+import { accessFor, setFolderGroup } from '@/lib/access';
 import { fail, requireUser, isResponse } from '@/lib/api';
 
 export const runtime = 'nodejs';
@@ -11,7 +12,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const editor = requireUser(req, 'editor');
     if (isResponse(editor)) return editor;
     const { id } = await ctx.params;
+    if (!accessFor(editor).folderAllowed(folderLabel(Number(id)))) return NextResponse.json({ error: 'Folder not found' }, { status: 404 });
     const b = await req.json();
+    if ('accessGroup' in b) {
+      if (editor.role !== 'admin') return NextResponse.json({ error: 'Needs the admin role.' }, { status: 403 });
+      setFolderGroup(Number(id), b.accessGroup === null ? null : Number(b.accessGroup));
+      return NextResponse.json({ ok: true });
+    }
     if (typeof b.path === 'string') {
       const moved = await changeFolderPath(Number(id), b.path);
       if (typeof b.enabled === 'boolean') setEnabled(Number(id), b.enabled);
@@ -42,6 +49,7 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
     if (isResponse(editor)) return editor;
     const { id } = await ctx.params;
     const label = folderLabel(Number(id));
+    if (!accessFor(editor).folderAllowed(label)) return NextResponse.json({ error: 'Folder not found' }, { status: 404 });
     const cancelled = label ? stopFolderJobs(label) : 0;
     removeFolder(Number(id));
     return NextResponse.json({ ok: true, cancelled });

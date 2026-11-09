@@ -8,6 +8,7 @@ type Folder = {
   path: string;
   user: string;
   visibility: 'wiki' | 'personal';
+  accessGroup: number | null;
   enabled: boolean;
   lastScanAt: string | null;
   lastError: string | null;
@@ -27,6 +28,8 @@ function ago(iso: string | null) {
 // Folders on the wiki server whose documents are filed into the wiki as they appear or change
 export default function WatchedFolders() {
   const [folders, setFolders] = useState<Folder[] | null>(null);
+  // Only admins get groups back, so only they see the access picker
+  const [groups, setGroups] = useState<{ id: number; name: string }[]>([]);
   const [label, setLabel] = useState('');
   const [dir, setDir] = useState('');
   const [dirDisplay, setDirDisplay] = useState('');
@@ -53,6 +56,13 @@ export default function WatchedFolders() {
     } catch {
       setMessage({ kind: 'error', text: 'Could not load watched folders.' });
     }
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/groups', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setGroups(d.groups))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -177,6 +187,27 @@ export default function WatchedFolders() {
                     {f.fileCount} document{f.fileCount === 1 ? '' : 's'}, {ago(f.lastScanAt)}
                     {f.visibility === 'personal' ? `, kept for ${f.user}'s searches only` : f.user && f.user !== 'anonymous' ? `, filed as ${f.user}` : ''}
                   </div>
+                  {groups.length > 0 && f.visibility === 'wiki' && (
+                    <label className="small-text folder-access">
+                      Who can look up its documents{' '}
+                      <select
+                        value={f.accessGroup ?? ''}
+                        onChange={async (e) => {
+                          await fetch(`/api/folders/${f.id}`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ accessGroup: e.target.value === '' ? null : Number(e.target.value) }),
+                          });
+                          await load();
+                        }}
+                      >
+                        <option value="">Everyone</option>
+                        {groups.map((g) => (
+                          <option key={g.id} value={g.id}>{g.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                   {f.insideOf && (
                     <div className="muted small-text">Inside &quot;{f.insideOf}&quot;. Its documents are filed under this folder only.</div>
                   )}

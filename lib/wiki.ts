@@ -299,20 +299,22 @@ export async function history(p: string, limit = 20) {
 
 // ---------- search ----------
 
-export async function searchPages(q: string, limit = 8) {
+export async function searchPages(q: string, limit = 8, visible?: (path: string) => boolean) {
   await ensureInit();
   const terms = q
     .split(/\s+/)
     .map((t) => t.replace(/[^\p{L}\p{N}_-]/gu, ''))
     .filter(Boolean);
   if (!terms.length) return [];
-  const run = (query: string) =>
-    db()
+  const run = (query: string) => {
+    const rows = db()
       .prepare(
         `SELECT path, title, snippet(pages_fts, 2, '[', ']', '...', 24) AS snippet
          FROM pages_fts WHERE pages_fts MATCH ? ORDER BY rank LIMIT ?`,
       )
-      .all(query, limit) as { path: string; title: string; snippet: string }[];
+      .all(query, visible ? 2000 : limit) as { path: string; title: string; snippet: string }[];
+    return visible ? rows.filter((r) => visible(r.path)).slice(0, limit) : rows;
+  };
   try {
     // Every word must be there: the precise answer when it exists
     const rows = run(terms.map((t) => `"${t}"*`).join(' '));

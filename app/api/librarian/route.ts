@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { accessFor } from '@/lib/access';
 import { db } from '@/lib/db';
 import { librarianSettings, listSections, MAX_LIMIT, saveLibrarianSettings, WHOLE } from '@/lib/librarian';
 import { checkLibrarian } from '@/lib/librarianAuto';
@@ -18,7 +19,7 @@ export async function GET(req: NextRequest) {
     .prepare("SELECT doc_key, status FROM ingest_jobs WHERE mode = 'tidy' AND status IN ('queued', 'working')")
     .all() as { doc_key: string; status: string }[];
   const busy = new Map(active.map((r) => [r.doc_key.slice('tidy:'.length), r.status]));
-  const sections = (await listSections()).map((s) => ({ ...s, run: busy.get(s.section) ?? null }));
+  const sections = (await listSections(accessFor(viewer).visible)).map((s) => ({ ...s, run: busy.get(s.section) ?? null }));
   return NextResponse.json({ sections, whole: { run: busy.get(WHOLE) ?? null }, settings: librarianSettings(), maxLimit: MAX_LIMIT });
 }
 

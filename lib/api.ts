@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { roleRank, sessionUser, COOKIE_NAME } from '@/lib/auth';
 import type { SessionUser } from '@/lib/auth';
+import type { Access, Level } from '@/lib/access';
 
 export function fail(e: unknown, status = 400) {
   const message = e instanceof Error ? e.message : String(e);
@@ -16,6 +17,15 @@ export function requireUser(req: NextRequest, minRole: 'viewer' | 'editor' | 'ad
     return NextResponse.json({ error: `Needs the ${minRole} role.` }, { status: 403 });
   }
   return user;
+}
+
+// What a route says when this person may not do this on this page. A page they cannot read looks
+// the same whether or not it exists.
+export function denied(access: Access, path: string, need: Level): NextResponse | null {
+  if (access.can(path, need)) return null;
+  if (!access.visible(path)) return NextResponse.json({ error: 'This page is not available to you.' }, { status: 404 });
+  const what = need === 'edit' ? 'edit this page' : need === 'approve' ? 'review suggestions on this page' : 'change who can use this page';
+  return NextResponse.json({ error: `You do not have permission to ${what}.` }, { status: 403 });
 }
 
 export function isResponse(v: unknown): v is NextResponse {

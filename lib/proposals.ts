@@ -1,4 +1,5 @@
 import { db } from './db';
+import { moveRules } from './access';
 import { changed } from './pulse';
 import { deletePage, listPages, movePage, planMove, readPage, rewriteLinks, writePage, titleFor } from './wiki';
 import { fromBlocks, hunkCount, normalize, rebase, resolveHunk, segments, toBlocks } from './diff';
@@ -276,6 +277,7 @@ export async function movePageWithRecords(from: string, to: string, user: string
     d.prepare('UPDATE page_sources SET page_path = ? WHERE page_path = ?').run(newPath, oldPath);
     d.prepare("UPDATE page_ops SET page_path = ? WHERE page_path = ? AND status = 'pending'").run(newPath, oldPath);
   }
+  moveRules(from, to);
   const rows = d.prepare("SELECT id, new_content, base_content FROM proposals WHERE status = 'pending'").all() as {
     id: number;
     new_content: string;
@@ -436,6 +438,16 @@ function commitMessage(p: ProposalRow, user: string): string {
     .map((id) => getSource(id))
     .map((src) => `Source: ${sourceLabel(src)} (source #${src?.id ?? '?'})`);
   return `${cs?.summary ?? 'AI change'}\n\n${sources.join('\n') || 'Source: unknown'}\nChange set: #${p.change_set_id}\nApproved by: ${user}`;
+}
+
+// Which pages a decision touches, so a route can check the person may review there
+export function proposalPage(id: number): string | null {
+  return (db().prepare('SELECT page_path FROM proposals WHERE id = ?').get(id) as { page_path: string } | undefined)?.page_path ?? null;
+}
+
+export function opPages(id: number): string[] {
+  const r = db().prepare('SELECT page_path, new_path FROM page_ops WHERE id = ?').get(id) as { page_path: string; new_path: string | null } | undefined;
+  return r ? [r.page_path, ...(r.new_path ? [r.new_path] : [])] : [];
 }
 
 export async function decideHunk(proposalId: number, index: number, fp: string, action: 'approve' | 'reject', user: string) {

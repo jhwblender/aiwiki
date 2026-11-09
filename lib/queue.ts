@@ -7,6 +7,7 @@ import { checkVersion, recordVersion, type DocIdentity } from './ingest';
 import { runAgent } from './ai/agent';
 import { refileFiles } from './refile';
 import { applyPatternRules, decide, looksLikeData, parsePlan, PLAN_SYSTEM, planOutline, storePlan } from './filingPlan';
+import { accessFor, NOBODY } from './access';
 import { AUTO_USER, librarianSettings, MAX_LIMIT, runName, scopeName, surveySection, tidyInstruction, WHOLE } from './librarian';
 
 // Work done without anyone watching a chat: drops sent "in the background", files from watched
@@ -375,7 +376,8 @@ async function runTidy(row: any, signal: AbortSignal, onProgress: (text: string)
   const section = String(row.doc_key).slice('tidy:'.length);
   const limit = row.tidy_limit || librarianSettings().limit;
   onProgress(`Surveying ${scopeName(section)}`);
-  const survey = await surveySection(section);
+  // A librarian run only sees what is open to anyone, so nothing limited ends up on an open page
+  const survey = await surveySection(section, accessFor(NOBODY).visible);
   if (!survey.pages) return finish(row.id, 'skipped', `There are no pages in "${section}".`);
   if (survey.pages === 1 && !survey.findings) return finish(row.id, 'skipped', `"${section}" has only one page and nothing to tidy.`);
   // The librarian's own runs only spend model time when the survey found something

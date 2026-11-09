@@ -1356,6 +1356,84 @@ try {
   check('a viewer cannot undo', (await api('POST', '/api/history', { action: 'undo', commit: editEntry.commit, user: 'Vera' })).status === 403);
   check('a viewer cannot take a rejection back', (await api('POST', '/api/history', { action: 'unreject', kind: 'op', id: rejectedMove.id, user: 'Vera' })).status === 403);
   check('a viewer can read the history', (await api('GET', '/api/history')).status === 200);
+
+  // 43. Groups and section rules: visibility, approvals and the assistant all follow them
+  const signedApi = api;
+  {
+    let who = 'Kim';
+    const as = async (name, password) => {
+      await login(name, password);
+      who = name;
+    };
+    const api = (method, url, body) => signedApi(method, `${url}${url.includes('?') ? '&' : '?'}user=${who}`, body);
+  const asKim = () => as('Kim', 'kim-pass-1234');
+  await asKim();
+  const vaultBody = '# Vault plans\n\nThe zebrafruit programme and what belongs with it.\n\nDetails stay here.\n';
+  await api('PUT', '/api/page', { path: 'vault/plans', content: vaultBody });
+  for (const [n, role] of [['Gina', 'viewer'], ['Hugo', 'viewer']]) await api('POST', '/api/users', { name: n, role, password: `${n.toLowerCase()}-pass-1234` });
+  const top = await api('POST', '/api/groups', { name: 'Staff', parentId: null });
+  const sub = await api('POST', '/api/groups', { name: 'Vault team', parentId: top.data.id });
+  check('groups can nest', top.status === 200 && sub.status === 200);
+  check('a group cannot go inside its own sub-group', (await api('PATCH', '/api/groups', { id: top.data.id, parentId: sub.data.id })).status === 400);
+  await api('PATCH', '/api/groups', { id: sub.data.id, members: ['Gina'] });
+  // The rule names the upper group: Gina is in the sub-group, so she counts
+  const vaultRules = await api('PUT', '/api/access', { path: 'vault', rules: { everyone: 'none', entries: [{ kind: 'group', subject: String(top.data.id), level: 'approve' }] } });
+  check('an admin can limit a section', vaultRules.status === 200, JSON.stringify(vaultRules.data));
+
+  await as('Hugo', 'hugo-pass-1234');
+  check('a limited page is hidden from someone it does not name', (await api('GET', '/api/page?path=vault/plans')).status === 404);
+  check('it is out of their page list', !(await api('GET', '/api/pages')).data.some((p) => p.path.startsWith('vault')));
+  check('it is out of their search', (await api('GET', '/api/search?q=zebrafruit')).data.length === 0);
+  check('it is out of their table of contents', !JSON.stringify((await api('GET', '/api/structure')).data).includes('vault'));
+  check('they cannot change who has access', (await api('GET', '/api/access?path=vault/plans')).status === 404);
+  check('the assistant cannot reach it for them', (await chat('peek at the vault', 'Hugo', 'local', 'e2e-chat-vault')).reply === 'VAULT-SHUT');
+  await as('Alex', 'alex-pass-1234');
+  check('a section rule outranks the editor role', (await api('PUT', '/api/page', { path: 'vault/plans', content: vaultBody + '\nMore.\n' })).status === 404);
+
+  await as('Gina', 'gina-pass-1234');
+  const seen = await api('GET', '/api/page?path=vault/plans');
+  check('membership of a sub-group counts for the group above', seen.status === 200 && seen.data.access.level === 'approve', JSON.stringify(seen.data.access));
+  check('a grant lets a viewer edit inside the section', (await api('PUT', '/api/page', { path: 'vault/plans', content: vaultBody + '\nFrom Gina.\n' })).status === 200);
+  check('but not outside it', (await api('PUT', '/api/page', { path: 'docs/basics', content: '# Nope\n\nA summary that should not land.\n' })).status === 403);
+  check('approve does not include changing access', (await api('PUT', '/api/access', { path: 'vault', rules: null })).status === 403);
+  const mineNow = await chat('Please peek at the vault', 'Gina', 'local', 'e2e-chat-vault-2');
+  check('the assistant can reach it for someone it names', mineNow.reply === 'VAULT-OPEN', mineNow.reply);
+  const ginaSet = (await getPage('vault/plans')).pending[0];
+
+  // Approving is its own right: someone who can only read sees the suggestion and cannot decide it
+  await asKim();
+  await api('PUT', '/api/access', { path: 'vault', rules: { everyone: 'read', entries: [{ kind: 'user', subject: 'Gina', level: 'manage' }] } });
+  await as('Hugo', 'hugo-pass-1234');
+  check('a reader cannot approve', (await api('POST', `/api/proposals/${ginaSet.proposalId}/resolve`, { action: 'approve' })).status === 403);
+  check('a reader cannot edit', (await api('PUT', '/api/page', { path: 'vault/plans', content: vaultBody })).status === 403);
+  await as('Gina', 'gina-pass-1234');
+  check('a named person can approve there', (await api('POST', `/api/proposals/${ginaSet.proposalId}/resolve`, { action: 'approve' })).status === 200);
+  check('nobody can lock themselves out of managing', /remove your own right/.test((await api('PUT', '/api/access', { path: 'vault', rules: { everyone: 'read', entries: [] } })).data.error ?? ''));
+  check('a refused change leaves the rules alone', (await api('GET', '/api/access?path=vault')).data.rules.entries.length === 1);
+
+  // Nearest rule wins, and rules travel when a page moves
+  await asKim();
+  await api('PUT', '/api/page', { path: 'vault/open', content: '# Open\n\nA page in the vault for everyone to read.\n' });
+  await api('PUT', '/api/access', { path: 'vault', rules: { everyone: 'none', entries: [{ kind: 'user', subject: 'Gina', level: 'manage' }] } });
+  await api('PUT', '/api/access', { path: 'vault/open', rules: { everyone: 'read', entries: [] } });
+  await as('Hugo', 'hugo-pass-1234');
+  check('the nearest rule decides', (await api('GET', '/api/page?path=vault/open')).status === 200 && (await api('GET', '/api/page?path=vault/plans')).status === 404);
+  await asKim();
+  await api('PUT', '/api/access', { path: 'vault/plans', rules: { everyone: 'none', entries: [{ kind: 'user', subject: 'Gina', level: 'manage' }] } });
+  check('an admin can still move it', (await api('POST', '/api/page/move', { from: 'vault/plans', to: 'moved-plans' })).status === 200);
+  await as('Hugo', 'hugo-pass-1234');
+  check('moving a limited page does not open it', (await api('GET', '/api/page?path=moved-plans')).status === 404);
+  check('and its history stays out of sight', (await api('GET', '/api/history?page=moved-plans')).data.entries.length === 0);
+
+  // Deleting a group leaves a section closed rather than opening it
+  await asKim();
+  await api('PUT', '/api/access', { path: 'vault', rules: { everyone: 'none', entries: [{ kind: 'group', subject: String(sub.data.id), level: 'read' }] } });
+  check('a group can be deleted', (await api('DELETE', `/api/groups?id=${sub.data.id}`)).status === 200);
+  await asKim();
+  await api('PUT', '/api/page', { path: 'vault/closed', content: '# Closed\n\nA page that follows the section rule.\n' });
+  await as('Gina', 'gina-pass-1234');
+  check('a section stays closed when its only group goes', (await api('GET', '/api/page?path=vault/closed')).status === 404);
+  }
 } catch (e) {
   failures++;
   console.error('FAIL', e.message);

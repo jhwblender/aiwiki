@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { planTree, RULES, setRule, type Rule } from '@/lib/filingPlan';
 import { enqueuePlan } from '@/lib/queue';
 import { refile } from '@/lib/watcher';
+import { accessFor } from '@/lib/access';
 import { fail, requireUser, isResponse } from '@/lib/api';
 
 export const runtime = 'nodejs';
@@ -20,6 +21,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     const viewer = requireUser(req);
     if (isResponse(viewer)) return viewer;
     const f = folderOf((await ctx.params).id);
+    if (!accessFor(viewer).folderAllowed(f.label)) return NextResponse.json({ error: 'Folder not found' }, { status: 404 });
     const planning = !!db().prepare("SELECT 1 FROM ingest_jobs WHERE doc_key = ? AND status IN ('queued', 'working')").get(`plan:${f.label}`);
     return NextResponse.json({ label: f.label, tree: planTree(f.id, f.label), planning });
   } catch (e) {
@@ -35,6 +37,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const editor = requireUser(req, 'editor');
     if (isResponse(editor)) return editor;
     const f = folderOf((await ctx.params).id);
+    if (!accessFor(editor).folderAllowed(f.label)) return NextResponse.json({ error: 'Folder not found' }, { status: 404 });
     const b = await req.json();
     if (b.action === 'plan') return NextResponse.json({ job: enqueuePlan(f, typeof b.provider === 'string' && b.provider ? b.provider : undefined) });
     const dir = typeof b.dir === 'string' && b.dir ? b.dir : '.';

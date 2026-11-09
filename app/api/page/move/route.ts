@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { normalizePath, readPage, titleFor, writePage } from '@/lib/wiki';
+import { normalizePath, planMove, readPage, titleFor, writePage } from '@/lib/wiki';
+import { accessFor } from '@/lib/access';
 import { movePageWithRecords } from '@/lib/proposals';
-import { fail, requireUser, isResponse } from '@/lib/api';
+import { denied, fail, requireUser, isResponse } from '@/lib/api';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,11 +11,18 @@ export const dynamic = 'force-dynamic';
 // page's heading changes to it as well.
 export async function POST(req: NextRequest) {
   try {
-    const editor = requireUser(req, 'editor');
+    const editor = requireUser(req);
     if (isResponse(editor)) return editor;
     const b = await req.json();
     const from = normalizePath(String(b.from ?? ''));
     const to = normalizePath(String(b.to ?? ''));
+    const access = accessFor(editor);
+    // Pages under it move too, so the person needs the right on all of them and on where they land
+    const touched = [from, to, ...(to === from ? [] : (await planMove(from, to)).moves.flat())];
+    for (const p of touched) {
+      const no = denied(access, p, 'edit');
+      if (no) return no;
+    }
     const user = editor.displayName;
     const moves = to === from ? [] : await movePageWithRecords(from, to, user, `Move ${from} to ${to}`);
     const title = typeof b.title === 'string' ? b.title.replace(/\s+/g, ' ').trim().slice(0, 120) : '';

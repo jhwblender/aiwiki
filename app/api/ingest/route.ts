@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getFile } from '@/lib/files';
 import { dropIdentity } from '@/lib/ingest';
 import { enqueue, listJobs, queueState, type JobStatus } from '@/lib/queue';
+import { accessFor } from '@/lib/access';
 import { fail, requireUser, isResponse } from '@/lib/api';
 
 export const runtime = 'nodejs';
@@ -15,7 +16,13 @@ export async function GET(req: NextRequest) {
   const viewer = requireUser(req);
   if (isResponse(viewer)) return viewer;
   const status = req.nextUrl.searchParams.get('status') as JobStatus | null;
-  return NextResponse.json({ ...queueState(), jobs: listJobs(status && STATUSES.includes(status) ? status : undefined) });
+  // Files from a folder limited to a group, and pages this person cannot read, stay out of the list
+  const access = accessFor(viewer);
+  const state = queueState();
+  const jobs = listJobs(status && STATUSES.includes(status) ? status : undefined)
+    .filter((j) => access.folderAllowed(j.folderLabel))
+    .map((j) => ({ ...j, proposed: j.proposed.filter(access.visible) }));
+  return NextResponse.json({ ...state, current: state.current && access.folderAllowed(state.current.job?.folderLabel) ? state.current : null, waitingByFolder: state.waitingByFolder.filter((w) => access.folderAllowed(w.folder)), jobs });
 }
 
 // File uploaded files in the background, one job per file

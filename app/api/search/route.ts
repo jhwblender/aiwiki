@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { searchPages } from '@/lib/wiki';
+import { accessFor } from '@/lib/access';
 import { fail, requireUser, isResponse } from '@/lib/api';
 
 export const runtime = 'nodejs';
@@ -9,7 +10,7 @@ export async function GET(req: NextRequest) {
   try {
     const viewer = requireUser(req);
     if (isResponse(viewer)) return viewer;
-    return NextResponse.json(await searchPages(req.nextUrl.searchParams.get('q') || '', 10));
+    return NextResponse.json(await searchPages(req.nextUrl.searchParams.get('q') || '', 10, accessFor(viewer).visible));
   } catch (e) {
     return fail(e, 500);
   }

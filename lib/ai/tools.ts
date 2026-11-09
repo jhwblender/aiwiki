@@ -8,6 +8,7 @@ import { librarianSettings, surveySection, WHOLE } from '../librarian';
 import { summaryOf, withSummary } from '../structure';
 import { summaryProblem } from '../summary';
 import { addCalendarEntry, removeCalendarEntry, findCalendarBlock, parseCalendar } from '../calendar';
+import type { Access } from '../access';
 import type { ToolDef } from './providers';
 
 export const toolDefs: ToolDef[] = [
@@ -188,6 +189,7 @@ export const toolDefs: ToolDef[] = [
 export type ToolContext = {
   user: string; // what edits and suggestions here are shown as (the display name)
   username: string; // who the run belongs to; personal documents belong to this name
+  access: Access; // what this person may see; the assistant can reach no more than they can
   providerId: string;
   note: string; // the user message that triggered this run
   chatId?: string; // the chat conversation, so a follow-up message can revise its earlier suggestion
@@ -450,10 +452,21 @@ export async function runTool(name: string, args: Record<string, any>, ctx: Tool
       'Answer the person instead. They can ask again in a new chat (Clear) if the change does not depend on the personal document.'
     );
   }
+  // Every tool that names a page stops here when the person cannot read it, suggestions included
+  for (const key of ['path', 'new_path']) {
+    if (args[key] === undefined) continue;
+    let target: string;
+    try {
+      target = normalizePath(String(args[key]));
+    } catch {
+      continue;
+    }
+    if (!ctx.access.visible(target)) return `Error: "${target}" is not available to this person, so it cannot be read or changed. Tell them so and do not guess what is there.`;
+  }
   try {
     switch (name) {
       case 'search_pages': {
-        const hits = await searchPages(String(args.query ?? ''));
+        const hits = await searchPages(String(args.query ?? ''), 8, ctx.access.visible);
         if (!hits.length) return 'No matching pages.';
         const pending = pendingCounts();
         return hits
@@ -473,9 +486,9 @@ export async function runTool(name: string, args: Record<string, any>, ctx: Tool
       case 'list_pages': {
         const pages = await listPages();
         const known = new Set(pages.map((p) => p.path));
-        const lines = pages.map((p) => `${p.path} | ${p.title}`);
+        const lines = pages.filter((p) => ctx.access.visible(p.path)).map((p) => `${p.path} | ${p.title}`);
         for (const [path, v] of pendingCounts()) {
-          if (!known.has(path)) lines.push(`${path} | ${v.title} | suggested new page, not approved yet`);
+          if (!known.has(path) && ctx.access.visible(path)) lines.push(`${path} | ${v.title} | suggested new page, not approved yet`);
         }
         return lines.join('\n') || 'The wiki has no pages.';
       }
@@ -616,7 +629,7 @@ export async function runTool(name: string, args: Record<string, any>, ctx: Tool
       }
       case 'search_documents': {
         // A tidy run works for the whole wiki, so personal documents are out of its sight
-        const hits = searchDocuments(String(args.query ?? ''), ctx.librarian ? '' : ctx.username);
+        const hits = searchDocuments(String(args.query ?? ''), ctx.librarian ? '' : ctx.username, ctx.access.groupIds);
         if (!hits.length) return 'No document mentions that.';
         return hits
           .map((h) => {
@@ -629,10 +642,10 @@ export async function runTool(name: string, args: Record<string, any>, ctx: Tool
       case 'read_document': {
         const ref = String(args.document ?? '').trim();
         const viewer = ctx.librarian ? '' : ctx.username;
-        const id = /^\d+$/.test(ref) ? Number(ref) : findDocumentByName(ref.replace(/^document\s+/i, ''), viewer);
+        const id = /^\d+$/.test(ref) ? Number(ref) : findDocumentByName(ref.replace(/^document\s+/i, ''), viewer, ctx.access.groupIds);
         const found = id ? documentInfo(id) : null;
         // Someone else's personal document does not exist as far as this person is concerned
-        const info = found && (!found.personal || found.owner === viewer) ? found : null;
+        const info = found && (!found.personal || found.owner === viewer) && ctx.access.folderAllowed(found.folderLabel) ? found : null;
         if (!info) return `No document "${ref}". Use search_documents to find one.`;
         const part = readDocumentPart(info.id, Number(args.part) || 1);
         if (!part) return `"${info.displayName}" has no part ${args.part}. Use search_documents to find the right part.`;
@@ -685,7 +698,7 @@ export async function runTool(name: string, args: Record<string, any>, ctx: Tool
           : `Proposed a new section page "${p}"${isFolder ? ' for the pages already under it' : ''}, with this summary. It is pending human review.`;
       }
       case 'survey_section': {
-        const survey = await surveySection(String(args.section ?? ''));
+        const survey = await surveySection(String(args.section ?? ''), ctx.access.visible);
         // Asking in chat for a tidy gets the same cap as a tidy run
         ctx.limit ??= librarianSettings().limit;
         return survey.report;

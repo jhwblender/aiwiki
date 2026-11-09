@@ -141,7 +141,6 @@ export default function Shell() {
         <PageView
           path={path}
           user={effectiveUser}
-          role={role}
           version={version}
           onChanged={bump}
           onDropFiles={(files) => {

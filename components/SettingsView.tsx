@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import Groups from './Groups';
 import Link from 'next/link';
 import BackgroundJobs from './BackgroundJobs';
 import Librarian from './Librarian';
@@ -169,6 +170,7 @@ export default function SettingsView() {
           ) : (
             <>
               <People />
+              <Groups />
 
               <section className="card">
                 <h2>Local AI model</h2>
@@ -395,7 +397,7 @@ function People() {
       <h2>People</h2>
       <p className="muted small-text">
         Viewer: read, search and chat. Editor: also edit pages, review suggestions, drop files and watch folders.
-        Admin: also these settings. New people sign in with the password set here and can change it on request.
+        Admin: also these settings. Groups below can give someone more or less than this on any part of the wiki. New people sign in with the password set here and can change it on request.
       </p>
       {users && (
         <table className="people-table">

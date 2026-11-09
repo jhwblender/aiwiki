@@ -8,6 +8,7 @@ import PlaceDialog, { titleOf } from './PlaceDialog';
 import LinkDialog from './LinkDialog';
 import Contents from './Contents';
 import PageHistory from './PageHistory';
+import AccessDialog from './AccessDialog';
 import { usePages } from './WikiContext';
 import { joinSummary, splitSummary } from '@/lib/summary';
 import SourceChip from './SourceChip';
@@ -51,7 +52,7 @@ function tabLabel(p: PendingSet, all: PendingSet[]): string {
 }
 
 // A suggestion to move or remove the whole page
-function OpCard({ op, busy, decide }: { op: PendingOp; busy: boolean; decide: (action: 'approve' | 'reject') => void }) {
+function OpCard({ op, busy, canDecide, decide }: { op: PendingOp; busy: boolean; canDecide: boolean; decide: (action: 'approve' | 'reject') => void }) {
   const removal = op.kind !== 'move';
   return (
     <div className={'review op-card' + (removal ? ' danger' : '') + (op.stale ? ' conflict' : '')}>
@@ -70,7 +71,7 @@ function OpCard({ op, busy, decide }: { op: PendingOp; busy: boolean; decide: (a
           </div>
           {op.stale && <div className="muted small-text">{op.stale} It can no longer be applied.</div>}
         </div>
-        <div className="actions">
+        {canDecide && <div className="actions">
           {!op.stale && (
             <button
               className="btn approve"
@@ -85,7 +86,7 @@ function OpCard({ op, busy, decide }: { op: PendingOp; busy: boolean; decide: (a
           <button className="btn reject" disabled={busy} onClick={() => decide('reject')}>
             Reject
           </button>
-        </div>
+        </div>}
       </div>
     </div>
   );
@@ -139,14 +140,12 @@ function Hunk({
 export default function PageView({
   path,
   user,
-  role,
   version,
   onChanged,
   onDropFiles,
 }: {
   path: string;
   user: string;
-  role: string;
   version: number;
   onChanged: () => void;
   onDropFiles?: (files: File[]) => void;
@@ -221,6 +220,7 @@ export default function PageView({
   const [setIdx, setSetIdx] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [managingAccess, setManagingAccess] = useState(false);
 
   const load = useCallback(async () => {
     const r = await fetch('/api/page?path=' + encodeURIComponent(path), { cache: 'no-store' });
@@ -339,6 +339,9 @@ export default function PageView({
   if (error && !data) return <main className="page"><div className="error">{error}</div></main>;
   if (!data) return <main className="page"><div className="muted">Loading</div></main>;
 
+  const canEdit = ['edit', 'approve', 'manage'].includes(data.access.level);
+  const canApprove = ['approve', 'manage'].includes(data.access.level);
+  const canManage = data.access.level === 'manage';
   const set = data.pending[setIdx];
   const changeCount = set ? set.segments.filter((s) => s.type === 'change').length : 0;
   const pendingNew = !data.exists && data.pending.length > 0;
@@ -366,6 +369,18 @@ export default function PageView({
           </>
         )}
       </nav>
+      {managingAccess && (
+        <AccessDialog
+          path={path}
+          title={data.title}
+          onClose={() => setManagingAccess(false)}
+          onSaved={() => {
+            setManagingAccess(false);
+            void load();
+            onChanged();
+          }}
+        />
+      )}
       {moving && (
         <PlaceDialog
           mode="move"
@@ -379,20 +394,30 @@ export default function PageView({
       )}
       {pickingLink && <LinkDialog self={path} onCancel={() => setPickingLink(false)} onPick={linkPicked} />}
       <div className="title-row">
-        <h1 className="doc-title">{data.title}</h1>
-        {!editing && data.exists && (
+        <h1 className="doc-title">
+          {data.title}
+          {data.access.limitedBy && <span className="access-tag">Limited access</span>}
+        </h1>
+        {!editing && ((data.exists && canEdit) || canManage) && (
           <div className="actions">
-            <button className="btn" onClick={() => startEdit()}>
-              Edit
-            </button>
-            {data.path !== 'index' && (
-              <button className="btn quiet" onClick={() => setMoving(true)}>
-                Move
-              </button>
+            {data.exists && canEdit && (
+              <>
+                <button className="btn" onClick={() => startEdit()}>
+                  Edit
+                </button>
+                {data.path !== 'index' && (
+                  <button className="btn quiet" onClick={() => setMoving(true)}>
+                    Move
+                  </button>
+                )}
+                <button className="btn quiet" onClick={remove}>
+                  Delete
+                </button>
+              </>
             )}
-            {data.exists && (
-              <button className="btn quiet" onClick={remove}>
-                Delete
+            {canManage && (
+              <button className="btn quiet" onClick={() => setManagingAccess(true)}>
+                Access
               </button>
             )}
           </div>
@@ -520,6 +545,7 @@ export default function PageView({
         <>
           {data.ops.map((op) => (
             <OpCard
+              canDecide={canApprove}
               key={op.opId}
               op={op}
               busy={busy}
@@ -554,7 +580,7 @@ export default function PageView({
                       : `${changeCount} suggested change${changeCount > 1 ? 's' : ''}. Nothing here is published until approved.`}
                   </div>
                 </div>
-                <div className="actions">
+                {canApprove && <div className="actions">
                   {!set.conflict && (
                     <button className="btn approve" disabled={busy} onClick={() => resolveAll('approve')}>
                       {changeCount > 1 ? 'Approve all' : 'Approve'}
@@ -563,7 +589,7 @@ export default function PageView({
                   <button className="btn reject" disabled={busy} onClick={() => resolveAll('reject')}>
                     {changeCount > 1 && !set.conflict ? 'Reject all' : 'Reject'}
                   </button>
-                </div>
+                </div>}
               </div>
               {set.conflict && (
                 <div className="doc conflict-preview">
@@ -588,7 +614,7 @@ export default function PageView({
                     seg={s}
                     set={set}
                     busy={busy}
-                    showActions={changeCount > 1}
+                    showActions={canApprove && changeCount > 1}
                     decide={(action) => guarded(() => post(`/api/proposals/${set.proposalId}/hunk`, { hunk: s.index, fp: s.fp, action, user }))}
                   />
                 ),
@@ -598,9 +624,11 @@ export default function PageView({
             ) : (
               <div className="empty">
                 <p>{data.children.length ? 'This section has no page of its own yet.' : 'This page does not exist yet.'}</p>
-                <button className="btn primary" onClick={() => startEdit()}>
-                  Create page
-                </button>
+                {canEdit && (
+                  <button className="btn primary" onClick={() => startEdit()}>
+                    Create page
+                  </button>
+                )}
               </div>
             )}
           </article>
@@ -639,7 +667,7 @@ export default function PageView({
               </ul>
             </footer>
           )}
-          {data.exists && <PageHistory path={data.path} role={role} onChanged={() => (load(), onChanged())} />}
+          {data.exists && <PageHistory path={data.path} canUndo={canApprove} onChanged={() => (load(), onChanged())} />}
         </>
       )}
     </main>

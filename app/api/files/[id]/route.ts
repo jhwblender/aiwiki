@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getFile, readStored } from '@/lib/files';
+import { db } from '@/lib/db';
+import { accessFor, sourcesAllowed } from '@/lib/access';
 import { fail, fileResponse, requireUser, isResponse } from '@/lib/api';
 
 export const runtime = 'nodejs';
@@ -12,6 +14,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     const { id } = await ctx.params;
     const f = getFile(Number(id));
     if (!f) return NextResponse.json({ error: 'File not found' }, { status: 404 });
+    const sources = (db().prepare('SELECT id FROM sources WHERE stored_path = ?').all(f.storedPath) as { id: number }[]).map((s) => s.id);
+    if (sources.length && !sourcesAllowed(accessFor(viewer), sources)) return NextResponse.json({ error: 'File not found' }, { status: 404 });
     return fileResponse(f, await readStored(f));
   } catch (e) {
     return fail(e, 404);

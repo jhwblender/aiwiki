@@ -63,6 +63,8 @@ export type PageData = {
   ops: PendingOp[];
   sources: PageSourceRef[];
   children: { path: string; title: string; exists: boolean; below: number }[];
+  // What this person can do here, and the page or section whose rules decide it (null: their role)
+  access: { level: 'none' | 'read' | 'edit' | 'approve' | 'manage'; limitedBy: string | null };
 };
 
 export type PageListItem = { path: string; title: string; pending: number; isNew: boolean };

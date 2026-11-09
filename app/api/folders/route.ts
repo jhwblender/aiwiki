@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { addFolder, listFolders } from '@/lib/watcher';
+import { accessFor } from '@/lib/access';
 import { fail, requireUser, isResponse } from '@/lib/api';
 
 export const runtime = 'nodejs';
@@ -8,7 +9,8 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: NextRequest) {
   const viewer = requireUser(req);
   if (isResponse(viewer)) return viewer;
-  return NextResponse.json(listFolders());
+  const access = accessFor(viewer);
+  return NextResponse.json(listFolders().filter((f) => access.folderAllowed(f.label)));
 }
 
 export async function POST(req: NextRequest) {

@@ -5,7 +5,7 @@ import type { HistoryEntry, RejectedItem } from '@/lib/types';
 
 // The approval history of the page being read: what suggestions were approved on it and an undo
 // for each. Folded away by default, because a page is for reading first.
-export default function PageHistory({ path, role, onChanged }: { path: string; role: string; onChanged: () => void }) {
+export default function PageHistory({ path, canUndo, onChanged }: { path: string; canUndo: boolean; onChanged: () => void }) {
   const [open, setOpen] = useState(false);
   const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
   const [rejected, setRejected] = useState<RejectedItem[] | null>(null);
@@ -39,7 +39,7 @@ export default function PageHistory({ path, role, onChanged }: { path: string; r
           {entries === null && !error && <p className="muted small-text">Loading</p>}
           {entries !== null && entries.length === 0 && <p className="muted small-text">Nothing approved has touched this page.</p>}
           {entries !== null && entries.length > 0 && (
-            <HistoryList entries={entries} rejected={rejected ?? []} canUndo={role === 'editor' || role === 'admin'} onChanged={() => (load(), onChanged())} />
+            <HistoryList entries={entries} rejected={rejected ?? []} canUndo={canUndo} onChanged={() => (load(), onChanged())} />
           )}
         </div>
       )}

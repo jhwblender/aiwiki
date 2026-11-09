@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { buildStructure, withSummary } from '@/lib/structure';
 import { pendingCounts } from '@/lib/proposals';
 import { normalizePath, readPage, writePage } from '@/lib/wiki';
-import { fail, requireUser, isResponse } from '@/lib/api';
+import { accessFor } from '@/lib/access';
+import { denied, fail, requireUser, isResponse } from '@/lib/api';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,18 +12,21 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: NextRequest) {
   const viewer = requireUser(req);
   if (isResponse(viewer)) return viewer;
-  const pending = Object.fromEntries([...pendingCounts().entries()].map(([p, v]) => [p, v.count]));
-  return NextResponse.json({ ...(await buildStructure()), pending });
+  const { visible } = accessFor(viewer);
+  const pending = Object.fromEntries([...pendingCounts().entries()].filter(([p]) => visible(p)).map(([p, v]) => [p, v.count]));
+  return NextResponse.json({ ...(await buildStructure(visible)), pending });
 }
 
 // A person edits one summary: published at once under their name, like any human edit. A folder
 // of pages with no page of its own gets a page holding just its title and summary.
 export async function PUT(req: NextRequest) {
   try {
-    const editor = requireUser(req, 'editor');
+    const editor = requireUser(req);
     if (isResponse(editor)) return editor;
     const b = await req.json();
     const p = normalizePath(String(b.path ?? ''));
+    const no = denied(accessFor(editor), p, 'edit');
+    if (no) return no;
     const next = withSummary(await readPage(p), String(b.summary ?? ''), p);
     await writePage(p, next, editor.displayName, `Edit the summary of ${p}`);
     return NextResponse.json({ ok: true });

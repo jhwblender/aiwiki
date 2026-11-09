@@ -501,3 +501,18 @@ fieldset.visibility legend { font-size: 13px; font-weight: 500; padding: 0; marg
 .place-list.link-list button { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; width: 100%; border: 0; background: none; text-align: left; padding: 5px 8px; border-radius: 5px; cursor: pointer; font: inherit; color: var(--ink); }
 .place-list.link-list button:hover { background: var(--teal-soft); }
 .place-list.link-list button .small-text { overflow-wrap: anywhere; }
+
+/* ---------- access and groups ---------- */
+.access-tag { display: inline-block; margin-left: 10px; padding: 0 8px; border-radius: 10px; font-family: var(--font-ui); font-size: 12px; font-weight: 500; vertical-align: middle; background: var(--teal-soft); color: var(--teal); }
+.access-list { list-style: none; margin: 8px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.access-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.access-row .access-who { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; }
+.access-add { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.access-add select { flex: 1 1 140px; min-width: 0; }
+.dialog-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.group-list { list-style: none; margin: 10px 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.group-item { border: 1px solid var(--rule); border-radius: 8px; padding: 8px 10px; }
+.group-item summary { cursor: pointer; font-weight: 500; }
+.group-members { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 6px 0; }
+.group-members label { display: inline-flex; align-items: center; gap: 4px; }
+.folder-access { display: block; margin-top: 4px; }

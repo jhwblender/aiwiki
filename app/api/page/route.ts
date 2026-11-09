@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { deletePage, normalizePath, readPage, subPages, titleFor, writePage } from '@/lib/wiki';
 import { pendingForPage, pendingOpsForPage, sourcesForPage } from '@/lib/proposals';
-import { fail, requireUser, isResponse } from '@/lib/api';
+import { accessFor } from '@/lib/access';
+import { denied, fail, requireUser, isResponse } from '@/lib/api';
 import type { PageData } from '@/lib/types';
 import { summaryProblem } from '@/lib/summary';
 
@@ -13,6 +14,9 @@ export async function GET(req: NextRequest) {
     const viewer = requireUser(req);
     if (isResponse(viewer)) return viewer;
     const p = normalizePath(req.nextUrl.searchParams.get('path') || '');
+    const access = accessFor(viewer);
+    const no = denied(access, p, 'read');
+    if (no) return no;
     const content = await readPage(p);
     const pending = await pendingForPage(p);
     // A page that only exists as a suggestion takes its title from the suggested text
@@ -26,7 +30,8 @@ export async function GET(req: NextRequest) {
       pending,
       ops: await pendingOpsForPage(p),
       sources: sourcesForPage(p),
-      children: await subPages(p),
+      children: (await subPages(p)).filter((c) => access.visible(c.path)),
+      access: { level: access.level(p), limitedBy: access.ruleFrom(p) },
     };
     return NextResponse.json(data);
   } catch (e) {
@@ -37,10 +42,12 @@ export async function GET(req: NextRequest) {
 // Direct human edit: published immediately, committed to git under the editor's name.
 export async function PUT(req: NextRequest) {
   try {
-    const user = requireUser(req, 'editor');
+    const user = requireUser(req);
     if (isResponse(user)) return user;
     const body = await req.json();
     const p = normalizePath(String(body.path || ''));
+    const no = denied(accessFor(user), p, 'edit');
+    if (no) return no;
     const content = String(body.content ?? '');
     const problem = summaryProblem(await readPage(p), content);
     if (problem) throw new Error(problem);
@@ -53,9 +60,11 @@ export async function PUT(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
-    const user = requireUser(req, 'editor');
+    const user = requireUser(req);
     if (isResponse(user)) return user;
     const p = normalizePath(req.nextUrl.searchParams.get('path') || '');
+    const no = denied(accessFor(user), p, 'edit');
+    if (no) return no;
     await deletePage(p, user.displayName);
     return NextResponse.json({ ok: true });
   } catch (e) {

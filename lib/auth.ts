@@ -135,6 +135,8 @@ export function deleteUser(name: string, by: string): void {
   if (name === by) throw new Error('You cannot remove your own account while signed in.');
   db().transaction(() => {
     db().prepare('DELETE FROM sessions WHERE user_name = ?').run(name);
+    db().prepare('DELETE FROM group_members WHERE user_name = ?').run(name);
+    db().prepare("DELETE FROM page_access WHERE kind = 'user' AND subject = ?").run(name);
     if (db().prepare('DELETE FROM users WHERE name = ?').run(name).changes === 0) throw new Error(`No account named ${name}.`);
   })();
 }

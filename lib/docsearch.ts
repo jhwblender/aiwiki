@@ -84,16 +84,19 @@ export function documentInfo(id: number): DocInfo | null {
 }
 
 // Documents a person may see: everything shared, plus their own personal ones
-const VISIBLE = '(d.personal = 0 OR d.owner = ?)';
+// Documents a watched folder limits to a group need that group too (the ? takes the person's groups as JSON)
+const VISIBLE = `(d.personal = 0 OR d.owner = ?) AND NOT EXISTS (
+  SELECT 1 FROM watched_folders w WHERE w.label = d.folder_label AND w.access_group IS NOT NULL
+  AND w.access_group NOT IN (SELECT value FROM json_each(?)))`;
 
-export function findDocumentByName(name: string, user: string): number | null {
+export function findDocumentByName(name: string, user: string, groups: number[]): number | null {
   const r = db()
     .prepare(`SELECT id FROM documents d WHERE (lower(display_name) = lower(?) OR lower(rel_path) = lower(?)) AND ${VISIBLE} ORDER BY id DESC LIMIT 1`)
-    .get(name.trim(), name.trim(), user) as { id: number } | undefined;
+    .get(name.trim(), name.trim(), user, JSON.stringify(groups)) as { id: number } | undefined;
   return r?.id ?? null;
 }
 
-export function searchDocuments(q: string, user: string, limit = 6) {
+export function searchDocuments(q: string, user: string, groups: number[], limit = 6) {
   const terms = q
     .split(/\s+/)
     .map((t) => t.replace(/[^\p{L}\p{N}_-]/gu, ''))
@@ -109,7 +112,7 @@ export function searchDocuments(q: string, user: string, limit = 6) {
          FROM documents_fts f JOIN documents d ON d.id = f.document_id
          WHERE documents_fts MATCH ? AND ${VISIBLE} ORDER BY rank LIMIT ?`,
       )
-      .all(query, user, limit) as {
+      .all(query, user, JSON.stringify(groups), limit) as {
       id: number;
       part: number;
       parts: number;

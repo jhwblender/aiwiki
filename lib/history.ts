@@ -149,6 +149,17 @@ export async function approvalHistory(page?: string): Promise<{ entries: History
 
 // Undo one approval. Each part is checked before anything is written, so a stale undo is refused
 // as a whole instead of half applied.
+// The pages one approval touched, so a route can check the person may undo it there
+export async function pagesOfApproval(commit: string): Promise<string[]> {
+  if (!/^[0-9a-f]{6,64}$/.test(commit)) return [];
+  try {
+    const c = parseLog(await git.raw(['log', '-M', '--name-status', `--format=${LOG_FORMAT}`, '-n', '1', commit]))[0];
+    return c ? [...new Set(c.files.flatMap((f) => [f.from, f.to]))] : [];
+  } catch {
+    return [];
+  }
+}
+
 export async function undoApproval(commit: string, user: string): Promise<void> {
   if (!/^[0-9a-f]{6,64}$/.test(commit)) throw new Error('That approval was not found.');
   let c: Parsed | undefined;

@@ -27,6 +27,17 @@ const SCENARIOS = [
     reply: '(top level) | file | documents\nRaw/ | skip | raw sensor data\nCaptures | sample | one folder per capture run\nNowhere/ | skip | not a real folder',
   },
   {
+    // a person asks about a page outside what they may read: the tools must refuse, and search and the list must not show it
+    keyword: 'peek at the vault',
+    steps: [
+      { name: 'read_page', args: { path: 'vault/plans' } },
+      { name: 'search_pages', args: { query: 'zebrafruit' } },
+      { name: 'list_pages', args: {} },
+      { name: 'append_to_page', args: { path: 'vault/plans', text: 'Sneaked in.', summary: 'Add a line' } },
+    ],
+    reply: (tools) => (tools.includes('not available to this person') && !tools.includes('zebrafruit') && !/vault\/plans \|/.test(tools) ? 'VAULT-SHUT' : tools.includes('zebrafruit') ? 'VAULT-OPEN' : 'VAULT-UNCLEAR'),
+  },
+  {
     // a long file: part 1 must not include the end, and read_file_part fetches the last part
     keyword: 'skim this file',
     steps: [{ name: 'read_file_part', args: (text) => ({ file: 'long-notes.txt', part: Number(text.match(/only part 1 of (\d+)/)?.[1] ?? 0) }) }],

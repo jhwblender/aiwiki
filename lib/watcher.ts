@@ -18,6 +18,7 @@ export type WatchedFolder = {
   user: string;
   // wiki: files are filed into the wiki; personal: only searchable by the user's chat
   visibility: 'wiki' | 'personal';
+  accessGroup: number | null; // only this group (and admins) can look up its documents; null is everyone
   enabled: boolean;
   lastScanAt: string | null;
   lastError: string | null;
@@ -48,6 +49,7 @@ function rowToFolder(r: any): WatchedFolder {
     path: r.path,
     user: r.user,
     visibility: r.visibility === 'personal' ? 'personal' : 'wiki',
+    accessGroup: r.access_group ?? null,
     enabled: !!r.enabled,
     lastScanAt: r.last_scan_at,
     lastError: r.last_error,

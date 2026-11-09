@@ -18,8 +18,8 @@ export type StructureNode = {
 };
 
 // The tree of every page, with each page's summary; index (the home page) is left out of the tree
-export async function buildStructure(): Promise<{ home: { title: string; summary: string | null } | null; sections: StructureNode[] }> {
-  const pages = await listPages();
+export async function buildStructure(visible: (path: string) => boolean = () => true): Promise<{ home: { title: string; summary: string | null } | null; sections: StructureNode[] }> {
+  const pages = (await listPages()).filter((p) => visible(p.path));
   const content = new Map<string, string>();
   for (const p of pages) content.set(p.path, (await readPage(p.path)) ?? '');
   const nodes = new Map<string, StructureNode>();
@@ -53,8 +53,8 @@ export async function buildStructure(): Promise<{ home: { title: string; summary
 
 // The structure as text for the assistant: every section with its summary, and the pages in it.
 // Pages with nothing under them are listed by name only, to keep it short.
-export async function structureOutline(maxLines = 120): Promise<string> {
-  const { sections } = await buildStructure();
+export async function structureOutline(maxLines = 120, visible?: (path: string) => boolean): Promise<string> {
+  const { sections } = await buildStructure(visible);
   const lines: string[] = [];
   const walk = (n: StructureNode, depth: number) => {
     if (lines.length >= maxLines) return;

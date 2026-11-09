@@ -254,7 +254,30 @@ function migrate(d: Database.Database) {
       expires_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_name);
+    CREATE TABLE IF NOT EXISTS user_groups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      parent_id INTEGER REFERENCES user_groups(id),
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS group_members (
+      group_id INTEGER NOT NULL REFERENCES user_groups(id),
+      user_name TEXT NOT NULL,
+      PRIMARY KEY (group_id, user_name)
+    );
+    CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(user_name);
+    -- Who can use a page or section (path '*' is the whole wiki); kind is everyone, group or user
+    CREATE TABLE IF NOT EXISTS page_access (
+      path TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      subject TEXT NOT NULL DEFAULT '',
+      level TEXT NOT NULL,
+      PRIMARY KEY (path, kind, subject)
+    );
   `);
+  if (!(d.prepare('PRAGMA table_info(watched_folders)').all() as { name: string }[]).some((c) => c.name === 'access_group')) {
+    d.exec('ALTER TABLE watched_folders ADD COLUMN access_group INTEGER');
+  }
   // Sign-in columns moved since they landed: the password column was first called passcode_hash,
   // and the display name (what edits and approvals show) came after the username it defaults to.
   const userCols = d.prepare('PRAGMA table_info(users)').all() as { name: string }[];
