@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { deletePage, normalizePath, readPage, subPages, titleFor, writePage } from '@/lib/wiki';
-import { pendingForPage, pendingOpsForPage, sourcesForPage } from '@/lib/proposals';
+import { ownPageSuggestion, pendingForPage, pendingOpsForPage, sourcesForPage, suggestEdit } from '@/lib/proposals';
 import { accessFor } from '@/lib/access';
 import { denied, fail, requireUser, isResponse } from '@/lib/api';
 import type { PageData } from '@/lib/types';
@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
       sources: sourcesForPage(p),
       children: (await subPages(p)).filter((c) => access.visible(c.path)),
       access: { level: access.level(p), limitedBy: access.ruleFrom(p) },
+      mySuggestion: access.level(p) === 'suggest' ? await ownPageSuggestion(viewer.displayName, p) : null,
     };
     return NextResponse.json(data);
   } catch (e) {
@@ -39,18 +40,21 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// Direct human edit: published immediately, committed to git under the editor's name.
+// Direct human edit: published immediately, committed to git under the editor's name. At the
+// Can suggest level the same save waits on the page for someone who can approve it.
 export async function PUT(req: NextRequest) {
   try {
     const user = requireUser(req);
     if (isResponse(user)) return user;
     const body = await req.json();
     const p = normalizePath(String(body.path || ''));
-    const no = denied(accessFor(user), p, 'edit');
+    const access = accessFor(user);
+    const no = denied(access, p, 'suggest');
     if (no) return no;
     const content = String(body.content ?? '');
     const problem = summaryProblem(await readPage(p), content);
     if (problem) throw new Error(problem);
+    if (!access.can(p, 'edit')) return NextResponse.json({ ok: true, suggested: await suggestEdit(p, content, user.displayName) });
     await writePage(p, content, user.displayName, `Edit ${p}`);
     return NextResponse.json({ ok: true });
   } catch (e) {

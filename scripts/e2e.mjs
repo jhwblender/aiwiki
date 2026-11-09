@@ -1445,6 +1445,35 @@ try {
   await as('Alex', 'alex-pass-1234');
   const limitedTidy = await waitJob((await api('POST', '/api/librarian', { section: 'vault' })).data.job);
   check('a librarian run reaches a limited section for someone who can edit it', limitedTidy?.status === 'done', JSON.stringify(limitedTidy));
+
+  // Can suggest: the editor works as usual and the save waits for the manager on the page
+  await asKim();
+  const guideBody = '# Guide\n\nThe guide for the team.\n\nFirst part.\n';
+  await api('PUT', '/api/page', { path: 'team/guide', content: guideBody });
+  await api('PUT', '/api/access', { path: 'team', rules: { everyone: 'none', entries: [{ kind: 'user', subject: 'Gina', level: 'suggest' }, { kind: 'user', subject: 'Alex', level: 'approve' }] } });
+  await as('Gina', 'gina-pass-1234');
+  const suggested = await api('PUT', '/api/page', { path: 'team/guide', content: guideBody + '\nSecond part.\n' });
+  check('saving at Can suggest does not publish', suggested.status === 200 && suggested.data.suggested === true && !pageFile('team/guide').includes('Second part'), JSON.stringify(suggested.data));
+  let guide = (await api('GET', '/api/page?path=team/guide')).data;
+  check('the save waits on the page under their name', guide.access.level === 'suggest' && guide.pending.length === 1 && guide.pending[0].source?.kind === 'manual' && guide.pending[0].source.user === 'Gina', JSON.stringify(guide.pending));
+  check('their next edit starts from what is waiting', guide.mySuggestion?.includes('Second part'));
+  await api('PUT', '/api/page', { path: 'team/guide', content: guide.mySuggestion + '\n\nThird part.\n' });
+  guide = (await api('GET', '/api/page?path=team/guide')).data;
+  check('a later save replaces their waiting suggestion', guide.pending.length === 1 && guide.mySuggestion.includes('Second part') && guide.mySuggestion.includes('Third part'), JSON.stringify(guide.pending));
+  check('Can suggest cannot approve', (await api('POST', `/api/proposals/${guide.pending[0].proposalId}/resolve`, { action: 'approve' })).status === 403);
+  check('Can suggest cannot delete', (await api('DELETE', '/api/page?path=team/guide')).status === 403);
+  check('Can suggest cannot move', (await api('POST', '/api/page/move', { from: 'team/guide', to: 'team/other' })).status === 403);
+  check('a save that changes nothing leaves one suggestion', (await api('PUT', '/api/page', { path: 'team/guide', content: guide.mySuggestion })).data.suggested === true && (await api('GET', '/api/page?path=team/guide')).data.pending.length === 1);
+  check('a new page at Can suggest needs a summary too', (await api('PUT', '/api/page', { path: 'team/fresh', content: '# Fresh\n' })).status === 400);
+  await api('PUT', '/api/page', { path: 'team/fresh', content: '# Fresh\n\nA page the team suggested.\n' });
+  const fresh = (await api('GET', '/api/page?path=team/fresh')).data;
+  check('a new page at Can suggest waits too', !fresh.exists && fresh.pending[0]?.isNew === true && !fs.existsSync(path.join(wikiDir, 'team/fresh.md')), JSON.stringify(fresh));
+  await as('Alex', 'alex-pass-1234');
+  const managerSees = (await api('GET', '/api/page?path=team/guide')).data;
+  check('the approver has no own suggestion to carry', managerSees.mySuggestion === null);
+  check('the approver can approve it', (await api('POST', `/api/proposals/${managerSees.pending[0].proposalId}/resolve`, { action: 'approve' })).status === 200 && pageFile('team/guide').includes('Third part'));
+  check('approving records who wrote it', git('log', '-1', '--format=%B').includes('Source: edit by Gina'), git('log', '-1', '--format=%B'));
+  check('an approver still publishes directly', (await api('PUT', '/api/page', { path: 'team/guide', content: pageFile('team/guide') + '\nFrom Alex.\n' })).data.suggested === undefined && pageFile('team/guide').includes('From Alex'));
   }
 } catch (e) {
   failures++;

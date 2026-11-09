@@ -110,7 +110,7 @@ function Hunk({
   return (
     <section className="hunk">
       <header className="hunk-bar">
-        <span className="hunk-kind">{set.isNew ? 'New page' : kind} by AI</span>
+        <span className="hunk-kind">{set.isNew ? 'New page' : kind} by {set.source?.kind === 'manual' ? set.source.user : 'AI'}</span>
         <SourceChip source={set.source} earlier={set.earlierSources} also={set.alsoSources} />
         {showActions && (
           <span className="hunk-actions">
@@ -261,7 +261,8 @@ export default function PageView({
 
   function startEdit(title?: string) {
     if (!data) return;
-    const split = data.exists ? splitSummary(data.content) : { summary: null, rest: `# ${title || data.title}\n\n` };
+    const from = data.mySuggestion ?? (data.exists ? data.content : null);
+    const split = from !== null ? splitSummary(from) : { summary: null, rest: `# ${title || data.title}\n\n` };
     setDraft(split.rest);
     setSummaryDraft(split.summary ?? '');
     setHadSummary(!!split.summary);
@@ -342,6 +343,8 @@ export default function PageView({
   const canEdit = ['edit', 'approve', 'manage'].includes(data.access.level);
   const canApprove = ['approve', 'manage'].includes(data.access.level);
   const canManage = data.access.level === 'manage';
+  const suggestOnly = data.access.level === 'suggest';
+  const showEdit = (data.exists && canEdit) || (suggestOnly && (data.exists || data.mySuggestion !== null));
   const set = data.pending[setIdx];
   const changeCount = set ? set.segments.filter((s) => s.type === 'change').length : 0;
   const pendingNew = !data.exists && data.pending.length > 0;
@@ -398,13 +401,15 @@ export default function PageView({
           {data.title}
           {data.access.limitedBy && <span className="access-tag">Limited access</span>}
         </h1>
-        {!editing && ((data.exists && canEdit) || canManage) && (
+        {!editing && (showEdit || canManage) && (
           <div className="actions">
+            {showEdit && (
+              <button className="btn" onClick={() => startEdit()}>
+                {!suggestOnly ? 'Edit' : data.mySuggestion !== null ? 'Change my suggestion' : 'Suggest an edit'}
+              </button>
+            )}
             {data.exists && canEdit && (
               <>
-                <button className="btn" onClick={() => startEdit()}>
-                  Edit
-                </button>
                 {data.path !== 'index' && (
                   <button className="btn quiet" onClick={() => setMoving(true)}>
                     Move
@@ -498,13 +503,13 @@ export default function PageView({
           </div>
           <div className="editor-bar">
             <button className="btn primary" disabled={busy || !!summaryNote} onClick={save}>
-              Save page
+              {suggestOnly ? 'Suggest changes' : 'Save page'}
             </button>
             <button className="btn quiet" onClick={() => setEditing(false)}>
               Cancel
             </button>
             <span className="muted small-text">
-              Saved edits publish right away under {user}. The buttons above drop in the common things; the formatting help below lists the rest.
+              {suggestOnly ? 'Your changes wait on this page until someone approves them.' : `Saved edits publish right away under ${user}.`} The buttons above drop in the common things; the formatting help below lists the rest.
             </span>
           </div>
           <details className="md-help">
@@ -624,9 +629,9 @@ export default function PageView({
             ) : (
               <div className="empty">
                 <p>{data.children.length ? 'This section has no page of its own yet.' : 'This page does not exist yet.'}</p>
-                {canEdit && (
+                {(canEdit || suggestOnly) && (
                   <button className="btn primary" onClick={() => startEdit()}>
-                    Create page
+                    {suggestOnly ? 'Suggest this page' : 'Create page'}
                   </button>
                 )}
               </div>

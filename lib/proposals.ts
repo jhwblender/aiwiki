@@ -171,6 +171,28 @@ function current(p: { id: number; new_content: string; base_content: string | nu
   return next;
 }
 
+// ---------- suggestions typed on the page ----------
+
+// Someone at the Can suggest level saves through the page editor, and it waits for approval like any
+// other suggestion. Their next save on the page replaces their waiting one, so a reviewer sees one
+// suggestion per person, and approving it records every save in the chain as a source.
+const PAGE_EDITS = 'page-editor';
+
+export async function ownPageSuggestion(user: string, pagePath: string): Promise<string | null> {
+  return (await chatPending(PAGE_EDITS, user, pagePath, null))?.content ?? null;
+}
+
+// Returns false when nothing is waiting afterwards, because the text matches the live page
+export async function suggestEdit(pagePath: string, content: string, user: string): Promise<boolean> {
+  const earlier = await chatPending(PAGE_EDITS, user, pagePath, null);
+  const before = earlier ? earlier.content : ((await readPage(pagePath)) ?? '');
+  if (normalize(before) === normalize(content)) return !!earlier;
+  const changeSetId = createChangeSet(createSource({ kind: 'manual', user }), `Edit from ${user}`, `person:${user}`, PAGE_EDITS);
+  const staged = await stageContent(changeSetId, pagePath, content);
+  if (earlier) supersede(earlier.proposalId, changeSetId, pagePath, user);
+  return staged;
+}
+
 // ---------- reading pending work ----------
 
 export async function pendingForPage(pagePath: string): Promise<PendingSet[]> {
@@ -253,6 +275,7 @@ export function sourcesForPage(pagePath: string): PageSourceRef[] {
 export function sourceLabel(s: SourceInfo | null): string {
   if (!s) return 'unknown source';
   if (s.kind === 'chat') return `chat with ${s.user}`;
+  if (s.kind === 'manual') return `edit by ${s.user}`;
   if (s.kind === 'librarian') {
     const note = s.note ? ` (${s.note.toLowerCase()})` : '';
     return s.user === 'Librarian' ? `librarian${note}, on its own` : `librarian${note}, started by ${s.user}`;

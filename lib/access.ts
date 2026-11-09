@@ -6,15 +6,16 @@ import { db } from './db';
 //   Rules sit on a page or section and cover everything under it. The nearest rule decides, and
 //   replaces whatever is above it, so a section with rules is limited to the people those rules name.
 //   With no rule anywhere a person gets what their role gives. Admins can always do everything.
+// Someone who can suggest uses the editor as usual, but what they save waits for approval on the page.
 // The rules live here rather than in the pages: they are not page content and are not reviewed.
 
-export type Level = 'none' | 'read' | 'edit' | 'approve' | 'manage';
-export type EveryoneLevel = 'none' | 'role' | 'read' | 'edit' | 'approve';
-export type GrantLevel = 'read' | 'edit' | 'approve' | 'manage';
+export type Level = 'none' | 'read' | 'suggest' | 'edit' | 'approve' | 'manage';
+export type EveryoneLevel = 'none' | 'role' | 'read' | 'suggest' | 'edit' | 'approve';
+export type GrantLevel = 'read' | 'suggest' | 'edit' | 'approve' | 'manage';
 
-const RANK: Record<Level, number> = { none: 0, read: 1, edit: 2, approve: 3, manage: 4 };
-const GRANTS: GrantLevel[] = ['read', 'edit', 'approve', 'manage'];
-const EVERYONE: EveryoneLevel[] = ['none', 'role', 'read', 'edit', 'approve'];
+const RANK: Record<Level, number> = { none: 0, read: 1, suggest: 2, edit: 3, approve: 4, manage: 5 };
+const GRANTS: GrantLevel[] = ['read', 'suggest', 'edit', 'approve', 'manage'];
+const EVERYONE: EveryoneLevel[] = ['none', 'role', 'read', 'suggest', 'edit', 'approve'];
 
 // A rule at this path covers every page, below any section rule
 export const WHOLE_WIKI = '*';

@@ -24,7 +24,7 @@ export function requireUser(req: NextRequest, minRole: 'viewer' | 'editor' | 'ad
 export function denied(access: Access, path: string, need: Level): NextResponse | null {
   if (access.can(path, need)) return null;
   if (!access.visible(path)) return NextResponse.json({ error: 'This page is not available to you.' }, { status: 404 });
-  const what = need === 'edit' ? 'edit this page' : need === 'approve' ? 'review suggestions on this page' : 'change who can use this page';
+  const what = need === 'suggest' ? 'suggest changes to this page' : need === 'edit' ? 'edit this page' : need === 'approve' ? 'review suggestions on this page' : 'change who can use this page';
   return NextResponse.json({ error: `You do not have permission to ${what}.` }, { status: 403 });
 }
 

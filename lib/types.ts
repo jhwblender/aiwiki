@@ -64,7 +64,9 @@ export type PageData = {
   sources: PageSourceRef[];
   children: { path: string; title: string; exists: boolean; below: number }[];
   // What this person can do here, and the page or section whose rules decide it (null: their role)
-  access: { level: 'none' | 'read' | 'edit' | 'approve' | 'manage'; limitedBy: string | null };
+  access: { level: 'none' | 'read' | 'suggest' | 'edit' | 'approve' | 'manage'; limitedBy: string | null };
+  // At the Can suggest level: this person's own suggestion still waiting here, which their next edit starts from
+  mySuggestion: string | null;
 };
 
 export type PageListItem = { path: string; title: string; pending: number; isNew: boolean };

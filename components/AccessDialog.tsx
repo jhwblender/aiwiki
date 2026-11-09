@@ -11,6 +11,7 @@ type Loaded = {
 
 const LEVELS = [
   { id: 'read', label: 'Can read' },
+  { id: 'suggest', label: 'Can suggest' },
   { id: 'edit', label: 'Can edit' },
   { id: 'approve', label: 'Can approve' },
   { id: 'manage', label: 'Can manage' },
@@ -19,6 +20,7 @@ const EVERYONE = [
   { id: 'role', label: 'Same as their role' },
   { id: 'none', label: 'No access' },
   { id: 'read', label: 'Can read' },
+  { id: 'suggest', label: 'Can suggest' },
   { id: 'edit', label: 'Can edit' },
   { id: 'approve', label: 'Can approve' },
 ];
@@ -81,7 +83,7 @@ export default function AccessDialog({ path, title, onClose, onSaved }: { path: 
       >
         <h2>Who can use {title}</h2>
         <p className="muted small-text">
-          These rules also cover every page under this one, unless a page below has rules of its own. Admins can always get in.
+          These rules also cover every page under this one, unless a page below has rules of its own. Admins can always get in. What someone with Can suggest saves waits here for approval; Can edit publishes right away.
         </p>
         {data && !data.rules && (
           <p className="small-text">
