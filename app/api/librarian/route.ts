@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { accessFor } from '@/lib/access';
 import { db } from '@/lib/db';
-import { librarianSettings, listSections, MAX_LIMIT, saveLibrarianSettings, WHOLE } from '@/lib/librarian';
+import { inSchedule, librarianSettings, listSections, MAX_LIMIT, saveLibrarianSettings, WHOLE } from '@/lib/librarian';
 import { checkLibrarian } from '@/lib/librarianAuto';
 import { enqueueTidy } from '@/lib/queue';
 import { normalizePath, readPage } from '@/lib/wiki';
@@ -20,7 +20,11 @@ export async function GET(req: NextRequest) {
     .all() as { doc_key: string; status: string }[];
   const busy = new Map(active.map((r) => [r.doc_key.slice('tidy:'.length), r.status]));
   const sections = (await listSections(accessFor(viewer).visible)).map((s) => ({ ...s, run: busy.get(s.section) ?? null }));
-  return NextResponse.json({ sections, whole: { run: busy.get(WHOLE) ?? null }, settings: librarianSettings(), maxLimit: MAX_LIMIT });
+  const settings = librarianSettings();
+  // The schedule follows the server's clock, which may not be the reader's
+  const at = new Date();
+  const clock = { day: at.getDay(), hour: at.getHours(), minute: at.getMinutes() };
+  return NextResponse.json({ sections, whole: { run: busy.get(WHOLE) ?? null }, settings, maxLimit: MAX_LIMIT, clock, inSchedule: inSchedule(settings.schedule, at) });
 }
 
 // Start a tidy run over one section, or the whole wiki with section "*"; it runs in the background
@@ -53,14 +57,18 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// Change the limit per run, or turn the librarian's own runs on or off
+// Change the limit per run, turn the librarian's own runs on or off, or change when they may run
 export async function PUT(req: NextRequest) {
   try {
     const admin = requireUser(req, 'admin');
     if (isResponse(admin)) return admin;
     const b = await req.json();
     return NextResponse.json(
-      saveLibrarianSettings({ limit: b.limit === undefined ? undefined : Number(b.limit), auto: typeof b.auto === 'boolean' ? b.auto : undefined }),
+      saveLibrarianSettings({
+        limit: b.limit === undefined ? undefined : Number(b.limit),
+        auto: typeof b.auto === 'boolean' ? b.auto : undefined,
+        schedule: b.schedule && typeof b.schedule === 'object' ? b.schedule : undefined,
+      }),
     );
   } catch (e) {
     return fail(e);

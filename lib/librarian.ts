@@ -35,13 +35,64 @@ function setting(key: string): string | undefined {
   return (db().prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined)?.value;
 }
 
-// The limit per run, and whether the librarian tidies on its own after the wiki changes (on unless turned off)
-export function librarianSettings(): { limit: number; auto: boolean } {
-  const limit = Number(setting('librarian.limit'));
-  return { limit: Number.isInteger(limit) && limit >= 1 ? Math.min(limit, MAX_LIMIT) : DEFAULT_LIMIT, auto: setting('librarian.auto') !== '0' };
+// When the librarian's own runs may start and how long they wait, by the server's clock. Values not
+// set on Settings come from the environment, then the defaults.
+export type LibrarianSchedule = {
+  days: number[]; // 0 is Sunday
+  from: number; // hour the window opens; the same as to means any time, later than to runs overnight
+  to: number;
+  quietMinutes: number; // how long a part must go unchanged before it is looked at
+  wholeHours: number; // least time between runs over the whole wiki
+  sectionHours: number; // and between runs over one section
+};
+
+const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
+
+function envSeconds(name: string, fallback: number): number {
+  const v = Number(process.env[name]);
+  return Number.isFinite(v) && v >= 0 ? v : fallback;
 }
 
-export function saveLibrarianSettings(input: { limit?: number; auto?: boolean }) {
+function stored(key: string, fallback: number): number {
+  const v = setting(key);
+  const n = Number(v);
+  return v !== undefined && v !== '' && Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+export function librarianSchedule(): LibrarianSchedule {
+  const days = setting('librarian.days');
+  return {
+    days: days === undefined ? ALL_DAYS : ALL_DAYS.filter((d) => days.split(',').includes(String(d))),
+    from: stored('librarian.from', 0),
+    to: stored('librarian.to', 0),
+    quietMinutes: stored('librarian.quietMinutes', envSeconds('LIBRARIAN_QUIET_SECONDS', 30 * 60) / 60),
+    wholeHours: stored('librarian.wholeHours', envSeconds('LIBRARIAN_WHOLE_GAP_SECONDS', 24 * 60 * 60) / 3600),
+    sectionHours: stored('librarian.sectionHours', envSeconds('LIBRARIAN_SECTION_GAP_SECONDS', 2 * 60 * 60) / 3600),
+  };
+}
+
+// Whether a moment falls in the window. An overnight window belongs to the day it opened on, so
+// Friday 22 to 6 also covers the early hours of Saturday.
+export function inSchedule(s: LibrarianSchedule, at = new Date()): boolean {
+  const h = at.getHours();
+  const overnight = s.from > s.to;
+  const inHours = s.from === s.to || (overnight ? h >= s.from || h < s.to : h >= s.from && h < s.to);
+  const day = overnight && h < s.to ? (at.getDay() + 6) % 7 : at.getDay();
+  return inHours && s.days.includes(day);
+}
+
+// The limit per run, whether the librarian tidies on its own after the wiki changes (on unless
+// turned off), and when it may do so
+export function librarianSettings(): { limit: number; auto: boolean; schedule: LibrarianSchedule } {
+  const limit = Number(setting('librarian.limit'));
+  return {
+    limit: Number.isInteger(limit) && limit >= 1 ? Math.min(limit, MAX_LIMIT) : DEFAULT_LIMIT,
+    auto: setting('librarian.auto') !== '0',
+    schedule: librarianSchedule(),
+  };
+}
+
+export function saveLibrarianSettings(input: { limit?: number; auto?: boolean; schedule?: Partial<LibrarianSchedule> }) {
   const put = db().prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value');
   if (input.limit !== undefined) {
     const n = Math.floor(Number(input.limit));
@@ -49,6 +100,33 @@ export function saveLibrarianSettings(input: { limit?: number; auto?: boolean })
     put.run('librarian.limit', String(n));
   }
   if (input.auto !== undefined) put.run('librarian.auto', input.auto ? '1' : '0');
+  const s = input.schedule;
+  if (s) {
+    // Check everything before saving anything, so a refused schedule leaves the old one whole
+    const rows: [string, string][] = [];
+    if (s.days !== undefined) {
+      const days = Array.isArray(s.days) ? ALL_DAYS.filter((d) => s.days!.map(Number).includes(d)) : [];
+      if (!days.length) throw new Error('Pick at least one day for the librarian to run on.');
+      rows.push(['librarian.days', days.join(',')]);
+    }
+    for (const [key, name] of [['from', 'starting hour'], ['to', 'ending hour']] as const) {
+      if (s[key] === undefined) continue;
+      const n = Number(s[key]);
+      if (!(Number.isInteger(n) && n >= 0 && n <= 23)) throw new Error(`The ${name} must be a whole hour from 0 to 23.`);
+      rows.push([`librarian.${key}`, String(n)]);
+    }
+    for (const [key, most, what] of [
+      ['quietMinutes', 24 * 60, 'The wait after a change must be from 0 to 1440 minutes.'],
+      ['wholeHours', 30 * 24, 'The time between runs over the whole wiki must be from 0 to 720 hours.'],
+      ['sectionHours', 30 * 24, 'The time between runs over a section must be from 0 to 720 hours.'],
+    ] as const) {
+      if (s[key] === undefined) continue;
+      const n = Number(s[key]);
+      if (!(Number.isFinite(n) && n >= 0 && n <= most)) throw new Error(what);
+      rows.push([`librarian.${key}`, String(n)]);
+    }
+    db().transaction(() => rows.forEach(([k, v]) => put.run(k, v)))();
+  }
   return librarianSettings();
 }
 

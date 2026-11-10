@@ -1,5 +1,5 @@
 import { db } from './db';
-import { AUTO_USER, librarianSettings, listSections, WHOLE } from './librarian';
+import { AUTO_USER, inSchedule, librarianSettings, listSections, WHOLE } from './librarian';
 import { enqueueTidy, isPaused } from './queue';
 import { lastChanged } from './wiki';
 
@@ -7,16 +7,9 @@ import { lastChanged } from './wiki';
 // since it last looked, once filing is done and the changes have settled, and queues one tidy run:
 // the whole wiki first (the sections, the home page), then each changed section. A part with
 // librarian suggestions still waiting for review is left until people have decided on them, and a
-// run whose survey finds nothing ends without asking the model. A paused queue holds it too.
-
-const secs = (name: string, fallback: number) => {
-  const v = Number(process.env[name]);
-  return (Number.isFinite(v) && v >= 0 ? v : fallback) * 1000;
-};
-// how long the wiki must be quiet, and how long between runs over the same part
-const QUIET = () => secs('LIBRARIAN_QUIET_SECONDS', 30 * 60);
-const SECTION_GAP = () => secs('LIBRARIAN_SECTION_GAP_SECONDS', 2 * 60 * 60);
-const WHOLE_GAP = () => secs('LIBRARIAN_WHOLE_GAP_SECONDS', 24 * 60 * 60);
+// run whose survey finds nothing ends without asking the model. A part that has not changed since
+// its last run is never run again. A paused queue holds it too, and so do the days and hours set on
+// Settings.
 
 // When the librarian last ran (or was asked to run) over this part, by anyone
 function lastTidy(section: string): number {
@@ -40,7 +33,8 @@ function awaitingReview(section: string): boolean {
 
 // Queue the next tidy run that is due, if any; returns its scope
 export async function checkLibrarian(): Promise<string | null> {
-  if (!librarianSettings().auto) return null;
+  const { auto, schedule } = librarianSettings();
+  if (!auto || !inSchedule(schedule)) return null;
   const d = db();
   if (d.prepare("SELECT 1 FROM ingest_jobs WHERE mode = 'tidy' AND status IN ('queued', 'working')").get()) return null;
   // A pause holds the librarian too: no run is queued and no survey started until resume
@@ -52,9 +46,9 @@ export async function checkLibrarian(): Promise<string | null> {
   const scopes = [WHOLE, ...(await listSections()).map((s) => s.section)];
   for (const scope of scopes) {
     const changedAt = await lastChanged(scope === WHOLE ? undefined : scope);
-    if (!changedAt || now - changedAt < QUIET()) continue;
+    if (!changedAt || now - changedAt < schedule.quietMinutes * 60_000) continue;
     const last = lastTidy(scope);
-    if (last >= changedAt || now - last < (scope === WHOLE ? WHOLE_GAP() : SECTION_GAP())) continue;
+    if (last >= changedAt || now - last < (scope === WHOLE ? schedule.wholeHours : schedule.sectionHours) * 3_600_000) continue;
     if (awaitingReview(scope)) continue;
     enqueueTidy({ section: scope, user: AUTO_USER });
     return scope;

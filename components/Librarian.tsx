@@ -3,15 +3,31 @@ import { useCallback, useEffect, useState } from 'react';
 
 type Run = 'queued' | 'working' | null;
 type Section = { section: string; title: string; pages: number; run: Run };
-type Data = { sections: Section[]; whole: { run: Run }; settings: { limit: number; auto: boolean }; maxLimit: number };
+type Schedule = { days: number[]; from: number; to: number; quietMinutes: number; wholeHours: number; sectionHours: number };
+type Data = {
+  sections: Section[];
+  whole: { run: Run };
+  settings: { limit: number; auto: boolean; schedule: Schedule };
+  maxLimit: number;
+  clock: { day: number; hour: number; minute: number };
+  inSchedule: boolean;
+};
+// The schedule being edited; numbers stay as typed until saved
+type Draft = { days: number[]; from: number; to: number; quietMinutes: string; wholeHours: string; sectionHours: string };
 
 const WHOLE = '*';
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const WEEK = [1, 2, 3, 4, 5, 6, 0];
+const hour = (h: number) => `${String(h).padStart(2, '0')}:00`;
+const toDraft = (s: Schedule): Draft => ({ ...s, quietMinutes: String(s.quietMinutes), wholeHours: String(s.wholeHours), sectionHours: String(s.sectionHours) });
+const sameDraft = (a: Draft, b: Draft) => JSON.stringify(a) === JSON.stringify(b);
 
 // The librarian keeps the wiki organised. It runs on its own after the wiki changes, and any part can
 // be tidied now. Runs go through background filing, and what they suggest is reviewed on the pages.
 export default function Librarian() {
   const [data, setData] = useState<Data | null>(null);
   const [limit, setLimit] = useState('');
+  const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
@@ -21,6 +37,7 @@ export default function Librarian() {
       const d: Data = await r.json();
       setData(d);
       setLimit((cur) => cur || String(d.settings.limit));
+      setDraft((cur) => cur ?? toDraft(d.settings.schedule));
     } catch {
       setMessage({ kind: 'error', text: 'Could not load the librarian.' });
     }
@@ -64,7 +81,7 @@ export default function Librarian() {
     }
   }
 
-  async function save(change: { limit?: number; auto?: boolean }) {
+  async function save(change: { limit?: number; auto?: boolean; schedule?: Partial<Schedule> }) {
     setBusy('settings');
     setMessage(null);
     try {
@@ -72,6 +89,7 @@ export default function Librarian() {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Could not save.');
       setLimit(String(d.limit));
+      if (change.schedule) setDraft(toDraft(d.schedule));
       setMessage({ kind: 'ok', text: 'Saved.' });
     } catch (e: any) {
       setMessage({ kind: 'error', text: e.message });
@@ -106,8 +124,82 @@ export default function Librarian() {
               disabled={busy === 'settings'}
               onChange={(e) => save({ auto: e.target.checked })}
             />{' '}
-            Organise and tidy on its own after the wiki changes (once filing is done and nothing has changed for half an hour)
+            Organise and tidy on its own after the wiki changes, once filing is done. A part with no changes since its last run is left
+            alone.
           </label>
+          {draft && (
+            <fieldset className="visibility lib-schedule" disabled={busy === 'settings'}>
+              <legend>When it runs on its own</legend>
+              <div className="day-picks small-text">
+                {WEEK.map((d) => (
+                  <label key={d} className="check">
+                    <input
+                      type="checkbox"
+                      checked={draft.days.includes(d)}
+                      onChange={(e) => setDraft({ ...draft, days: e.target.checked ? [...draft.days, d].sort() : draft.days.filter((x) => x !== d) })}
+                    />{' '}
+                    {DAY_NAMES[d].slice(0, 3)}
+                  </label>
+                ))}
+              </div>
+              <div className="inline-field small-text">
+                <label htmlFor="librarian-from">From</label>
+                <select id="librarian-from" value={draft.from} onChange={(e) => setDraft({ ...draft, from: Number(e.target.value) })}>
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <option key={h} value={h}>{hour(h)}</option>
+                  ))}
+                </select>
+                <label htmlFor="librarian-to">to</label>
+                <select id="librarian-to" value={draft.to} onChange={(e) => setDraft({ ...draft, to: Number(e.target.value) })}>
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <option key={h} value={h}>{hour(h)}</option>
+                  ))}
+                </select>
+              </div>
+              <p className="muted small-text schedule-note">
+                The same start and end means any time of day; an end before the start runs overnight. Times follow the server&apos;s clock,
+                now {DAY_NAMES[data.clock.day]} {String(data.clock.hour).padStart(2, '0')}:{String(data.clock.minute).padStart(2, '0')}
+                {data.settings.auto && !data.inSchedule ? ', outside these hours.' : '.'}
+              </p>
+              <div className="inline-field small-text">
+                <label htmlFor="librarian-quiet">Wait after the last change (minutes)</label>
+                <input id="librarian-quiet" type="number" min={0} max={1440} value={draft.quietMinutes} onChange={(e) => setDraft({ ...draft, quietMinutes: e.target.value })} />
+              </div>
+              <div className="inline-field small-text">
+                <label htmlFor="librarian-whole">Organise the whole wiki at most every (hours)</label>
+                <input id="librarian-whole" type="number" min={0} max={720} value={draft.wholeHours} onChange={(e) => setDraft({ ...draft, wholeHours: e.target.value })} />
+              </div>
+              <div className="inline-field small-text">
+                <label htmlFor="librarian-section">Tidy each section at most every (hours)</label>
+                <input id="librarian-section" type="number" min={0} max={720} value={draft.sectionHours} onChange={(e) => setDraft({ ...draft, sectionHours: e.target.value })} />
+              </div>
+              <div className="inline-field small-text">
+                <button
+                  className="btn small"
+                  disabled={sameDraft(draft, toDraft(data.settings.schedule))}
+                  onClick={() =>
+                    save({
+                      schedule: {
+                        ...draft,
+                        quietMinutes: Number(draft.quietMinutes),
+                        wholeHours: Number(draft.wholeHours),
+                        sectionHours: Number(draft.sectionHours),
+                      },
+                    })
+                  }
+                >
+                  Save schedule
+                </button>
+                <button
+                  className="btn small quiet"
+                  disabled={sameDraft(draft, toDraft(data.settings.schedule))}
+                  onClick={() => setDraft(toDraft(data.settings.schedule))}
+                >
+                  Undo changes
+                </button>
+              </div>
+            </fieldset>
+          )}
           <div className="inline-field small-text">
             <label htmlFor="librarian-limit">Most pages changed per run</label>
             <input

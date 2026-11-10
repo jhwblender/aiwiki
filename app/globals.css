@@ -428,6 +428,9 @@ a.file-chip { padding-right: 10px; }
 .personal-badge { display: inline-block; margin-left: 8px; padding: 0 8px; border-radius: 10px; font-size: 12px; background: var(--personal-bg); color: var(--personal-ink); }
 fieldset.visibility { border: 0; padding: 0; margin: 14px 0 0; }
 fieldset.visibility legend { font-size: 13px; font-weight: 500; padding: 0; margin-bottom: 2px; }
+.day-picks { display: flex; flex-wrap: wrap; gap: 0 14px; }
+.lib-schedule select { font: inherit; }
+.schedule-note { margin: 6px 0 0; }
 
 /* ---------- structure ---------- */
 .struct { list-style: none; margin: 0; padding: 0; }
