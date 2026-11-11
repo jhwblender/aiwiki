@@ -69,6 +69,14 @@ export default function ChatPanel({
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const mounted = useRef(true);
 
+  // The box grows with what is typed, up to its max-height in the stylesheet, then scrolls
+  useEffect(() => {
+    const el = areaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+  }, [input]);
+
   // Closing the panel only stops listening; the request keeps running on the server
   useEffect(() => {
     mounted.current = true;

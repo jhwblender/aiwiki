@@ -241,7 +241,7 @@ summary.chip::-webkit-details-marker { display: none; }
 .chat-input > textarea { grid-area: text; }
 .chat-input > .btn.attach { grid-area: attach; }
 .chat-input > .send-group { grid-area: send; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-.chat-input textarea { flex: 1; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 8px; background: var(--paper); resize: none; }
+.chat-input textarea { flex: 1; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 8px; background: var(--paper); resize: none; max-height: min(40vh, 320px); overflow-y: auto; }
 
 /* ---------- small screens ---------- */
 @media (max-width: 900px) {
