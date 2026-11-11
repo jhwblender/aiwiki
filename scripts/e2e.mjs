@@ -303,6 +303,8 @@ try {
   check('the revised suggestion remembers the earlier message', reviewDay[0]?.earlierSources?.[0]?.note === 'Add the review day');
   const seen = await chat('Is anything pending?', 'Sam', 'local', chatB);
   check('another chat is shown the pending suggestion', seen.reply === 'PENDING-SEEN', JSON.stringify(seen));
+  const named = await chat('What is my name?', 'Sam');
+  check('the assistant is told who it is talking with', named.reply === 'NAME: Sam', JSON.stringify(named));
   await chat('Review moved to Tuesday', 'Sam', 'local', chatB);
   check('another chat cannot revise someone else\'s suggestion', (await getPage('guide/basics')).pending.length === 1);
   await chat('Sorry, the review day is actually Tuesday', 'Sam', 'local', chatA);

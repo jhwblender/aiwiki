@@ -226,6 +226,12 @@ const SCENARIOS = [
     reply: 'I proposed adding the review day to [[guide/basics]].',
   },
   {
+    // says the name the system prompt gives for the person chatting
+    keyword: 'what is my name',
+    steps: [],
+    reply: (_tools, system) => `NAME: ${system.match(/talking with "([^"]+)"/)?.[1] ?? 'unknown'}`,
+  },
+  {
     // reports whether read_page showed pending suggestions from others
     keyword: 'anything pending',
     steps: [{ name: 'read_page', args: { path: GUIDE } }],
@@ -469,8 +475,8 @@ function isNudge(m) {
   return typeof m.content === 'string' && m.content.startsWith('(Automatic check)');
 }
 
-function replyFor(scenario, toolText) {
-  return typeof scenario.reply === 'function' ? scenario.reply(toolText) : scenario.reply;
+function replyFor(scenario, toolText, system = '') {
+  return typeof scenario.reply === 'function' ? scenario.reply(toolText, system) : scenario.reply;
 }
 
 function pick(messages) {
@@ -525,7 +531,7 @@ function respond(body) {
     const args = typeof step.args === 'function' ? step.args(String(messages[lastUserIdx]?.content ?? ''), toolTexts(messages)) : step.args;
     message.tool_calls = [{ id: `call_${toolTurns}`, type: 'function', function: { name: step.name, arguments: JSON.stringify(args) } }];
   } else {
-    message.content = replyFor(scenario, toolTexts(messages));
+    message.content = replyFor(scenario, toolTexts(messages), String(messages.find((m) => m.role === 'system')?.content ?? ''));
   }
   return {
     id: 'mock',
@@ -590,7 +596,7 @@ function respondAnthropic(body) {
     const args = typeof step.args === 'function' ? step.args(textOf(lastUserText ?? ''), toolTexts(msgs)) : step.args;
     content = [thinking, { type: 'tool_use', id: `toolu_${turns}`, name: step.name, input: args }];
     stop = 'tool_use';
-  } else content = [thinking, { type: 'text', text: replyFor(scenario, toolTexts(msgs)) }];
+  } else content = [thinking, { type: 'text', text: replyFor(scenario, toolTexts(msgs), typeof body.system === 'string' ? body.system : (body.system ?? []).map((b) => b?.text ?? '').join('\n')) }];
   return {
     status: 200,
     body: {

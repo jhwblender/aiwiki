@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
       providerId: body.provider,
       user: chatter.displayName,
       username: chatter.name,
+      speaker: chatter.displayName,
       currentPath: typeof body.currentPath === 'string' ? body.currentPath : undefined,
       attachments: Array.isArray(body.attachments)
         ? body.attachments.map(Number).filter((n: number) => Number.isInteger(n) && n > 0).slice(0, 10)

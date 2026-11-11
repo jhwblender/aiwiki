@@ -93,6 +93,8 @@ export async function runAgent(opts: {
   // Files attached to the latest message: a file id, or one with its document identity and version
   // already worked out (the ingest queue does that before deciding whether to run at all)
   attachments?: (number | { id: number; identity: DocIdentity; info?: VersionInfo })[];
+  // The person chatting, by display name; left out for background filing and librarian runs
+  speaker?: string;
   // A librarian run: Tidy over one section, or Organise over the whole wiki, with a cap on how many
   // pages it may suggest changes to
   librarian?: { section: string; limit: number; organise?: boolean };
@@ -117,7 +119,11 @@ export async function runAgent(opts: {
   const base = opts.librarian ? `${SYSTEM}\n\n${opts.librarian.organise ? ORGANISE : TIDY}` : SYSTEM;
   // Organising only arranges pages and writes summaries, so the model is only offered those tools
   const tools = opts.librarian?.organise ? toolDefs.filter((t) => ORGANISE_TOOLS.has(t.name)) : toolDefs;
-  const system = opts.currentPath ? `${base}\n\nThe person is currently viewing the page "${opts.currentPath}".` : base;
+  const about = [
+    opts.speaker && `You are talking with "${opts.speaker.replace(/"/g, "'")}"; this is the name of the person signed in to the wiki.`,
+    opts.currentPath && `The person is currently viewing the page "${opts.currentPath}".`,
+  ].filter(Boolean);
+  const system = about.length ? `${base}\n\n${about.join(' ')}` : base;
   // A tidy run reads more pages than a chat request before it is done: about three steps per page it changes
   const maxSteps = opts.librarian ? Math.min(100, 10 + opts.librarian.limit * 3) : 10;
   const messages: Msg[] = opts.history.map((m) => ({ role: m.role, content: m.content }) as Msg);
