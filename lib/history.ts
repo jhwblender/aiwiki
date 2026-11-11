@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
-import simpleGit from 'simple-git';
+import simpleGit, { type SimpleGit } from 'simple-git';
 import { WIKI_DIR } from './db';
-import { listPages, readPage, writePage, deletePage, titleFor } from './wiki';
+import { ensureInit, listPages, readPage, writePage, deletePage, titleFor } from './wiki';
 import { rebase } from './diff';
 import { movePageWithRecords } from './proposals';
 import type { HistoryAction, HistoryEntry } from './types';
@@ -12,7 +12,13 @@ import type { HistoryAction, HistoryEntry } from './types';
 // anything done since: every part is checked first, and the whole undo is refused when a page
 // has changed in the same place, so nothing newer is lost.
 
-const git = simpleGit(WIKI_DIR);
+// Opened on first use, once the wiki folder exists: building the app loads this file before any
+// wiki has been set up
+let opened: SimpleGit | null = null;
+async function git(): Promise<SimpleGit> {
+  await ensureInit();
+  return (opened ??= simpleGit(WIKI_DIR));
+}
 
 const SEP = '\u001e'; // between commits in the log
 const US = '\u001f'; // between fields of one commit
@@ -99,7 +105,7 @@ function readBlobs(refs: string[]): Promise<Map<string, string>> {
 
 async function blobAt(ref: string): Promise<string | undefined> {
   try {
-    return await git.raw(['show', ref]);
+    return await (await git()).raw(['show', ref]);
   } catch {
     return undefined;
   }
@@ -112,7 +118,7 @@ function refFor(c: Parsed, f: Parsed['files'][number]): string {
 // The approvals themselves: pages created, removed and moved for the whole wiki, or everything
 // that touched one page with ?page= (its edits included).
 export async function approvalHistory(page?: string): Promise<{ entries: HistoryEntry[]; more: boolean }> {
-  const out = await git.raw(['log', '-M', '--name-status', `--format=${LOG_FORMAT}`, `--max-count=${WINDOW}`]);
+  const out = await (await git()).raw(['log', '-M', '--name-status', `--format=${LOG_FORMAT}`, `--max-count=${WINDOW}`]);
   const all = parseLog(out);
   const wanted = page
     ? all.filter((c) => c.files.some((f) => f.from === page || f.to === page))
@@ -153,7 +159,7 @@ export async function approvalHistory(page?: string): Promise<{ entries: History
 export async function pagesOfApproval(commit: string): Promise<string[]> {
   if (!/^[0-9a-f]{6,64}$/.test(commit)) return [];
   try {
-    const c = parseLog(await git.raw(['log', '-M', '--name-status', `--format=${LOG_FORMAT}`, '-n', '1', commit]))[0];
+    const c = parseLog(await (await git()).raw(['log', '-M', '--name-status', `--format=${LOG_FORMAT}`, '-n', '1', commit]))[0];
     return c ? [...new Set(c.files.flatMap((f) => [f.from, f.to]))] : [];
   } catch {
     return [];
@@ -164,7 +170,7 @@ export async function undoApproval(commit: string, user: string): Promise<void> 
   if (!/^[0-9a-f]{6,64}$/.test(commit)) throw new Error('That approval was not found.');
   let c: Parsed | undefined;
   try {
-    c = parseLog(await git.raw(['log', '-M', '--name-status', `--format=${LOG_FORMAT}`, '-n', '1', commit]))[0];
+    c = parseLog(await (await git()).raw(['log', '-M', '--name-status', `--format=${LOG_FORMAT}`, '-n', '1', commit]))[0];
   } catch {
     throw new Error('That approval was not found.');
   }
