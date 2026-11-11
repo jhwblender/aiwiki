@@ -7,6 +7,7 @@ import type { PluggableList } from 'unified';
 import { usePages } from './WikiContext';
 import CalendarBlock from './CalendarBlock';
 import MermaidBlock from './MermaidBlock';
+import { rehypeSearchMarks, useSearchWords } from './searchMarks';
 
 export function slugify(s: string): string {
   return s
@@ -95,10 +96,12 @@ function CopyCode(props: { children?: ReactNode }) {
 
 export default function Md({ children, rehypePlugins }: { children: string; rehypePlugins?: PluggableList }) {
   const pages = usePages();
+  const words = useSearchWords();
+  const plugins = words.length ? [...(rehypePlugins ?? []), rehypeSearchMarks(words)] : rehypePlugins;
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
-      rehypePlugins={rehypePlugins}
+      rehypePlugins={plugins}
       components={{
         a({ href, title, children }) {
           if (href && href.startsWith('/wiki/')) {

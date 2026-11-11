@@ -12,6 +12,7 @@ import AccessDialog from './AccessDialog';
 import { usePages } from './WikiContext';
 import { joinSummary, splitSummary } from '@/lib/summary';
 import SourceChip from './SourceChip';
+import { useSearchWords } from './searchMarks';
 import { markTableRows, markWords, rehypeMarks } from './wordMarks';
 
 const insMarks = [rehypeMarks('word-ins')];
@@ -243,6 +244,16 @@ export default function PageView({
   useEffect(() => {
     load();
   }, [load, version]);
+
+  // Opened from a search: bring the first searched-for word into view, once per page and search
+  const words = useSearchWords();
+  const scrolledFor = useRef('');
+  useEffect(() => {
+    const key = `${data?.path}|${words.join(' ')}`;
+    if (!data || !words.length || editing || scrolledFor.current === key) return;
+    scrolledFor.current = key;
+    document.querySelector('main mark.search-mark')?.scrollIntoView({ block: 'center' });
+  }, [data, words, editing]);
 
   async function guarded(fn: () => Promise<unknown>) {
     setBusy(true);

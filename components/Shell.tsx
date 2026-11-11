@@ -5,6 +5,7 @@ import type { PageListItem } from '@/lib/types';
 import Sidebar from './Sidebar';
 import ThemePicker from './ThemePicker';
 import { InstallSuggestion } from './InstallApp';
+import { SearchWords, searchTerms } from './searchMarks';
 import PageView from './PageView';
 import ChatPanel, { type IncomingFiles } from './ChatPanel';
 import { PagesContext } from './WikiContext';
@@ -27,6 +28,8 @@ export default function Shell() {
   const [sideOpen, setSideOpen] = useState(false);
   const [items, setItems] = useState<PageListItem[]>([]);
   // Files dropped onto the page, handed to the assistant
+  const [search, setSearch] = useState('');
+  const searchWords = useMemo(() => searchTerms(search), [search]);
   const [incoming, setIncoming] = useState<IncomingFiles | null>(null);
 
   useEffect(() => {
@@ -138,18 +141,21 @@ export default function Shell() {
           user={user}
           role={role}
           onNavigate={() => setSideOpen(false)}
+          onSearch={setSearch}
         />
-        <PageView
-          path={path}
-          user={effectiveUser}
-          version={version}
-          onChanged={bump}
-          onDropFiles={(files) => {
-            setIncoming({ files, note: 'Add what is useful from the attached files to this page.', key: Date.now() });
-            setChatOpen(true);
-            setSideOpen(false);
-          }}
-        />
+        <SearchWords.Provider value={searchWords}>
+          <PageView
+            path={path}
+            user={effectiveUser}
+            version={version}
+            onChanged={bump}
+            onDropFiles={(files) => {
+              setIncoming({ files, note: 'Add what is useful from the attached files to this page.', key: Date.now() });
+              setChatOpen(true);
+              setSideOpen(false);
+            }}
+          />
+        </SearchWords.Provider>
         {chatOpen && (
           <ChatPanel user={effectiveUser} currentPath={path} onChanged={bump} incoming={incoming} onIncomingTaken={() => setIncoming(null)} />
         )}

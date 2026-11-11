@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { PageListItem } from '@/lib/types';
 import PlaceDialog from './PlaceDialog';
 import { useInstall } from './InstallApp';
+import { MarkedText, searchTerms } from './searchMarks';
 
 type Node = { name: string; path: string; page?: PageListItem; children: Map<string, Node> };
 
@@ -102,6 +103,7 @@ export default function Sidebar({
   user,
   role,
   onNavigate,
+  onSearch,
 }: {
   current: string;
   items: PageListItem[];
@@ -109,10 +111,15 @@ export default function Sidebar({
   user: string;
   role: string;
   onNavigate: () => void;
+  onSearch?: (q: string) => void;
 }) {
   const router = useRouter();
   const install = useInstall();
-  const [q, setQ] = useState('');
+  const [q, setQState] = useState('');
+  const setQ = (v: string) => {
+    setQState(v);
+    onSearch?.(v);
+  };
   const [hits, setHits] = useState<{ path: string; title: string; snippet: string }[] | null>(null);
 
   useEffect(() => {
@@ -129,6 +136,7 @@ export default function Sidebar({
     return () => clearTimeout(t);
   }, [q]);
 
+  const words = useMemo(() => searchTerms(q), [q]);
   const tree = useMemo(() => buildTree(items), [items]);
 
   // Which folders are open: what the person opened before (remembered between visits), plus the
@@ -198,13 +206,21 @@ export default function Sidebar({
         </button>
         {creating && <PlaceDialog mode="new" initialParent={defaultParent} onCancel={() => setCreating(false)} onDone={created} />}
       </div>
-      <input
-        className="search"
-        placeholder="Search pages"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        aria-label="Search pages"
-      />
+      <div className="search-box">
+        <input
+          className="search"
+          placeholder="Search pages"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => e.key === 'Escape' && setQ('')}
+          aria-label="Search pages"
+        />
+        {q && (
+          <button className="search-clear" onClick={() => setQ('')} aria-label="Clear search" title="Clear search">
+            ×
+          </button>
+        )}
+      </div>
       {pendingTotal > 0 && !hits && (
         <div className="review-note">
           {pendingTotal} suggestion{pendingTotal > 1 ? 's' : ''} waiting for review
@@ -218,7 +234,9 @@ export default function Sidebar({
                 <li key={h.path}>
                   <Link href={`/wiki/${h.path}`} className="tree-item hit">
                     <span className="tree-name">{h.title}</span>
-                    <span className="hit-snippet">{h.snippet.replace(/\n+/g, ' ')}</span>
+                    <span className="hit-snippet">
+                      <MarkedText text={h.snippet} terms={words} />
+                    </span>
                   </Link>
                 </li>
               ))}
