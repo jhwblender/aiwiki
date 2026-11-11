@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 import type { PageListItem } from '@/lib/types';
 import Sidebar from './Sidebar';
 import ThemePicker from './ThemePicker';
+import { InstallSuggestion } from './InstallApp';
 import PageView from './PageView';
 import ChatPanel, { type IncomingFiles } from './ChatPanel';
 import { PagesContext } from './WikiContext';
@@ -152,6 +153,7 @@ export default function Shell() {
         {chatOpen && (
           <ChatPanel user={effectiveUser} currentPath={path} onChanged={bump} incoming={incoming} onIncomingTaken={() => setIncoming(null)} />
         )}
+        <InstallSuggestion />
       </div>
     </PagesContext.Provider>
   );

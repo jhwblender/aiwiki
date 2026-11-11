@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wiki</title>
+<style>
+  :root { --paper: #f4f6f8; --panel: #fff; --ink: #17212b; --soft: #5b6874; --teal: #146c73; --on: #fff; }
+  @media (prefers-color-scheme: dark) { :root { --paper: #11171d; --panel: #1a222a; --ink: #e3e8ec; --soft: #9aa7b2; --teal: #5bbcc4; --on: #0c1a1e; } }
+  body { margin: 0; min-height: 100dvh; display: grid; place-items: center; background: var(--paper); color: var(--ink); font: 15px/1.5 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif; }
+  main { max-width: 360px; margin: 16px; padding: 24px; background: var(--panel); border-radius: 10px; text-align: center; }
+  p { color: var(--soft); }
+  button { font: inherit; padding: 8px 16px; border: 0; border-radius: 6px; background: var(--teal); color: var(--on); cursor: pointer; }
+</style>
+</head>
+<body>
+<main>
+  <svg width="64" height="64" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+    <rect width="512" height="512" rx="112" fill="#146c73"/>
+    <path d="M96 164c56-26 112-26 148 4v204c-36-30-92-30-148-4z" fill="#fff"/>
+    <path d="M416 164c-56-26-112-26-148 4v204c36-30 92-30 148-4z" fill="#fff"/>
+    <path d="M128 212c30-10 60-10 84 2M128 254c30-10 60-10 84 2M128 296c30-10 60-10 84 2M300 214c24-12 54-12 84-2M300 256c24-12 54-12 84-2M300 298c24-12 54-12 84-2" stroke="#146c73" stroke-width="12" stroke-linecap="round" fill="none"/>
+  </svg>
+  <h1>The wiki cannot be reached</h1>
+  <p>Check that this device is online and that the wiki is running, then try again.</p>
+  <button onclick="location.reload()">Try again</button>
+</main>
+</body>
+</html>

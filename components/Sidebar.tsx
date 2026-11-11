@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import type { PageListItem } from '@/lib/types';
 import PlaceDialog from './PlaceDialog';
+import { useInstall } from './InstallApp';
 
 type Node = { name: string; path: string; page?: PageListItem; children: Map<string, Node> };
 
@@ -110,6 +111,7 @@ export default function Sidebar({
   onNavigate: () => void;
 }) {
   const router = useRouter();
+  const install = useInstall();
   const [q, setQ] = useState('');
   const [hits, setHits] = useState<{ path: string; title: string; snippet: string }[] | null>(null);
 
@@ -243,6 +245,11 @@ export default function Sidebar({
           <Link href="/settings" className="settings-link">
             Settings
           </Link>
+          {install.available && (
+            <button className="settings-link" onClick={install.show}>
+              Install app
+            </button>
+          )}
           <button
             className="settings-link"
             onClick={async () => {

@@ -519,3 +519,10 @@ fieldset.visibility legend { font-size: 13px; font-weight: 500; padding: 0; marg
 .group-members { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 6px 0; }
 .group-members label { display: inline-flex; align-items: center; gap: 4px; }
 .folder-access { display: block; margin-top: 4px; }
+
+/* ---------- install suggestion ---------- */
+.install-card { position: fixed; z-index: 40; left: calc(var(--side-w) + 16px); bottom: 16px; width: min(360px, calc(100vw - 32px)); display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; box-shadow: 0 6px 24px rgba(23, 33, 43, 0.18); }
+.install-card img { flex: none; border-radius: 8px; }
+.install-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.install-actions { display: flex; gap: 8px; margin-top: 6px; }
+@media (max-width: 900px) { .install-card { left: 16px; } }

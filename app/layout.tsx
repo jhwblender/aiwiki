@@ -2,8 +2,13 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { themeScript } from '@/lib/theme';
 
-export const metadata: Metadata = { title: 'Wiki', description: 'A wiki with a built-in assistant' };
-export const viewport: Viewport = { width: 'device-width', initialScale: 1 };
+export const metadata: Metadata = {
+  title: 'Wiki',
+  description: 'A wiki with a built-in assistant',
+  icons: { icon: '/icon.svg', apple: '/apple-icon.png' },
+  appleWebApp: { capable: true, title: 'Wiki' },
+};
+export const viewport: Viewport = { width: 'device-width', initialScale: 1, themeColor: '#146c73' };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
