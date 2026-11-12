@@ -267,6 +267,13 @@ function migrate(d: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(user_name);
     -- Who can use a page or section (path '*' is the whole wiki); kind is everyone, group or user
+    -- Finished chat replies, so a person who left the app comes back to the answer (kept a week)
+    CREATE TABLE IF NOT EXISTS chat_runs (
+      id TEXT PRIMARY KEY,
+      owner TEXT NOT NULL,
+      events TEXT NOT NULL,
+      finished_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS page_access (
       path TEXT NOT NULL,
       kind TEXT NOT NULL,

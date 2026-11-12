@@ -25,9 +25,36 @@ const ACCEPT = '.pdf,.docx,.txt,.md,.csv,.json,.png,.jpg,.jpeg,.gif,.webp';
 const MAX_FILES = 10;
 let nextKey = 1;
 
+// randomUUID needs https or localhost; getRandomValues also works over plain http on the network
+const randomHex = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
+
+// Each message names its run before it is sent, so the chat can find the answer even if the
+// reply to the send itself never arrives
+const newRunId = randomHex;
+
+// Wait a while, then until the page is in view and online. Coming back to the page, or the
+// connection returning, cuts the wait short; so does a stop.
+function whenBack(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', check);
+      window.removeEventListener('online', check);
+      signal.removeEventListener('abort', done);
+      resolve();
+    };
+    const check = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) done();
+    };
+    const timer = setTimeout(check, ms);
+    document.addEventListener('visibilitychange', check);
+    window.addEventListener('online', check);
+    signal.addEventListener('abort', done);
+  });
+}
+
 function newChat(): string {
-  // randomUUID needs https or localhost; getRandomValues also works over plain http on the network
-  const id = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
+  const id = randomHex();
   try {
     localStorage.setItem('wiki-chat-id', id);
   } catch {}
@@ -299,24 +326,62 @@ export default function ChatPanel({
   }
 
   // Follow a run until it ends. Returns quietly if the panel closed meanwhile; the run carries on
-  // on the server and the panel reconnects when it opens again.
-  async function follow(open: () => Promise<Response>, started: number) {
+  // on the server and the panel reconnects when it opens again. A dropped connection (a phone
+  // that slept or switched apps) is not the end of the run: the chat waits until the page is in
+  // view and online again, then catches up with the run, however long that takes.
+  async function follow(open: () => Promise<Response>, started: number, runId: string, sentHere: boolean) {
     setBusy(true);
     setLive({ steps: [], status: 'Sending', started });
     const controller = new AbortController();
     readerRef.current = controller;
+    rememberRun(runId, started);
+    // Whether the wiki has seen this request; until then a lost connection may mean it never arrived
+    let confirmed = !sentHere;
+    let opener = open;
+    let wait = 1000;
     try {
-      const r = await open();
-      if (r.status === 404) {
-        finish({ reply: '', trace: [], proposed: [], error: 'The wiki restarted while working on your last message. Send it again.' });
-        return;
+      for (;;) {
+        let d: ChatResponse | null = null;
+        let failure = '';
+        try {
+          const r = await opener();
+          if (r.status === 404) {
+            finish({
+              reply: '',
+              trace: [],
+              proposed: [],
+              error: confirmed ? 'The wiki restarted while working on your last message. Send it again.' : 'Your message did not reach the wiki. Try again.',
+            });
+            return;
+          }
+          d = await readReply(
+            r,
+            controller.signal,
+            (id) => {
+              confirmed = true;
+              // The wiki names the run itself if the name sent was not usable
+              if (id !== runId) rememberRun((runId = id), started);
+            },
+            onProgress,
+          );
+        } catch (e: any) {
+          if (!mounted.current || e?.name === 'AbortError') return;
+          failure = e?.message || 'Network error';
+        }
+        if (!mounted.current) return;
+        if (d) {
+          finish(d);
+          return;
+        }
+        // The connection dropped before the answer came; the work goes on at the wiki
+        setLive((l) => (l ? { ...l, status: failure ? 'Waiting for the connection' : 'Reconnecting' } : l));
+        await whenBack(wait, controller.signal);
+        if (controller.signal.aborted || !mounted.current) return;
+        wait = Math.min(wait * 2, 30000);
+        // The run is replayed from its start, so the steps shown so far are drawn again
+        setLive((l) => (l ? { ...l, steps: [], status: 'Reconnecting' } : l));
+        opener = () => fetch(`/api/chat/runs/${runId}`, { cache: 'no-store', signal: controller.signal });
       }
-      const d = await readReply(r, controller.signal, (id) => rememberRun(id, started), onProgress);
-      if (!mounted.current) return;
-      finish(d);
-    } catch (e: any) {
-      if (!mounted.current || e?.name === 'AbortError') return;
-      finish({ reply: '', trace: [], proposed: [], error: e.message || 'Network error' });
     } finally {
       if (mounted.current) {
         setBusy(false);
@@ -337,7 +402,7 @@ export default function ChatPanel({
     } catch {}
     if (!saved?.id) return;
     runIdRef.current = saved.id;
-    void follow(() => fetch(`/api/chat/runs/${saved!.id}`, { cache: 'no-store', signal: readerRef.current?.signal }), saved.started);
+    void follow(() => fetch(`/api/chat/runs/${saved!.id}`, { cache: 'no-store', signal: readerRef.current?.signal }), saved.started, saved.id, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded]);
 
@@ -382,8 +447,10 @@ export default function ChatPanel({
   // Everything the next request needs, in one place. Earlier attachments are named in their
   // message; only the latest message's files are read.
   async function dispatch(next: UiMsg[], attachmentIds: number[]) {
+    const runId = newRunId();
     const body = JSON.stringify({
       stream: true,
+      runId,
       messages: next
         .filter((m) => !m.error && !m.stopped)
         .map((m, i, all) => ({
@@ -399,11 +466,14 @@ export default function ChatPanel({
     await follow(
       () => fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: readerRef.current?.signal }),
       Date.now(),
+      runId,
+      true,
     );
   }
 
   // Read the streamed reply: progress lines while the assistant works, then the result
-  async function readReply(r: Response, signal: AbortSignal, onRun: (id: string) => void, onProgress: (text: string) => void): Promise<ChatResponse> {
+  // Null when the stream ended before the result: the connection dropped, not the run
+  async function readReply(r: Response, signal: AbortSignal, onRun: (id: string) => void, onProgress: (text: string) => void): Promise<ChatResponse | null> {
     if (!r.body || !(r.headers.get('content-type') ?? '').includes('ndjson')) return r.json();
     const reader = r.body.getReader();
     signal.addEventListener('abort', () => void reader.cancel().catch(() => {}));
@@ -426,7 +496,7 @@ export default function ChatPanel({
         else if (ev.type === 'error') result = { reply: '', trace: [], proposed: [], error: ev.error };
       }
     }
-    return result ?? { reply: '', trace: [], proposed: [], error: 'The reply was cut off. Try again.' };
+    return result;
   }
 
   const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes('Files');

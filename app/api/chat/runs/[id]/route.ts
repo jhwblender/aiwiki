@@ -11,5 +11,5 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   const viewer = requireUser(req);
   if (isResponse(viewer)) return viewer;
   const { id } = await ctx.params;
-  return runStream(id) ?? NextResponse.json({ error: 'That request is no longer known. The wiki may have restarted.' }, { status: 404 });
+  return runStream(id, viewer.name) ?? NextResponse.json({ error: 'That request is no longer known. The wiki may have restarted.' }, { status: 404 });
 }

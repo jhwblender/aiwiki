@@ -56,6 +56,6 @@ export async function POST(req: NextRequest) {
   }
 
   // Streamed: the work runs on the server whether or not this browser stays connected
-  const id = startRun((onProgress, signal) => run(onProgress, signal).finally(endChat));
-  return runStream(id)!;
+  const id = startRun(chatter.name, (onProgress, signal) => run(onProgress, signal).finally(endChat), body.runId);
+  return runStream(id, chatter.name)!;
 }

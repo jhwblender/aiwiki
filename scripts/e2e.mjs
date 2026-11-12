@@ -611,7 +611,8 @@ try {
   check('the change counter moves when a suggestion lands', (await api('GET', '/api/pulse')).data.stamp !== pulseBefore);
   for (const p of (await getPage('docs/basics')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
   const stopId = await startStream('Please slowly add where facts come from', 'e2e-chat-stop');
-  check('a running request can be stopped', (await api('POST', `/api/chat/runs/${stopId}/stop`)).data.stopped === true);
+  check('someone else cannot stop the request', (await api('POST', `/api/chat/runs/${stopId}/stop`, { user: 'Sam' })).data.stopped === false);
+  check('a running request can be stopped', (await api('POST', `/api/chat/runs/${stopId}/stop`, { user: 'Alex' })).data.stopped === true);
   const stopAt = Date.now();
   const stoppedEvents = await readRun(stopId); // blocks until the run finally ends
   const stopDelay = Date.now() - stopAt;
@@ -621,6 +622,28 @@ try {
   // quietly waited out the whole step, so it leaves room for a busy machine
   check('stopping cuts the model call right away instead of finishing the step', stopDelay < 10000, `took ${stopDelay} ms`);
   check('an unknown request says so', (await fetch(`${BASE}/api/chat/runs/nope`, { headers: { Cookie: COOKIES.get('Alex') } })).status === 404);
+  // The browser names the run before sending, so it can find the answer even if the reply to the
+  // send never arrived; the answer is saved when the run ends and only its owner can read it
+  const namedRun = 'e2ec0ffee0000000000000000000beef';
+  const namedSend = await fetch(BASE + '/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: COOKIES.get('Alex') },
+    body: JSON.stringify({ stream: true, runId: namedRun, messages: [{ role: 'user', content: 'Is anything pending?' }], provider: 'local' }),
+  });
+  await namedSend.text();
+  check('a run takes the name the browser gave it', (await readRun(namedRun)).at(-1)?.type === 'done');
+  const runsDb = new (await import('better-sqlite3')).default(path.join(dataDir, 'wiki.db'), { readonly: true });
+  const savedRun = runsDb.prepare('SELECT owner, events FROM chat_runs WHERE id = ?').get(namedRun);
+  runsDb.close();
+  check('a finished answer is saved for when the person comes back', savedRun?.owner === 'Alex' && JSON.parse(savedRun.events).at(-1).type === 'done', JSON.stringify(savedRun));
+  check('another person cannot read someone else\'s answer', (await fetch(`${BASE}/api/chat/runs/${namedRun}`, { headers: { Cookie: COOKIES.get('Sam') } })).status === 404);
+  const reused = await fetch(BASE + '/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: COOKIES.get('Sam') },
+    body: JSON.stringify({ stream: true, runId: namedRun, messages: [{ role: 'user', content: 'Is anything pending?' }], provider: 'local' }),
+  });
+  const reusedEvents = (await reused.text()).trim().split('\n').map((l) => JSON.parse(l));
+  check('a run name already in use is not taken over', reusedEvents[0].type === 'run' && reusedEvents[0].id !== namedRun, JSON.stringify(reusedEvents[0]));
   for (const p of (await getPage('docs/basics')).pending) await api('POST', `/api/proposals/${p.proposalId}/resolve`, { action: 'reject', user: 'Kim' });
 
   // 27. Watched folders that are renamed, nested or added twice
