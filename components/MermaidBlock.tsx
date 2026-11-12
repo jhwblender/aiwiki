@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { THEME_EVENT } from '@/lib/theme';
+import DiagramViewer from './DiagramViewer';
 
 // A fenced ```mermaid block is a diagram written as markdown text, and it renders as the real
 // drawing here. The library is large, so it loads only when a page happens to carry a diagram.
@@ -61,7 +62,7 @@ export default function MermaidBlock({ text }: { text: string }) {
           </p>
         </>
       )}
-      {svg !== null && <div className="mermaid-draw" dangerouslySetInnerHTML={{ __html: svg }} />}
+      {svg !== null && <DiagramViewer svg={svg} />}
     </div>
   );
 }

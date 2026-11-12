@@ -133,8 +133,10 @@ export default function Md({ children, rehypePlugins }: { children: string; rehy
           );
         },
         pre(props) {
-          const first: any = Array.isArray(props.children) ? props.children[0] : props.children;
-          if (first?.type === CalendarBlock || first?.type === MermaidBlock) return <>{props.children}</>;
+          // Calendars and diagrams draw themselves, so they skip the code frame and its Copy button
+          const code: any = props.node?.children?.find((c: any) => c.type === 'element' && c.tagName === 'code');
+          const cls = String(code?.properties?.className ?? '');
+          if (/language-(calendar|mermaid)\b/.test(cls)) return <>{props.children}</>;
           return <CopyCode {...props} />;
         },
       }}
