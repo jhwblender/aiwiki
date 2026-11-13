@@ -1,6 +1,8 @@
 # The wiki as one container: the Next.js server with git for the page history. Data (pages,
 # database, stored files) lives on a mounted volume at /data, so a rebuild never touches it.
 FROM node:22-bookworm-slim AS build
+# Next.js reports anonymous usage by default; a private wiki does not
+ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -12,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git tini ca-cer
   && rm -rf /var/lib/apt/lists/* \
   && git config --system safe.directory '*'
 WORKDIR /app
-ENV NODE_ENV=production WIKI_DATA_DIR=/data PORT=3000 HOSTNAME=0.0.0.0
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 WIKI_DATA_DIR=/data PORT=3000 HOSTNAME=0.0.0.0
 COPY --from=build /app/package.json /app/next.config.mjs ./
 COPY --from=build /app/node_modules node_modules
 COPY --from=build /app/.next .next
