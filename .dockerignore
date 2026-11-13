@@ -1,0 +1,9 @@
+.git
+node_modules
+.next
+.next-*
+data
+.env
+.env.local
+.aiwiki-port
+tsconfig.tsbuildinfo

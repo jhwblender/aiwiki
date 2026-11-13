@@ -170,12 +170,49 @@ export function destroySession(req: NextRequest): void {
   if (token) db().prepare('DELETE FROM sessions WHERE token = ?').run(token);
 }
 
+// ---------- limits on wrong passwords ----------
+// Guessing is slowed per account and per address: after a run of wrong passwords the account (or
+// the address) is held for a while, whatever password comes next. A right password clears the
+// account's count. Counts live in memory, so a restart forgets them; that only helps a guesser
+// who can restart the server, who would not need to guess.
+
+const HOLD_MS = 15 * 60 * 1000;
+const PER_ACCOUNT = 5;
+const PER_ADDRESS = 20;
+type Misses = { count: number; last: number };
+const g = globalThis as unknown as { __signInMisses?: Map<string, Misses> };
+const misses = (g.__signInMisses ??= new Map());
+
+function held(key: string): boolean {
+  const m = misses.get(key);
+  if (!m) return false;
+  if (Date.now() - m.last > HOLD_MS) {
+    misses.delete(key);
+    return false;
+  }
+  return m.count >= (key.startsWith('ip:') ? PER_ADDRESS : PER_ACCOUNT);
+}
+
+function miss(key: string) {
+  const m = misses.get(key);
+  const fresh = !m || Date.now() - m.last > HOLD_MS;
+  misses.set(key, { count: fresh ? 1 : m.count + 1, last: Date.now() });
+}
+
 /** Sign in with a name and password, creating the session cookie to set on the response. */
-export function signIn(name: string, password: string): { user: SessionUser; token: string; maxAgeSeconds: number } {
+export function signIn(name: string, password: string, address = ''): { user: SessionUser; token: string; maxAgeSeconds: number } {
+  const account = `name:${name.trim().toLowerCase()}`;
+  const from = `ip:${address}`;
+  if (held(account) || (address && held(from))) {
+    throw Object.assign(new Error('Too many wrong passwords. Wait 15 minutes, then try again.'), { status: 429 });
+  }
   const row = findUser(name.trim());
   if (!row || !row.password_hash || !verifyPassword(password, row.password_hash)) {
+    miss(account);
+    if (address) miss(from);
     throw new Error('Wrong name or password.');
   }
+  misses.delete(account);
   const { token, maxAgeSeconds } = createSession(row.name);
   return { user: { name: row.name, role: row.role, displayName: shownName(row) }, token, maxAgeSeconds };
 }

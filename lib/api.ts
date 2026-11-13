@@ -32,19 +32,26 @@ export function isResponse(v: unknown): v is NextResponse {
   return v instanceof NextResponse;
 }
 
-export function sessionCookie(res: NextResponse, token: string, maxAgeSeconds: number) {
-  res.cookies.set(COOKIE_NAME, token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: false, // the wiki runs on plain http inside the LAN
-    maxAge: maxAgeSeconds,
-    path: '/',
-  });
+// The address a request came from. Behind Cloudflare or a reverse proxy the socket is the proxy, so
+// its forwarding headers say who it is; these can be made up by someone reaching the server
+// directly, which only matters to the per-address limit (the per-account limit still holds).
+export function clientAddress(req: NextRequest): string {
+  return (req.headers.get('cf-connecting-ip') ?? req.headers.get('x-forwarded-for')?.split(',')[0] ?? req.headers.get('x-real-ip') ?? '').trim();
+}
+
+// On an https address the cookie is only ever sent over https; on plain http (inside the LAN) it
+// could not be sent at all if it were marked that way
+function secure(req: NextRequest): boolean {
+  return req.nextUrl.protocol === 'https:' || req.headers.get('x-forwarded-proto')?.split(',')[0].trim() === 'https';
+}
+
+export function sessionCookie(req: NextRequest, res: NextResponse, token: string, maxAgeSeconds: number) {
+  res.cookies.set(COOKIE_NAME, token, { httpOnly: true, sameSite: 'lax', secure: secure(req), maxAge: maxAgeSeconds, path: '/' });
   return res;
 }
 
-export function clearSessionCookie(res: NextResponse) {
-  res.cookies.set(COOKIE_NAME, '', { httpOnly: true, sameSite: 'lax', maxAge: 0, path: '/' });
+export function clearSessionCookie(req: NextRequest, res: NextResponse) {
+  res.cookies.set(COOKIE_NAME, '', { httpOnly: true, sameSite: 'lax', secure: secure(req), maxAge: 0, path: '/' });
   return res;
 }
 

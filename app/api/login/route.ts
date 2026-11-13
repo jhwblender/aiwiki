@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fail, requireUser, isResponse, sessionCookie, clearSessionCookie } from '@/lib/api';
+import { fail, requireUser, isResponse, sessionCookie, clearSessionCookie, clientAddress } from '@/lib/api';
 import { signIn, needsSetup, createUser, createSession, destroySession, shownName } from '@/lib/auth';
 
 export const runtime = 'nodejs';
@@ -15,12 +15,12 @@ export async function POST(req: NextRequest) {
       if (String(b.confirm ?? '') !== password) throw new Error('The two passwords do not match.');
       const user = createUser(name, 'admin', password, typeof b.display === 'string' ? b.display : undefined);
       const { token, maxAgeSeconds } = createSession(user.name);
-      return sessionCookie(NextResponse.json({ ok: true, name: user.name, displayName: shownName(user), role: user.role }), token, maxAgeSeconds);
+      return sessionCookie(req, NextResponse.json({ ok: true, name: user.name, displayName: shownName(user), role: user.role }), token, maxAgeSeconds);
     }
-    const { user, token, maxAgeSeconds } = signIn(name, password);
-    return sessionCookie(NextResponse.json({ ok: true, name: user.name, displayName: user.displayName, role: user.role }), token, maxAgeSeconds);
+    const { user, token, maxAgeSeconds } = signIn(name, password, clientAddress(req));
+    return sessionCookie(req, NextResponse.json({ ok: true, name: user.name, displayName: user.displayName, role: user.role }), token, maxAgeSeconds);
   } catch (e) {
-    return fail(e, 401);
+    return fail(e, (e as { status?: number }).status ?? 401);
   }
 }
 
@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     destroySession(req);
-    return clearSessionCookie(NextResponse.json({ ok: true }));
+    return clearSessionCookie(req, NextResponse.json({ ok: true }));
   } catch (e) {
     return fail(e);
   }

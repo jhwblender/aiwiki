@@ -1,0 +1,27 @@
+# AI wiki (wiki.lucenforge.com)
+# Source: /volume1/docker/aiwiki/src (from github.com/jhwblender/aiwiki, uploaded by scripts/deploy.sh)
+# Data:   /volume1/docker/aiwiki/data (pages in git, database, stored files; owned by uid 1000)
+# Public traffic: the Cloudflare tunnel (infinite_pixels_cloudflared on the webproxy network)
+#   routes wiki.lucenforge.com to http://aiwiki_app:3000, behind a Cloudflare Access sign-in.
+# The model runs on Jesse's PC, reached over Tailscale (set on the wiki's Settings page).
+services:
+  app:
+    image: aiwiki_app:latest
+    container_name: aiwiki_app
+    build:
+      context: /volume1/docker/aiwiki/src
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TZ: America/New_York
+    ports:
+      - "127.0.0.1:3190:3000"
+    volumes:
+      - /volume1/docker/aiwiki/data:/data
+    networks:
+      - webproxy
+
+networks:
+  webproxy:
+    external: true
