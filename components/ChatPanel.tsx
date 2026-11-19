@@ -285,19 +285,24 @@ export default function ChatPanel({
   const onProgress = (text: string) =>
     setLive((l) => (l ? (/^Thinking/.test(text) ? { ...l, status: text } : { ...l, steps: [...l.steps, text], status: 'Working' }) : l));
 
-  // Show the result of a run, once
+  // Show the result of a run, once. The list ref is updated at once, not after the next render, so a
+  // queued follow-up sent straight after this builds on the answer instead of dropping it.
   function finish(d: ChatResponse) {
     try {
       localStorage.removeItem(RUN_KEY);
     } catch {}
+    const add = (m: UiMsg) => {
+      msgsRef.current = [...msgsRef.current, m];
+      setMsgs(msgsRef.current);
+    };
     if (d.error === 'Stopped.') {
-      setMsgs((m) => [...m, { role: 'assistant', content: 'Stopped. Anything already suggested stays on its page for review.', stopped: true }]);
+      add({ role: 'assistant', content: 'Stopped. Anything already suggested stays on its page for review.', stopped: true });
       onChanged();
     } else if (d.error) {
-      setMsgs((m) => [...m, { role: 'assistant', content: d.error!, error: true }]);
+      add({ role: 'assistant', content: d.error!, error: true });
       onChanged();
     } else {
-      setMsgs((m) => [...m, { role: 'assistant', content: d.reply, trace: d.trace, proposed: d.proposed }]);
+      add({ role: 'assistant', content: d.reply, trace: d.trace, proposed: d.proposed });
       if (d.proposed.length) onChanged();
     }
   }
@@ -438,6 +443,7 @@ export default function ChatPanel({
     if (!text) return;
     setQueued((q) => q.slice(1));
     const next: UiMsg[] = [...msgsRef.current, { role: 'user', content: text }];
+    msgsRef.current = next;
     setMsgs(next);
     try {
       await dispatch(next, []);
@@ -636,8 +642,10 @@ export default function ChatPanel({
         {busy && !live && <div className="msg assistant muted">Working</div>}
         {queued.length > 0 && (
           <div className="msg user queued-up">
-            <p className="plain-text muted">
-              {queued.length === 1 ? 'Queued to send after this answer:' : `Queued to send after this answer (${queued.length}):`}{' '}
+            <p className="plain-text">
+              <span className="queued-label">
+                {queued.length === 1 ? 'Queued to send after this answer:' : `Queued to send after this answer (${queued.length}):`}
+              </span>{' '}
               {queued.join(' · ')}
             </p>
             <button
