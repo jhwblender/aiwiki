@@ -12,6 +12,8 @@
 # .env.local from .env.example.
 
 set -euo pipefail
+# Next.js otherwise reports anonymous usage to Vercel when it builds; the wiki sends nothing out
+export NEXT_TELEMETRY_DISABLED=1
 cd "$(dirname "$0")"
 
 PORT="${PORT:-3000}"
