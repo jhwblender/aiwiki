@@ -511,6 +511,9 @@ type Worker = {
   // copy of this module, so the counting and the hold are one fact for the whole process
   chatsActive: number;
   chatHoldUntil: number;
+  // Set while an update waits to restart the wiki: no new job is claimed, so the working one can
+  // finish and the restart cuts nothing
+  restartHoldUntil: number;
 };
 const g = globalThis as unknown as { __ingestWorker?: Worker };
 const worker: Worker = (g.__ingestWorker ??= {
@@ -523,7 +526,9 @@ const worker: Worker = (g.__ingestWorker ??= {
   wake: null,
   chatsActive: 0,
   chatHoldUntil: 0,
+  restartHoldUntil: 0,
 });
+worker.restartHoldUntil ??= 0;
 worker.current ??= null;
 worker.waitUntil ??= 0;
 worker.delay ??= 0;
@@ -605,6 +610,22 @@ export function chatsRunning(): boolean {
   return worker.chatsActive > 0;
 }
 
+// An update about to restart the wiki: hold new jobs for a while, and say whether the model is
+// still in use (a working job, or a chat reply within the quiet time)
+export function holdForRestart(minutes: number) {
+  worker.restartHoldUntil = minutes > 0 ? Date.now() + minutes * 60 * 1000 : 0;
+  if (!worker.restartHoldUntil) kick();
+}
+
+export function restartState() {
+  const c = worker.current;
+  return {
+    job: c ? { id: c.jobId, status: c.status, startedAt: c.startedAt } : null,
+    chatHoldUntil: Date.now() < worker.chatHoldUntil ? new Date(worker.chatHoldUntil).toISOString() : null,
+    holdUntil: Date.now() < worker.restartHoldUntil ? new Date(worker.restartHoldUntil).toISOString() : null,
+  };
+}
+
 // The settling time after the last chat reply, stored on the worker rather than the database, so a
 // server restart starts clean
 
@@ -641,8 +662,9 @@ export function kick() {
           await sleep(600);
           continue;
         }
-        // The pause holds back everything, librarian runs included; wait out a resume
-        if (isPaused()) {
+        // The pause holds back everything, librarian runs included; wait out a resume. So does an
+        // update waiting to restart the wiki
+        if (isPaused() || Date.now() < worker.restartHoldUntil) {
           await sleep(600);
           continue;
         }

@@ -69,6 +69,13 @@ export function startRun(owner: string, work: (onProgress: (text: string) => voi
   return id;
 }
 
+// How many chat runs are still working, so an update can wait for them before restarting
+export function activeRuns(): number {
+  let n = 0;
+  for (const r of runs.values()) if (!r.finished) n++;
+  return n;
+}
+
 export function stopRun(id: string, owner: string): boolean {
   const r = runs.get(id);
   if (!r || r.finished || r.owner !== owner) return false;

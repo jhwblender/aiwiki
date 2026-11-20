@@ -5,6 +5,7 @@
 //   npm run e2e
 
 import { spawn, execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -145,6 +146,15 @@ try {
   });
   check('behind https the sign-in cookie is https-only', /;\s*Secure/i.test(viaHttps.headers.get('set-cookie') ?? ''));
   check('on plain http the cookie still works', !/;\s*Secure/i.test((await fetch(BASE + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Vera', password: 'vera-pass-1234' }) })).headers.get('set-cookie') ?? ''));
+  const opsFile = path.join(os.tmpdir(), `aiwiki-ops-${crypto.createHash('sha256').update(path.resolve(dataDir)).digest('hex').slice(0, 12)}`);
+  const ops = (method, token, body) =>
+    fetch(BASE + '/api/restart', { method, headers: { 'x-ops-token': token, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  check('the restart check needs the secret', (await ops('GET', 'wrong')).status === 403 && (await ops('GET', '')).status === 403);
+  const opsToken = fs.readFileSync(opsFile, 'utf8');
+  check('the secret file is private to the wiki', (fs.statSync(opsFile).mode & 0o077) === 0);
+  const held = await (await ops('POST', opsToken, { holdMinutes: 5 })).json();
+  check('an idle wiki reports quiet and holds filing', held.quiet === true && held.chats === 0 && !!held.holdUntil, JSON.stringify(held));
+  check('the hold can be let go', (await (await ops('POST', opsToken, { holdMinutes: 0 })).json()).holdUntil === null);
   check('the session carries both names', (await (await fetch(`${BASE}/api/me`, { headers: { Cookie: COOKIES.get('Vera') } })).json()).displayName === 'Vera Blake');
   check('a viewer can read pages', (await getPage('index')).exists === true);
   check('a viewer can chat but proposes nothing', (await chat('Who wrote the guide?', 'Vera')).proposed?.length === 0);
